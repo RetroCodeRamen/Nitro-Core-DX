@@ -27,8 +27,7 @@ def memory_reset():
 
 
 def memory_read8(bank, offset):
-    """Read 8-bit value from memory (24-bit address via bank:offset)"""
-    import ui
+    """Read 8-bit value from memory (24-bit address via bank:offset) - optimized"""
     emu = config.emulator
     
     # Clamp offset to valid range
@@ -38,14 +37,19 @@ def memory_read8(bank, offset):
     if bank == 0:
         # Bank 0: WRAM (0x0000-0x7FFF) or I/O (0x8000-0xFFFF)
         if offset < 0x8000:
-            # Work RAM
+            # Work RAM - fast path (most common case)
             value = config.memory_wram[offset]
-            ui.logger.trace(f"WRAM[{offset:04X}] -> {value:02X}", "MEM")
+            # Only log if logging is enabled (optimization)
+            import ui
+            if ui.logger.enabled and ui.logger.detailed_logging:
+                ui.logger.trace(f"WRAM[{offset:04X}] -> {value:02X}", "MEM")
             return value
         else:
             # I/O region - delegate to I/O handlers
             value = memory_read_io8(offset)
-            ui.logger.trace(f"I/O Read: {bank:02X}:{offset:04X} -> {value:02X}", "MEM")
+            import ui
+            if ui.logger.enabled and ui.logger.detailed_logging:
+                ui.logger.trace(f"I/O Read: {bank:02X}:{offset:04X} -> {value:02X}", "MEM")
             return value
     
     elif 126 <= bank <= 127:

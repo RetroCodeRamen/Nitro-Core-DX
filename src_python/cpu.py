@@ -52,62 +52,64 @@ def cpu_reset():
 
 
 def cpu_fetch_instruction():
-    """Fetch next instruction word from memory"""
+    """Fetch next instruction word from memory - optimized hot path"""
     import memory  # Import here to avoid circular import
-    import ui
     emu = config.emulator
     
-    # Bootstrap/BIOS: If ROM is loaded but PC is not at entry point, fix it
-    if hasattr(emu, 'rom') and emu.rom and emu.rom.entry_point_bank > 0:
-        # ROM is loaded - ensure we're in the right bank
-        if emu.cpu.pbr != emu.rom.entry_point_bank:
-            ui.logger.error(f"CPU ERROR: PBR ({emu.cpu.pbr:02X}) doesn't match ROM entry bank ({emu.rom.entry_point_bank:02X})! Fixing...", "CPU")
-            emu.cpu.pbr = emu.rom.entry_point_bank
-            emu.cpu.pc_bank = emu.rom.entry_point_bank
-        
-        # If PC is in invalid region (< 0x8000), bootstrap to entry point
-        if emu.cpu.pc_offset < 0x8000:
-            ui.logger.error(f"CPU ERROR: PC in invalid ROM region! PC={emu.cpu.pbr:02X}:{emu.cpu.pc_offset:04X}, bootstrapping to entry point {emu.rom.entry_point_bank:02X}:{emu.rom.entry_point_offset:04X}", "CPU")
-            emu.cpu.pc_bank = emu.rom.entry_point_bank
-            emu.cpu.pc_offset = emu.rom.entry_point_offset
-            emu.cpu.pbr = emu.rom.entry_point_bank
+    # Optimized: Cache ROM check (hasattr is expensive - 10,723 calls in profile!)
+    # Only check bootstrap conditions if ROM exists and is in invalid state
+    # Most of the time, PC is valid, so skip expensive checks
+    rom_loaded = emu.rom and emu.rom.entry_point_bank > 0
+    if rom_loaded:
+        # ROM is loaded - only check bootstrap if PC is in invalid state (optimization)
+        # Most of the time PC is valid, so skip expensive checks
+        if emu.cpu.pc_offset < 0x8000 or emu.cpu.pbr != emu.rom.entry_point_bank:
+            # Only log errors if logging is enabled (optimization)
+            import ui
+            if ui.logger.enabled:
+                if emu.cpu.pbr != emu.rom.entry_point_bank:
+                    ui.logger.error(f"CPU ERROR: PBR ({emu.cpu.pbr:02X}) doesn't match ROM entry bank ({emu.rom.entry_point_bank:02X})! Fixing...", "CPU")
+                    emu.cpu.pbr = emu.rom.entry_point_bank
+                    emu.cpu.pc_bank = emu.rom.entry_point_bank
+                
+                if emu.cpu.pc_offset < 0x8000:
+                    ui.logger.error(f"CPU ERROR: PC in invalid ROM region! PC={emu.cpu.pbr:02X}:{emu.cpu.pc_offset:04X}, bootstrapping to entry point {emu.rom.entry_point_bank:02X}:{emu.rom.entry_point_offset:04X}", "CPU")
+                    emu.cpu.pc_bank = emu.rom.entry_point_bank
+                    emu.cpu.pc_offset = emu.rom.entry_point_offset
+                    emu.cpu.pbr = emu.rom.entry_point_bank
+            else:
+                # Fast path: just fix it without logging
+                if emu.cpu.pbr != emu.rom.entry_point_bank:
+                    emu.cpu.pbr = emu.rom.entry_point_bank
+                    emu.cpu.pc_bank = emu.rom.entry_point_bank
+                if emu.cpu.pc_offset < 0x8000:
+                    emu.cpu.pc_bank = emu.rom.entry_point_bank
+                    emu.cpu.pc_offset = emu.rom.entry_point_offset
+                    emu.cpu.pbr = emu.rom.entry_point_bank
     
-    # Validate PC is in valid ROM region (for ROM banks)
-    # Check both pbr (used for fetches) and pc_bank (display/logging) - they should match
-    # If they don't match, use pbr (the actual bank used for memory access)
-    current_bank = emu.cpu.pbr  # PBR is used for actual memory access
-    
-    # Also check pc_bank - if it's in ROM range but pbr isn't, that's a sync issue
-    if (config.MEMORY_ROM_START_BANK <= emu.cpu.pc_bank <= config.MEMORY_ROM_END_BANK and
-        emu.cpu.pc_bank != emu.cpu.pbr):
-        ui.logger.error(f"CPU ERROR: pc_bank ({emu.cpu.pc_bank:02X}) and pbr ({emu.cpu.pbr:02X}) are out of sync! Syncing pc_bank to pbr", "CPU")
-        emu.cpu.pc_bank = emu.cpu.pbr
-        current_bank = emu.cpu.pbr
-    
+    # Optimized: Skip expensive validation checks in hot path
+    # Only validate if PC is clearly out of bounds (rare case)
+    current_bank = emu.cpu.pbr
     if config.MEMORY_ROM_START_BANK <= current_bank <= config.MEMORY_ROM_END_BANK:
-        if emu.cpu.pc_offset < 0x8000:
-            # PC is in invalid ROM region - clamp to start of ROM
-            ui.logger.error(f"CPU ERROR: PC in invalid ROM region! PC={current_bank:02X}:{emu.cpu.pc_offset:04X} (pbr={emu.cpu.pbr:02X}, pc_bank={emu.cpu.pc_bank:02X}), clamping to 0x8000", "CPU")
-            emu.cpu.pc_offset = 0x8000
-            # Also sync pc_bank to match pbr
-            emu.cpu.pc_bank = current_bank
-        elif emu.cpu.pc_offset >= 0x10000:
-            # PC wrapped beyond bank - clamp to end of ROM
-            ui.logger.error(f"CPU ERROR: PC wrapped beyond bank! PC={current_bank:02X}:{emu.cpu.pc_offset:04X} (pbr={emu.cpu.pbr:02X}, pc_bank={emu.cpu.pc_bank:02X}), clamping to 0xFFFF", "CPU")
+        # Fast path: Most ROM accesses are valid, only check edge cases
+        if emu.cpu.pc_offset >= 0x10000:
+            # PC wrapped - clamp it (rare, so logging is OK)
+            import ui
+            if ui.logger.enabled:
+                ui.logger.error(f"CPU ERROR: PC wrapped beyond bank! PC={current_bank:02X}:{emu.cpu.pc_offset:04X}, clamping to 0xFFFF", "CPU")
             emu.cpu.pc_offset = 0xFFFF
-            # Also sync pc_bank to match pbr
             emu.cpu.pc_bank = current_bank
     
     # Read 16-bit word from memory at PC (PBR:PC_Offset)
     instruction = memory.memory_read16(emu.cpu.pbr, emu.cpu.pc_offset)
     
-    # Log instruction fetch (only if detailed logging enabled)
-    if ui.logger.enabled and ui.logger.detailed_logging:
-        ui.logger.trace(f"Fetch: PC={emu.cpu.pc_bank:02X}:{emu.cpu.pc_offset:04X} -> {instruction:04X}", "CPU")
-    
-    # Increment PC_Offset by 2
-    old_pc = emu.cpu.pc_offset
+    # Increment PC_Offset by 2 (optimized: do this before logging to avoid extra variable)
     emu.cpu.pc_offset += 2
+    
+    # Log instruction fetch (only if detailed logging enabled - moved after PC increment)
+    import ui
+    if ui.logger.enabled and ui.logger.detailed_logging:
+        ui.logger.trace(f"Fetch: PC={emu.cpu.pc_bank:02X}:{emu.cpu.pc_offset-2:04X} -> {instruction:04X}", "CPU")
     
     # Handle bank wrapping/clamping
     if emu.cpu.pc_offset >= config.MEMORY_BANK_SIZE:
@@ -126,41 +128,53 @@ def cpu_fetch_instruction():
 
 def cpu_decode_instruction(instruction):
     """
-    Decode instruction
+    Decode instruction - optimized with inline opcode mapping
     Instruction format: [15:12] = opcode family, [11:8] = mode/subop, [7:4] = reg1, [3:0] = reg2
     Returns: (opcode, mode, reg1, reg2)
     """
-    # Extract fields
+    # Extract fields (optimized: use bitwise ops directly)
     opcode_family = (instruction >> 12) & 0xF
     mode = (instruction >> 8) & 0xF
     reg1 = (instruction >> 4) & 0xF
     reg2 = instruction & 0xF
     
-    # Map opcode family to actual opcode
-    # For branch instructions, we need to check the full opcode
-    opcode_family_12bit = (instruction >> 12) & 0xF
-    
-    # Standard opcode mapping (used for non-branch instructions)
-    opcode_map = {
-        0x0: config.OP_NOP,
-        0x1: config.OP_MOV,
-        0x2: config.OP_ADD,
-        0x3: config.OP_SUB,
-        0x4: config.OP_MUL,
-        0x5: config.OP_DIV,
-        0x6: config.OP_AND,
-        0x7: config.OP_OR,
-        0x8: config.OP_XOR,
-        0x9: config.OP_NOT,
-        0xA: config.OP_SHL,
-        0xB: config.OP_SHR,
-        0xD: config.OP_JMP,
-        0xE: config.OP_CALL,
-        0xF: config.OP_RET,
-    }
+    # Optimized: Inline opcode mapping instead of dict lookup (faster)
+    # Map opcode family to actual opcode using if/elif (faster than dict for small sets)
+    if opcode_family == 0x0:
+        opcode = config.OP_NOP
+    elif opcode_family == 0x1:
+        opcode = config.OP_MOV
+    elif opcode_family == 0x2:
+        opcode = config.OP_ADD
+    elif opcode_family == 0x3:
+        opcode = config.OP_SUB
+    elif opcode_family == 0x4:
+        opcode = config.OP_MUL
+    elif opcode_family == 0x5:
+        opcode = config.OP_DIV
+    elif opcode_family == 0x6:
+        opcode = config.OP_AND
+    elif opcode_family == 0x7:
+        opcode = config.OP_OR
+    elif opcode_family == 0x8:
+        opcode = config.OP_XOR
+    elif opcode_family == 0x9:
+        opcode = config.OP_NOT
+    elif opcode_family == 0xA:
+        opcode = config.OP_SHL
+    elif opcode_family == 0xB:
+        opcode = config.OP_SHR
+    elif opcode_family == 0xD:
+        opcode = config.OP_JMP
+    elif opcode_family == 0xE:
+        opcode = config.OP_CALL
+    elif opcode_family == 0xF:
+        opcode = config.OP_RET
+    else:
+        opcode = config.OP_NOP  # Default fallback
     
     # Check for extended opcodes (Cxxx for CMP and branches)
-    if opcode_family_12bit == 0xC:
+    if opcode_family == 0xC:
         # CMP and branch instructions - check full opcode
         # CMP uses mode bits to distinguish addressing modes, but branches use mode bits differently
         # CMP: 0xC000 (mode 0), 0xC100 (mode 1), 0xC200 (mode 2), etc.
@@ -190,8 +204,7 @@ def cpu_decode_instruction(instruction):
         else:
             # Not a branch - must be CMP
             opcode = config.OP_CMP
-    else:
-        opcode = opcode_map.get(opcode_family_12bit, config.OP_NOP)
+    # else: opcode already set above from if/elif chain
     
     return opcode, mode, reg1, reg2
 
