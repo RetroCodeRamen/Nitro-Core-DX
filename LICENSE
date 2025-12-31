@@ -1,0 +1,74 @@
+Nitro-Core-DX License
+
+Copyright (c) 2024 RetroCodeRamen
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to use,
+copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, subject to the following conditions:
+
+1. The above copyright notice and this permission notice shall be included in
+   all copies or substantial portions of the Software.
+
+2. COMMERCIAL USE RESTRICTIONS:
+   
+   a) COMMERCIAL GAME DEVELOPMENT: You may use this Software commercially to
+      develop, publish, and sell video games, including but not limited to:
+      - Games that run on this emulator
+      - Games developed using this emulator as a development tool
+      - Games that incorporate or are based on this Software
+   
+   b) PROHIBITED COMMERCIAL USE: You may NOT use this Software commercially to:
+      - Manufacture, distribute, or sell hardware devices or consoles
+      - Create commercial emulator products or competing console emulators
+      - Embed this Software in commercial hardware products
+      - Use this Software as part of a commercial hardware/console business
+   
+   c) NON-COMMERCIAL USE: You may freely use, modify, and distribute this
+      Software for non-commercial purposes, including:
+      - Personal projects and learning
+      - Educational purposes
+      - Open source projects (subject to attribution requirements)
+
+3. PROJECT IDENTITY PROTECTION:
+   
+   a) You may not release this Software or substantial portions of it as your
+      own project or under a different project name without explicit written
+      permission from the copyright holder.
+   
+   b) Any derivative works that are publicly released must clearly attribute
+      this project as the source and maintain a link to the original project
+      repository.
+   
+   c) The name "Nitro-Core-DX" and associated branding remain the property of
+      the original author and may not be used for derivative works without
+      permission.
+
+4. CONTRIBUTIONS:
+   
+   By contributing code to this project, you grant the project maintainer(s)
+   the right to use, modify, and distribute your contributions under this
+   license. You retain copyright to your contributions.
+
+5. NO WARRANTY:
+   
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+   SOFTWARE.
+
+6. DEFINITIONS:
+   
+   - "Commercial use" means any use that generates revenue, whether directly
+     or indirectly, including but not limited to selling products, services, or
+     advertising.
+   
+   - "Hardware/Console" means any physical device, embedded system, or dedicated
+     gaming console that incorporates this Software.
+   
+   - "Game development" means creating software applications that are primarily
+     intended to be played as games, regardless of platform or distribution method.
+
