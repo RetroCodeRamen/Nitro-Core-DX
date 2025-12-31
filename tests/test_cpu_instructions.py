@@ -8,9 +8,6 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(script_dir)
 src_python_path = os.path.join(project_root, "src_python")
 sys.path.insert(0, src_python_path)
-    project_root = os.path.dirname(script_dir)
-src_python_path = os.path.join(project_root, "src_python")
-sys.path.insert(0, src_python_path)
 
 import config
 import cpu

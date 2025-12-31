@@ -1,6 +1,6 @@
 # Development Roadmap
 
-## Current Status (Updated: 2025-12-30)
+## Current Status (Updated: 2025-12-31)
 
 ✅ **Completed:**
 - Project structure and architecture
@@ -26,7 +26,11 @@
   - ✅ Tilemap rendering with scrolling
   - ✅ Sprite rendering (8x8 and 16x16)
   - ✅ Palette system (256 colors, RGB555)
-  - ✅ Background layer rendering (BG0, BG1)
+  - ✅ Background layer rendering (BG0, BG1, BG2, BG3) - 4 layers with priority
+  - ✅ Windowing system (2 windows, per-layer control, logic modes)
+  - ✅ Per-scanline scroll (HDMA-style)
+  - ✅ Sprite priority system (0-3 levels)
+  - ✅ Sprite blending modes (alpha, additive, subtractive)
   - ✅ Framebuffer compositing (stub)
   - ✅ Portrait mode rotation (stub)
 - **UI System:**
@@ -53,19 +57,25 @@
   - ⚠️ Audio output to pygame (generates samples but not fully connected)
 - **Performance:**
   - ✅ Optimized rendering (pygame.image.fromstring instead of set_at)
-  - ✅ SNES-period-accurate CPU timing (44,667 cycles/frame)
+  - ✅ 10 MHz CPU timing (166,667 cycles/frame)
   - ✅ Frame rate targeting (60 FPS)
 - **Testing:**
   - ✅ Comprehensive test suite (CPU instructions, branches, stack, etc.)
   - ✅ Interactive debugging tools
   - ✅ Test ROMs (simple loop, animated graphics)
 
+✅ **Recently Completed (2025-12-31):**
+- ✅ CPU speed upgrade: 2.68 MHz → 10 MHz
+- ✅ Added BG2 and BG3 background layers (4 layers total)
+- ✅ Implemented windowing system (SNES-style, 2 windows, per-layer control)
+- ✅ Added per-scanline scroll (HDMA infrastructure)
+- ✅ Enhanced sprite system with priority levels (0-3) and blending modes
+
 🚧 **In Progress / Known Issues:**
-- ⚠️ PPU tile rendering: Two boxes appearing instead of one (tilemap wrapping issue)
-- ⚠️ PPU performance: Currently 30-60 FPS (acceptable but could be better)
+- ⚠️ PPU performance: Currently 5-30 FPS (needs optimization)
 - ⚠️ APU audio output: Generates samples but not fully connected to pygame mixer
-- ⚠️ Sprite priority and layering: Basic implementation, needs refinement
 - ⚠️ Interrupt handling: Stub only
+- ⚠️ DMA controller: Not yet implemented (Phase 1 foundation)
 
 ## Priority 1: Get Basic Emulator Running ✅ COMPLETE
 
@@ -139,13 +149,14 @@
 
 ## Priority 3: Polish & Features
 
-### 3.1 Advanced PPU Features 🚧 IN PROGRESS
-- [x] Proper tilemap rendering (working, but has wrapping issue)
-- [x] Sprite rendering (basic implementation)
-- [ ] **Fix tilemap coordinate wrapping** ⚠️ **CURRENT ISSUE**
-- [ ] Sprite priority and layering (basic, needs refinement)
-- [ ] Palette effects
-- [ ] Rotation/scaling (if supported)
+### 3.1 Advanced PPU Features ✅ MOSTLY COMPLETE
+- [x] Proper tilemap rendering (4 layers: BG0-BG3)
+- [x] Sprite rendering with priority levels (0-3)
+- [x] Sprite blending modes (alpha, additive, subtractive)
+- [x] Windowing system (2 windows, per-layer control, logic modes)
+- [x] Per-scanline scroll (HDMA infrastructure)
+- [ ] Palette effects (color math, brightness)
+- [ ] Rotation/scaling (Matrix Mode exists, but could be enhanced)
 
 **Current Issue:** Two boxes appearing instead of one. Likely caused by:
 - Tilemap wrapping logic checking the same tile twice
@@ -199,11 +210,13 @@
 
 ### Performance Optimization
 - ✅ Replaced slow `set_at()` with `pygame.image.fromstring()` (10-100x speedup)
-- Current: 30-60 FPS (acceptable)
+- ✅ CPU speed increased to 10 MHz (166,667 cycles/frame)
+- Current: 5-30 FPS (needs optimization for new features)
 - Could improve further with:
   - Optimized tile rendering (cache tile data)
   - Reduce logging overhead when disabled
   - Profile and optimize hot paths
+  - Optimize windowing and HDMA checks
 
 ### Future Enhancements
 - Interrupt handling (VBlank, timer, etc.)

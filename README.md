@@ -58,12 +58,15 @@ The emulator logic remains **identical** - we just changed the language for bett
 
 ## Features
 
-- **16-bit CPU**: Custom CPU with 8 registers, 24-bit addressing, and interrupt support
-- **Banked Memory**: 24-bit address space with 32KB banks (128 banks total)
-- **Graphics (PPU)**: 320x200 display with 2 tilemap layers, sprites, and optional framebuffer
+- **16-bit CPU**: Custom CPU with 8 registers, 24-bit addressing, and interrupt support (10 MHz)
+- **Banked Memory**: 24-bit address space with 64KB banks (256 banks total, 16MB)
+- **Graphics (PPU)**: 320x200 display with 4 background layers (BG0-BG3), sprites, windowing, and per-scanline scroll
 - **Matrix Mode**: 90's retro-futuristic perspective/rotation effects for 3D-style landscapes
+- **Windowing System**: SNES-style windowing with 2 windows, per-layer control, and logic modes (OR/AND/XOR/XNOR)
+- **HDMA**: Per-scanline scroll for parallax and perspective effects
+- **Sprite System**: 128 sprites with priority levels (0-3) and blending modes (alpha, additive, subtractive)
 - **Audio (APU)**: 4-channel synthesizer with sine, square, saw, and noise waveforms
-- **Input**: SNES-like 10-button controller support
+- **Input**: SNES-like 12-button controller support
 - **ROM Format**: Custom ROM format with header and mapper support
 
 ## Quick Start
@@ -149,9 +152,13 @@ python3 tests/test_branches.py
 | Max Sprites | 128 |
 | Audio Channels | 4 (sine, square, saw, noise) |
 | Audio Sample Rate | 44,100 Hz |
-| CPU Speed | 2.68 MHz (SNES-accurate) |
+| CPU Speed | 10 MHz (166,667 cycles/frame) |
 | Memory | 64KB per bank, 256 banks (16MB total) |
 | ROM Size | Up to 7.8MB (125 banks × 64KB) |
+| Background Layers | 4 (BG0, BG1, BG2, BG3) |
+| Windowing | 2 windows with OR/AND/XOR/XNOR logic |
+| HDMA | Per-scanline scroll support |
+| Sprite Priority | 4 levels (0-3) with blending modes |
 
 ## Development
 

@@ -57,6 +57,8 @@ def ppu_reset():
         sprite.flip_y = False
         sprite.size = 0  # 8x8
         sprite.enabled = False
+        sprite.blend_mode = 0  # Normal (opaque)
+        sprite.alpha = 255  # Full opacity
     
     # Initialize background layers
     emu.ppu.bg0.scroll_x = 0
@@ -73,6 +75,21 @@ def ppu_reset():
     emu.ppu.bg1.tile_map_base = 0
     emu.ppu.bg1.tile_data_base = 0
     
+    # Initialize BG2 and BG3 layers (Nitro-Core-DX: 4 background layers)
+    emu.ppu.bg2.scroll_x = 0
+    emu.ppu.bg2.scroll_y = 0
+    emu.ppu.bg2.tile_size = config.PPU_TILE_SIZE_8X8
+    emu.ppu.bg2.enabled = False
+    emu.ppu.bg2.tile_map_base = 0
+    emu.ppu.bg2.tile_data_base = 0
+    
+    emu.ppu.bg3.scroll_x = 0
+    emu.ppu.bg3.scroll_y = 0
+    emu.ppu.bg3.tile_size = config.PPU_TILE_SIZE_8X8
+    emu.ppu.bg3.enabled = False
+    emu.ppu.bg3.tile_map_base = 0
+    emu.ppu.bg3.tile_data_base = 0
+    
     # Clear framebuffer
     config.ppu_frame_buffer[:] = [0] * len(config.ppu_frame_buffer)
     emu.ppu.frame_buffer_enabled = False
@@ -86,6 +103,35 @@ def ppu_reset():
     # VBlank state
     emu.ppu.vblank_active = False
     emu.ppu.vblank_counter = 0
+    
+    # Initialize windowing system
+    emu.ppu.window0_left = 0
+    emu.ppu.window0_right = 0
+    emu.ppu.window0_top = 0
+    emu.ppu.window0_bottom = 0
+    emu.ppu.window0_enabled = False
+    emu.ppu.window1_left = 0
+    emu.ppu.window1_right = 0
+    emu.ppu.window1_top = 0
+    emu.ppu.window1_bottom = 0
+    emu.ppu.window1_enabled = False
+    emu.ppu.window_logic = 0  # OR
+    emu.ppu.window_main_enable = 0
+    emu.ppu.window_sub_enable = 0
+    
+    # Initialize HDMA per-scanline scroll
+    emu.ppu.hdma_enabled = False
+    emu.ppu.hdma_table_base = 0
+    # Clear HDMA scroll arrays (use layer scroll as default)
+    for i in range(config.DISPLAY_HEIGHT):
+        emu.ppu.hdma_bg0_scroll_x[i] = 0
+        emu.ppu.hdma_bg0_scroll_y[i] = 0
+        emu.ppu.hdma_bg1_scroll_x[i] = 0
+        emu.ppu.hdma_bg1_scroll_y[i] = 0
+        emu.ppu.hdma_bg2_scroll_x[i] = 0
+        emu.ppu.hdma_bg2_scroll_y[i] = 0
+        emu.ppu.hdma_bg3_scroll_x[i] = 0
+        emu.ppu.hdma_bg3_scroll_y[i] = 0
 
 
 def ppu_read_reg(reg_addr):
@@ -118,8 +164,29 @@ def ppu_write_reg(reg_addr, value):
         config.PPU_REG_BG0_SCROLLX + 1: "BG0_SCROLLX_H",
         config.PPU_REG_BG0_SCROLLY: "BG0_SCROLLY_L",
         config.PPU_REG_BG0_SCROLLY + 1: "BG0_SCROLLY_H",
+        config.PPU_REG_BG2_SCROLLX: "BG2_SCROLLX_L",
+        config.PPU_REG_BG2_SCROLLX_H: "BG2_SCROLLX_H",
+        config.PPU_REG_BG2_SCROLLY: "BG2_SCROLLY_L",
+        config.PPU_REG_BG2_SCROLLY_H: "BG2_SCROLLY_H",
+        config.PPU_REG_BG2_CONTROL: "BG2_CTRL",
+        config.PPU_REG_BG3_SCROLLX: "BG3_SCROLLX_L",
+        config.PPU_REG_BG3_SCROLLX_H: "BG3_SCROLLX_H",
+        config.PPU_REG_BG3_SCROLLY: "BG3_SCROLLY_L",
+        config.PPU_REG_BG3_SCROLLY_H: "BG3_SCROLLY_H",
+        config.PPU_REG_BG3_CONTROL: "BG3_CTRL",
+        config.PPU_REG_WINDOW0_LEFT: "WIN0_LEFT",
+        config.PPU_REG_WINDOW0_RIGHT: "WIN0_RIGHT",
+        config.PPU_REG_WINDOW0_TOP: "WIN0_TOP",
+        config.PPU_REG_WINDOW0_BOTTOM: "WIN0_BOTTOM",
+        config.PPU_REG_WINDOW1_LEFT: "WIN1_LEFT",
+        config.PPU_REG_WINDOW1_RIGHT: "WIN1_RIGHT",
+        config.PPU_REG_WINDOW1_TOP: "WIN1_TOP",
+        config.PPU_REG_WINDOW1_BOTTOM: "WIN1_BOTTOM",
+        config.PPU_REG_WINDOW_CONTROL: "WIN_CTRL",
+        config.PPU_REG_WINDOW_MAIN_ENABLE: "WIN_MAIN",
+        config.PPU_REG_WINDOW_SUB_ENABLE: "WIN_SUB",
         config.PPU_REG_VRAM_ADDR: "VRAM_ADDR_L",
-        config.PPU_REG_VRAM_ADDR + 1: "VRAM_ADDR_H",
+        config.PPU_REG_VRAM_ADDR_H: "VRAM_ADDR_H",
         config.PPU_REG_VRAM_DATA: "VRAM_DATA",
         config.PPU_REG_CGRAM_ADDR: "CGRAM_ADDR",
         config.PPU_REG_CGRAM_DATA: "CGRAM_DATA",
@@ -146,9 +213,39 @@ def ppu_write_reg(reg_addr, value):
             emu.ppu.bg0.tile_size = config.PPU_TILE_SIZE_16X16
         else:
             emu.ppu.bg0.tile_size = config.PPU_TILE_SIZE_8X8
+    # BG2 registers (Nitro-Core-DX: 4 background layers)
+    elif reg_addr == config.PPU_REG_BG2_SCROLLX:
+        emu.ppu.bg2.scroll_x = (emu.ppu.bg2.scroll_x & 0xFF00) | value
+    elif reg_addr == config.PPU_REG_BG2_SCROLLX_H:
+        emu.ppu.bg2.scroll_x = (emu.ppu.bg2.scroll_x & 0xFF) | (value << 8)
+    elif reg_addr == config.PPU_REG_BG2_SCROLLY:
+        emu.ppu.bg2.scroll_y = (emu.ppu.bg2.scroll_y & 0xFF00) | value
+    elif reg_addr == config.PPU_REG_BG2_SCROLLY_H:
+        emu.ppu.bg2.scroll_y = (emu.ppu.bg2.scroll_y & 0xFF) | (value << 8)
+    elif reg_addr == config.PPU_REG_BG2_CONTROL:
+        emu.ppu.bg2.enabled = (value & 0x01) != 0
+        if (value & 0x02) != 0:
+            emu.ppu.bg2.tile_size = config.PPU_TILE_SIZE_16X16
+        else:
+            emu.ppu.bg2.tile_size = config.PPU_TILE_SIZE_8X8
+    # BG3 registers (can be used as dedicated affine layer)
+    elif reg_addr == config.PPU_REG_BG3_SCROLLX:
+        emu.ppu.bg3.scroll_x = (emu.ppu.bg3.scroll_x & 0xFF00) | value
+    elif reg_addr == config.PPU_REG_BG3_SCROLLX_H:
+        emu.ppu.bg3.scroll_x = (emu.ppu.bg3.scroll_x & 0xFF) | (value << 8)
+    elif reg_addr == config.PPU_REG_BG3_SCROLLY:
+        emu.ppu.bg3.scroll_y = (emu.ppu.bg3.scroll_y & 0xFF00) | value
+    elif reg_addr == config.PPU_REG_BG3_SCROLLY_H:
+        emu.ppu.bg3.scroll_y = (emu.ppu.bg3.scroll_y & 0xFF) | (value << 8)
+    elif reg_addr == config.PPU_REG_BG3_CONTROL:
+        emu.ppu.bg3.enabled = (value & 0x01) != 0
+        if (value & 0x02) != 0:
+            emu.ppu.bg3.tile_size = config.PPU_TILE_SIZE_16X16
+        else:
+            emu.ppu.bg3.tile_size = config.PPU_TILE_SIZE_8X8
     elif reg_addr == config.PPU_REG_VRAM_ADDR:
         _vram_addr = (_vram_addr & 0xFF00) | value
-    elif reg_addr == config.PPU_REG_VRAM_ADDR + 1:
+    elif reg_addr == config.PPU_REG_VRAM_ADDR_H:
         _vram_addr = (_vram_addr & 0xFF) | (value << 8)
     elif reg_addr == config.PPU_REG_VRAM_DATA:
         # Write to VRAM and auto-increment address
@@ -201,7 +298,103 @@ def ppu_write_reg(reg_addr, value):
         emu.ppu.matrix_center_y = (emu.ppu.matrix_center_y & 0xFF00) | value
     elif reg_addr == config.PPU_REG_MATRIX_CENTER_Y_H:
         emu.ppu.matrix_center_y = (emu.ppu.matrix_center_y & 0xFF) | (value << 8)
+    # Windowing system registers
+    elif reg_addr == config.PPU_REG_WINDOW0_LEFT:
+        emu.ppu.window0_left = value
+    elif reg_addr == config.PPU_REG_WINDOW0_RIGHT:
+        emu.ppu.window0_right = value
+    elif reg_addr == config.PPU_REG_WINDOW0_TOP:
+        emu.ppu.window0_top = value
+    elif reg_addr == config.PPU_REG_WINDOW0_BOTTOM:
+        emu.ppu.window0_bottom = value
+    elif reg_addr == config.PPU_REG_WINDOW1_LEFT:
+        emu.ppu.window1_left = value
+    elif reg_addr == config.PPU_REG_WINDOW1_RIGHT:
+        emu.ppu.window1_right = value
+    elif reg_addr == config.PPU_REG_WINDOW1_TOP:
+        emu.ppu.window1_top = value
+    elif reg_addr == config.PPU_REG_WINDOW1_BOTTOM:
+        emu.ppu.window1_bottom = value
+    elif reg_addr == config.PPU_REG_WINDOW_CONTROL:
+        emu.ppu.window0_enabled = (value & 0x01) != 0
+        emu.ppu.window1_enabled = (value & 0x02) != 0
+        emu.ppu.window_logic = (value >> 2) & 0x03  # 0=OR, 1=AND, 2=XOR, 3=XNOR
+    elif reg_addr == config.PPU_REG_WINDOW_MAIN_ENABLE:
+        emu.ppu.window_main_enable = value  # Bit per layer: 0=BG0, 1=BG1, 2=BG2, 3=BG3, 4=sprites
+    elif reg_addr == config.PPU_REG_WINDOW_SUB_ENABLE:
+        emu.ppu.window_sub_enable = value  # For color math (future use)
+    # HDMA (per-scanline scroll) registers
+    elif reg_addr == config.PPU_REG_HDMA_CONTROL:
+        emu.ppu.hdma_enabled = (value & 0x01) != 0
+        # Bits 1-4: layer enable (1=BG0, 2=BG1, 4=BG2, 8=BG3) - stored in control for now
+    elif reg_addr == config.PPU_REG_HDMA_TABLE_BASE_L:
+        emu.ppu.hdma_table_base = (emu.ppu.hdma_table_base & 0xFF00) | value
+    elif reg_addr == config.PPU_REG_HDMA_TABLE_BASE_H:
+        emu.ppu.hdma_table_base = (emu.ppu.hdma_table_base & 0xFF) | (value << 8)
+    elif reg_addr == config.PPU_REG_HDMA_BG0_SCROLLX_L:
+        # Set scroll X for all scanlines (simplified - can be made per-scanline later)
+        for i in range(config.DISPLAY_HEIGHT):
+            emu.ppu.hdma_bg0_scroll_x[i] = (emu.ppu.hdma_bg0_scroll_x[i] & 0xFF00) | value
+    elif reg_addr == config.PPU_REG_HDMA_BG0_SCROLLX_H:
+        for i in range(config.DISPLAY_HEIGHT):
+            emu.ppu.hdma_bg0_scroll_x[i] = (emu.ppu.hdma_bg0_scroll_x[i] & 0xFF) | (value << 8)
+    elif reg_addr == config.PPU_REG_HDMA_BG0_SCROLLY_L:
+        for i in range(config.DISPLAY_HEIGHT):
+            emu.ppu.hdma_bg0_scroll_y[i] = (emu.ppu.hdma_bg0_scroll_y[i] & 0xFF00) | value
+    elif reg_addr == config.PPU_REG_HDMA_BG0_SCROLLY_H:
+        for i in range(config.DISPLAY_HEIGHT):
+            emu.ppu.hdma_bg0_scroll_y[i] = (emu.ppu.hdma_bg0_scroll_y[i] & 0xFF) | (value << 8)
     # Unknown register - ignore
+
+
+def ppu_check_window(x, y, layer_index):
+    """
+    Check if a pixel at (x, y) should be drawn based on window settings for the given layer.
+    Returns True if pixel should be drawn (inside window), False if clipped.
+    
+    layer_index: 0=BG0, 1=BG1, 2=BG2, 3=BG3, 4=sprites
+    """
+    emu = config.emulator
+    
+    # Check if windowing is enabled for this layer
+    if (emu.ppu.window_main_enable & (1 << layer_index)) == 0:
+        # Windowing disabled for this layer - always draw
+        return True
+    
+    # Check if any windows are enabled
+    if not emu.ppu.window0_enabled and not emu.ppu.window1_enabled:
+        # No windows enabled - always draw
+        return True
+    
+    # Check if pixel is inside Window 0
+    in_window0 = False
+    if emu.ppu.window0_enabled:
+        in_window0 = (emu.ppu.window0_left <= x <= emu.ppu.window0_right and
+                     emu.ppu.window0_top <= y <= emu.ppu.window0_bottom)
+    
+    # Check if pixel is inside Window 1
+    in_window1 = False
+    if emu.ppu.window1_enabled:
+        in_window1 = (emu.ppu.window1_left <= x <= emu.ppu.window1_right and
+                     emu.ppu.window1_top <= y <= emu.ppu.window1_bottom)
+    
+    # Apply window logic
+    if not emu.ppu.window0_enabled:
+        # Only Window 1
+        return in_window1
+    elif not emu.ppu.window1_enabled:
+        # Only Window 0
+        return in_window0
+    else:
+        # Both windows enabled - apply logic
+        if emu.ppu.window_logic == 0:  # OR
+            return in_window0 or in_window1
+        elif emu.ppu.window_logic == 1:  # AND
+            return in_window0 and in_window1
+        elif emu.ppu.window_logic == 2:  # XOR
+            return in_window0 != in_window1
+        else:  # XNOR (3)
+            return in_window0 == in_window1
 
 
 def ppu_render_frame():
@@ -223,12 +416,29 @@ def ppu_render_frame():
     bg_color = _palette_cache[0]
     config.ppu_output_buffer[:] = [bg_color] * len(config.ppu_output_buffer)
     
-    # Render background layers (BG1 first, then BG0 - lower priority first)
+    # Render background layers in priority order (BG3 -> BG2 -> BG1 -> BG0)
+    # Lower layers render first, higher layers on top
+    # BG3 can be used as dedicated affine layer (Matrix Mode)
+    
+    # BG3 (highest priority, can be affine layer)
+    if emu.ppu.bg3.enabled:
+        if ui.logger.enabled and ui.logger.detailed_logging:
+            ui.logger.trace(f"PPU Render: Rendering BG3", "PPU")
+        ppu_render_tile_layer(emu.ppu.bg3)
+    
+    # BG2
+    if emu.ppu.bg2.enabled:
+        if ui.logger.enabled and ui.logger.detailed_logging:
+            ui.logger.trace(f"PPU Render: Rendering BG2", "PPU")
+        ppu_render_tile_layer(emu.ppu.bg2)
+    
+    # BG1
     if emu.ppu.bg1.enabled:
         if ui.logger.enabled and ui.logger.detailed_logging:
             ui.logger.trace(f"PPU Render: Rendering BG1", "PPU")
         ppu_render_tile_layer(emu.ppu.bg1)
     
+    # BG0 (lowest priority, can use Matrix Mode)
     if emu.ppu.bg0.enabled:
         if emu.ppu.matrix_enabled:
             # Render BG0 with Matrix Mode transformation
@@ -421,6 +631,20 @@ def ppu_render_tile_layer(layer):
                     if pixel_value == 0:
                         continue
                     
+                    # Check windowing (determine layer index from layer parameter)
+                    # BG0=0, BG1=1, BG2=2, BG3=3
+                    layer_index = 0  # Default to BG0
+                    if layer == emu.ppu.bg1:
+                        layer_index = 1
+                    elif layer == emu.ppu.bg2:
+                        layer_index = 2
+                    elif layer == emu.ppu.bg3:
+                        layer_index = 3
+                    
+                    # Check if pixel should be drawn (window clipping)
+                    if not ppu_check_window(screen_x, screen_y, layer_index):
+                        continue  # Pixel is outside window - skip
+                    
                     # Calculate final palette index and write (optimized)
                     # Direct palette cache access (cache is built at start of frame)
                     final_palette_index = palette_base + pixel_value
@@ -431,16 +655,65 @@ def ppu_render_tile_layer(layer):
                         output_buffer[output_index] = 0
 
 
-def ppu_render_sprites():
-    """Render sprites (internal helper)"""
-    emu = config.emulator
+def ppu_blend_colors(bg_color, sprite_color, blend_mode, alpha):
+    """
+    Blend two RGB555 colors based on blend mode
+    Returns blended color as RGB555
+    """
+    # Extract RGB components from RGB555
+    def rgb555_to_rgb(color):
+        r = (color >> 10) & 0x1F
+        g = (color >> 5) & 0x1F
+        b = color & 0x1F
+        return r, g, b
     
-    # Render sprites in reverse order (higher index = higher priority)
-    # This way lower-indexed sprites will overwrite higher-indexed ones
-    for i in range(config.PPU_MAX_SPRITES - 1, -1, -1):
+    def rgb_to_rgb555(r, g, b):
+        return ((r & 0x1F) << 10) | ((g & 0x1F) << 5) | (b & 0x1F)
+    
+    bg_r, bg_g, bg_b = rgb555_to_rgb(bg_color)
+    spr_r, spr_g, spr_b = rgb555_to_rgb(sprite_color)
+    
+    if blend_mode == 0:  # Normal (opaque)
+        return sprite_color
+    elif blend_mode == 1:  # Alpha blend
+        # Alpha blend: result = sprite * alpha + bg * (1 - alpha)
+        alpha_norm = alpha / 255.0
+        r = int(spr_r * alpha_norm + bg_r * (1 - alpha_norm))
+        g = int(spr_g * alpha_norm + bg_g * (1 - alpha_norm))
+        b = int(spr_b * alpha_norm + bg_b * (1 - alpha_norm))
+        return rgb_to_rgb555(r, g, b)
+    elif blend_mode == 2:  # Additive
+        r = min(31, bg_r + spr_r)
+        g = min(31, bg_g + spr_g)
+        b = min(31, bg_b + spr_b)
+        return rgb_to_rgb555(r, g, b)
+    elif blend_mode == 3:  # Subtractive
+        r = max(0, bg_r - spr_r)
+        g = max(0, bg_g - spr_g)
+        b = max(0, bg_b - spr_b)
+        return rgb_to_rgb555(r, g, b)
+    else:
+        return sprite_color
+
+
+def ppu_render_sprites():
+    """Render sprites with priority and blending support"""
+    emu = config.emulator
+    output_buffer = config.ppu_output_buffer
+    output_width = config.DISPLAY_WIDTH
+    
+    # Sort sprites by priority (3 = highest, 0 = lowest), then by index (lower index = higher priority if same priority)
+    sprite_list = []
+    for i in range(config.PPU_MAX_SPRITES):
         sprite = config.ppu_oam[i]
-        if not sprite.enabled:
-            continue
+        if sprite.enabled:
+            sprite_list.append((i, sprite))
+    
+    # Sort by priority (descending), then by index (ascending for tie-breaking)
+    sprite_list.sort(key=lambda x: (x[1].priority, -x[0]), reverse=True)
+    
+    # Render sprites in priority order
+    for sprite_idx, sprite in sprite_list:
         
         # Calculate sprite size
         sprite_size = 8 if sprite.size == 0 else 16
@@ -486,12 +759,26 @@ def ppu_render_sprites():
                 if pixel_value == 0:
                     continue
                 
+                # Check windowing for sprites (layer_index = 4 for sprites)
+                if not ppu_check_window(screen_x, screen_y, 4):
+                    continue  # Pixel is outside window - skip
+                
                 # Calculate final palette index (sprites use palette 0-15, each with 16 colors)
                 final_palette_index = sprite.palette * 16 + pixel_value
+                sprite_color = ppu_get_palette_color(final_palette_index)
                 
-                # Write to output buffer (sprites overwrite background)
-                output_index = screen_y * config.DISPLAY_WIDTH + screen_x
-                config.ppu_output_buffer[output_index] = ppu_get_palette_color(final_palette_index)
+                # Get background color at this position
+                output_index = screen_y * output_width + screen_x
+                bg_color = output_buffer[output_index]
+                
+                # Apply blending if enabled
+                if sprite.blend_mode > 0:
+                    final_color = ppu_blend_colors(bg_color, sprite_color, sprite.blend_mode, sprite.alpha)
+                else:
+                    final_color = sprite_color
+                
+                # Write to output buffer
+                output_buffer[output_index] = final_color
 
 
 def ppu_render_matrix():

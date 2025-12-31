@@ -24,9 +24,11 @@ MEMORY_ROM_END_BANK = 125  # Banks 1-125 for ROM (LoROM-like)
 MEMORY_WRAM_EXTENDED_START = 126  # Banks 126-127 for extended WRAM
 
 # CPU constants
-# SNES 65816 runs at 2.68 MHz (typical) = 44,667 cycles/frame at 60 FPS
-# We'll use period-accurate SNES timing: 44,667 cycles/frame (2.68 MHz)
-CPU_CYCLES_PER_FRAME = 44667  # Cycles per frame at 60 FPS (SNES 2.68 MHz period-accurate)
+# Target: 10-12 MHz CPU (Nitro-Core-DX spec)
+# 10 MHz @ 60 FPS = 166,667 cycles/frame
+# 12 MHz @ 60 FPS = 200,000 cycles/frame
+# Using 10 MHz for now (can be increased to 12 MHz later)
+CPU_CYCLES_PER_FRAME = 166667  # Cycles per frame at 60 FPS (10 MHz CPU)
 CPU_STACK_BASE = 0x1FFF  # Stack starts at top of WRAM bank 0
 
 # PPU constants
@@ -123,28 +125,61 @@ PPU_REG_BG1_SCROLLX = 0x04  # BG1 scroll X (16-bit)
 PPU_REG_BG1_SCROLLY = 0x06  # BG1 scroll Y (16-bit)
 PPU_REG_BG0_CONTROL = 0x08  # BG0 control (tile size, enable, etc.)
 PPU_REG_BG1_CONTROL = 0x09  # BG1 control
-PPU_REG_VRAM_ADDR = 0x0A  # VRAM address (16-bit)
-PPU_REG_VRAM_DATA = 0x0C  # VRAM data (8-bit)
+PPU_REG_BG2_SCROLLX = 0x0A  # BG2 scroll X (16-bit, low byte)
+PPU_REG_BG2_SCROLLX_H = 0x0B  # BG2 scroll X (high byte)
+PPU_REG_BG2_SCROLLY = 0x0C  # BG2 scroll Y (16-bit, low byte)
+PPU_REG_BG2_SCROLLY_H = 0x0D  # BG2 scroll Y (high byte)
+PPU_REG_BG2_CONTROL = 0x21  # BG2 control (after Matrix registers)
+PPU_REG_BG3_SCROLLX = 0x22  # BG3 scroll X (16-bit, low byte)
+PPU_REG_BG3_SCROLLX_H = 0x23  # BG3 scroll X (high byte)
+PPU_REG_BG3_SCROLLY = 0x24  # BG3 scroll Y (16-bit, low byte)
+PPU_REG_BG3_SCROLLY_H = 0x25  # BG3 scroll Y (high byte)
+PPU_REG_BG3_CONTROL = 0x26  # BG3 control (can be used as dedicated affine layer)
+PPU_REG_VRAM_ADDR = 0x0E  # VRAM address (16-bit, low byte)
+PPU_REG_VRAM_ADDR_H = 0x0F  # VRAM address (high byte)
+PPU_REG_VRAM_DATA = 0x10  # VRAM data (8-bit)
 PPU_REG_CGRAM_ADDR = 0x0E  # CGRAM address (9-bit, but 8-bit register)
-PPU_REG_CGRAM_DATA = 0x0F  # CGRAM data (16-bit RGB555)
-PPU_REG_OAM_ADDR = 0x10  # OAM address (8-bit)
-PPU_REG_OAM_DATA = 0x11  # OAM data (multiple bytes per sprite)
-PPU_REG_FRAMEBUFFER_ENABLE = 0x12  # Framebuffer enable
-PPU_REG_DISPLAY_MODE = 0x13  # Display mode (portrait/landscape)
+PPU_REG_CGRAM_DATA = 0x13  # CGRAM data (16-bit RGB555)
+PPU_REG_OAM_ADDR = 0x14  # OAM address (8-bit)
+PPU_REG_OAM_DATA = 0x15  # OAM data (multiple bytes per sprite)
+PPU_REG_FRAMEBUFFER_ENABLE = 0x16  # Framebuffer enable
+PPU_REG_DISPLAY_MODE = 0x17  # Display mode (portrait/landscape)
 # Matrix Mode registers (90's retro-futuristic perspective/rotation effects)
-PPU_REG_MATRIX_CONTROL = 0x14  # Matrix Mode control (bit 0=enable, bit 1=mirror_h, bit 2=mirror_v)
-PPU_REG_MATRIX_A = 0x15  # Matrix A (16-bit, low byte)
-PPU_REG_MATRIX_A_H = 0x16  # Matrix A (high byte)
-PPU_REG_MATRIX_B = 0x17  # Matrix B (16-bit, low byte)
-PPU_REG_MATRIX_B_H = 0x18  # Matrix B (high byte)
-PPU_REG_MATRIX_C = 0x19  # Matrix C (16-bit, low byte)
-PPU_REG_MATRIX_C_H = 0x1A  # Matrix C (high byte)
-PPU_REG_MATRIX_D = 0x1B  # Matrix D (16-bit, low byte)
-PPU_REG_MATRIX_D_H = 0x1C  # Matrix D (high byte)
-PPU_REG_MATRIX_CENTER_X = 0x1D  # Center X (16-bit, low byte)
-PPU_REG_MATRIX_CENTER_X_H = 0x1E  # Center X (high byte)
-PPU_REG_MATRIX_CENTER_Y = 0x1F  # Center Y (16-bit, low byte)
-PPU_REG_MATRIX_CENTER_Y_H = 0x20  # Center Y (high byte)
+PPU_REG_MATRIX_CONTROL = 0x18  # Matrix Mode control (bit 0=enable, bit 1=mirror_h, bit 2=mirror_v)
+PPU_REG_MATRIX_A = 0x19  # Matrix A (16-bit, low byte)
+PPU_REG_MATRIX_A_H = 0x1A  # Matrix A (high byte)
+PPU_REG_MATRIX_B = 0x1B  # Matrix B (16-bit, low byte)
+PPU_REG_MATRIX_B_H = 0x1C  # Matrix B (high byte)
+PPU_REG_MATRIX_C = 0x1D  # Matrix C (16-bit, low byte)
+PPU_REG_MATRIX_C_H = 0x1E  # Matrix C (high byte)
+PPU_REG_MATRIX_D = 0x1F  # Matrix D (16-bit, low byte)
+PPU_REG_MATRIX_D_H = 0x20  # Matrix D (high byte)
+PPU_REG_MATRIX_CENTER_X = 0x27  # Center X (16-bit, low byte)
+PPU_REG_MATRIX_CENTER_X_H = 0x28  # Center X (high byte)
+PPU_REG_MATRIX_CENTER_Y = 0x29  # Center Y (16-bit, low byte)
+PPU_REG_MATRIX_CENTER_Y_H = 0x2A  # Center Y (high byte)
+# Windowing system registers
+PPU_REG_WINDOW0_LEFT = 0x2B  # Window 0 left edge (8-bit)
+PPU_REG_WINDOW0_RIGHT = 0x2C  # Window 0 right edge (8-bit)
+PPU_REG_WINDOW0_TOP = 0x2D  # Window 0 top edge (8-bit)
+PPU_REG_WINDOW0_BOTTOM = 0x2E  # Window 0 bottom edge (8-bit)
+PPU_REG_WINDOW1_LEFT = 0x2F  # Window 1 left edge (8-bit)
+PPU_REG_WINDOW1_RIGHT = 0x30  # Window 1 right edge (8-bit)
+PPU_REG_WINDOW1_TOP = 0x31  # Window 1 top edge (8-bit)
+PPU_REG_WINDOW1_BOTTOM = 0x32  # Window 1 bottom edge (8-bit)
+PPU_REG_WINDOW_CONTROL = 0x33  # Window control: bit 0=Window0 enable, bit 1=Window1 enable, bits 2-3=logic (0=OR, 1=AND, 2=XOR, 3=XNOR)
+PPU_REG_WINDOW_MAIN_ENABLE = 0x34  # Main window enable per layer: bit 0=BG0, 1=BG1, 2=BG2, 3=BG3, 4=sprites
+PPU_REG_WINDOW_SUB_ENABLE = 0x35  # Sub window enable (for color math, future use)
+# HDMA (per-scanline scroll) registers
+PPU_REG_HDMA_CONTROL = 0x36  # HDMA control: bit 0=enable, bits 1-3=layer enable (bit 1=BG0, 2=BG1, 3=BG2, 4=BG3)
+PPU_REG_HDMA_TABLE_BASE_L = 0x37  # HDMA table base address (low byte, in WRAM)
+PPU_REG_HDMA_TABLE_BASE_H = 0x38  # HDMA table base address (high byte)
+PPU_REG_HDMA_SCANLINE = 0x39  # Current scanline for HDMA write (0-199)
+PPU_REG_HDMA_BG0_SCROLLX_L = 0x3A  # HDMA: BG0 scroll X for current scanline (low byte)
+PPU_REG_HDMA_BG0_SCROLLX_H = 0x3B  # HDMA: BG0 scroll X (high byte)
+PPU_REG_HDMA_BG0_SCROLLY_L = 0x3C  # HDMA: BG0 scroll Y (low byte)
+PPU_REG_HDMA_BG0_SCROLLY_H = 0x3D  # HDMA: BG0 scroll Y (high byte)
+# Similar registers for BG1, BG2, BG3 (0x3E-0x4D)
 
 # APU Constants
 # APU Register Addresses (relative to MEM_IO_APU_BASE)
@@ -250,11 +285,13 @@ class SpriteEntry:
     y: int = 0  # Y position (signed)
     tile_index: int = 0  # Tile number
     palette: int = 0  # Palette index (0-15)
-    priority: int = 0  # Priority (0-3)
+    priority: int = 0  # Priority (0-3): 0=lowest (behind all BGs), 3=highest (in front of all BGs)
     flip_x: bool = False  # Horizontal flip
     flip_y: bool = False  # Vertical flip
     size: int = 0  # 0=8x8, 1=16x16
     enabled: bool = False
+    blend_mode: int = 0  # Blending mode: 0=normal (opaque), 1=alpha blend, 2=additive, 3=subtractive
+    alpha: int = 255  # Alpha value (0-255) for blending modes
 
 
 @dataclass
@@ -266,6 +303,7 @@ class TileLayer:
     enabled: bool = False
     tile_map_base: int = 0  # VRAM offset for tilemap
     tile_data_base: int = 0  # VRAM offset for tile data
+    window_enable: int = 0  # Window enable bits: bit 0=Window0, bit 1=Window 1, bit 2=invert Window 0, bit 3=invert Window 1
 
 
 @dataclass
@@ -280,9 +318,11 @@ class PPUState:
     # OAM (sprite attributes)
     oam: List[SpriteEntry] = None  # Will be [SpriteEntry()] * PPU_MAX_SPRITES
     
-    # Background layers
+    # Background layers (4 layers for Nitro-Core-DX)
     bg0: TileLayer = None
     bg1: TileLayer = None
+    bg2: TileLayer = None
+    bg3: TileLayer = None  # Can be used as dedicated affine layer (Matrix Mode)
     
     # Framebuffer layer (optional, 8-bit indexed)
     frame_buffer: List[int] = None  # Will be [0] * (DISPLAY_WIDTH * DISPLAY_HEIGHT)
@@ -309,6 +349,44 @@ class PPUState:
     matrix_center_x: int = 0  # Center point X
     matrix_center_y: int = 0  # Center point Y
     
+    # Windowing system (SNES-style: 2 windows with AND/OR/XOR logic)
+    window0_left: int = 0  # Window 0 left edge (0-319)
+    window0_right: int = 0  # Window 0 right edge (0-319)
+    window0_top: int = 0  # Window 0 top edge (0-199)
+    window0_bottom: int = 0  # Window 0 bottom edge (0-199)
+    window0_enabled: bool = False  # Window 0 enable
+    
+    window1_left: int = 0  # Window 1 left edge
+    window1_right: int = 0  # Window 1 right edge
+    window1_top: int = 0  # Window 1 top edge
+    window1_bottom: int = 0  # Window 1 bottom edge
+    window1_enabled: bool = False  # Window 1 enable
+    
+    window_logic: int = 0  # Window logic: 0=OR, 1=AND, 2=XOR, 3=XNOR
+    window_main_enable: int = 0  # Main window enable (bit per layer: bit 0=BG0, 1=BG1, 2=BG2, 3=BG3, 4=sprites)
+    window_sub_enable: int = 0  # Sub window enable (for color math, future use)
+    
+    # Sprite blending and color math
+    sprite_blend_enabled: bool = False  # Enable sprite blending globally
+    color_math_enabled: bool = False  # Enable color math (additive/subtractive blending)
+    color_math_mode: int = 0  # Color math mode: 0=additive, 1=subtractive, 2=multiply
+    
+    # Per-scanline scroll (HDMA-style) - allows different scroll values per scanline
+    # For parallax scrolling and perspective effects
+    hdma_enabled: bool = False  # Enable HDMA per-scanline scroll
+    hdma_table_base: int = 0  # Base address in WRAM for HDMA table
+    # HDMA table format: For each scanline (0-199), 2 bytes per layer (scroll X, scroll Y)
+    # For 4 layers: 8 bytes per scanline = 1600 bytes total
+    # Alternative: Store per-scanline scroll in arrays (simpler for now)
+    hdma_bg0_scroll_x: List[int] = None  # Per-scanline scroll X for BG0 (200 entries)
+    hdma_bg0_scroll_y: List[int] = None  # Per-scanline scroll Y for BG0
+    hdma_bg1_scroll_x: List[int] = None  # Per-scanline scroll X for BG1
+    hdma_bg1_scroll_y: List[int] = None  # Per-scanline scroll Y for BG1
+    hdma_bg2_scroll_x: List[int] = None  # Per-scanline scroll X for BG2
+    hdma_bg2_scroll_y: List[int] = None  # Per-scanline scroll Y for BG2
+    hdma_bg3_scroll_x: List[int] = None  # Per-scanline scroll X for BG3
+    hdma_bg3_scroll_y: List[int] = None  # Per-scanline scroll Y for BG3
+    
     def __post_init__(self):
         if self.vram is None:
             self.vram = [0] * PPU_VRAM_SIZE
@@ -320,10 +398,24 @@ class PPUState:
             self.bg0 = TileLayer()
         if self.bg1 is None:
             self.bg1 = TileLayer()
+        if self.bg2 is None:
+            self.bg2 = TileLayer()
+        if self.bg3 is None:
+            self.bg3 = TileLayer()
         if self.frame_buffer is None:
             self.frame_buffer = [0] * (DISPLAY_WIDTH * DISPLAY_HEIGHT)
         if self.output_buffer is None:
             self.output_buffer = [0] * (DISPLAY_WIDTH * DISPLAY_HEIGHT)
+        # Initialize HDMA per-scanline scroll arrays
+        if self.hdma_bg0_scroll_x is None:
+            self.hdma_bg0_scroll_x = [0] * DISPLAY_HEIGHT
+            self.hdma_bg0_scroll_y = [0] * DISPLAY_HEIGHT
+            self.hdma_bg1_scroll_x = [0] * DISPLAY_HEIGHT
+            self.hdma_bg1_scroll_y = [0] * DISPLAY_HEIGHT
+            self.hdma_bg2_scroll_x = [0] * DISPLAY_HEIGHT
+            self.hdma_bg2_scroll_y = [0] * DISPLAY_HEIGHT
+            self.hdma_bg3_scroll_x = [0] * DISPLAY_HEIGHT
+            self.hdma_bg3_scroll_y = [0] * DISPLAY_HEIGHT
 
 
 @dataclass

@@ -26,11 +26,11 @@ The Fantasy Console is a custom 16-bit system inspired by classic 8/16-bit conso
 
 - **16-bit CPU** with banked 24-bit addressing
 - **320x200 pixel display** (portrait mode: 200x320)
-- **Tile-based graphics** with 2 background layers and sprites
+- **Tile-based graphics** with 4 background layers (BG0-BG3), sprites, windowing, and per-scanline scroll
 - **4-channel audio synthesizer** (sine, square, saw, noise)
 - **SNES-like input** with 12 buttons
 - **60 FPS** target frame rate
-- **SNES-period-accurate timing** (44,667 CPU cycles per frame)
+- **10 MHz CPU** (166,667 CPU cycles per frame)
 
 ### System Specifications
 
@@ -42,7 +42,7 @@ The Fantasy Console is a custom 16-bit system inspired by classic 8/16-bit conso
 | Max Sprites | 128 |
 | Audio Channels | 4 (sine, square, saw, noise) |
 | Audio Sample Rate | 44,100 Hz |
-| CPU Speed | 2.68 MHz (SNES-accurate) |
+| CPU Speed | 10 MHz (166,667 cycles/frame) |
 | Memory | 64KB per bank, 256 banks (16MB total) |
 | ROM Size | Up to 7.8MB (125 banks × 64KB) |
 
@@ -301,31 +301,59 @@ The system uses a banked memory architecture with 24-bit addressing (bank:offset
 | 0x8005 | BG1_SCROLLX_H | 8-bit | Background 1 scroll X (high byte) |
 | 0x8006 | BG1_SCROLLY_L | 8-bit | Background 1 scroll Y (low byte) |
 | 0x8007 | BG1_SCROLLY_H | 8-bit | Background 1 scroll Y (high byte) |
-| 0x8008 | BG0_CONTROL | 8-bit | BG0 control (bit 0=enable, bit 1=tile size) |
-| 0x8009 | BG1_CONTROL | 8-bit | BG1 control |
-| 0x800A | VRAM_ADDR_L | 8-bit | VRAM address (low byte) |
-| 0x800B | VRAM_ADDR_H | 8-bit | VRAM address (high byte) |
-| 0x800C | VRAM_DATA | 8-bit | VRAM data (auto-increments address) |
-| 0x800E | CGRAM_ADDR | 8-bit | CGRAM (palette) address |
-| 0x800F | CGRAM_DATA_L | 8-bit | CGRAM data (low byte, RGB555) |
-| 0x8010 | CGRAM_DATA_H | 8-bit | CGRAM data (high byte) |
-| 0x8011 | OAM_ADDR | 8-bit | OAM (sprite) address |
-| 0x8012 | OAM_DATA | 8-bit | OAM data |
-| 0x8013 | FRAMEBUFFER_ENABLE | 8-bit | Framebuffer enable (0=off, 1=on) |
-| 0x8013 | DISPLAY_MODE | 8-bit | Display mode (0=landscape, 1=portrait) |
-| 0x8014 | MATRIX_CONTROL | 8-bit | Matrix Mode control (bit 0=enable, bit 1=mirror_h, bit 2=mirror_v) |
-| 0x8015 | MATRIX_A_L | 8-bit | Transformation matrix A (low byte, 8.8 fixed point) |
-| 0x8016 | MATRIX_A_H | 8-bit | Transformation matrix A (high byte) |
-| 0x8017 | MATRIX_B_L | 8-bit | Transformation matrix B (low byte, 8.8 fixed point) |
-| 0x8018 | MATRIX_B_H | 8-bit | Transformation matrix B (high byte) |
-| 0x8019 | MATRIX_C_L | 8-bit | Transformation matrix C (low byte, 8.8 fixed point) |
-| 0x801A | MATRIX_C_H | 8-bit | Transformation matrix C (high byte) |
-| 0x801B | MATRIX_D_L | 8-bit | Transformation matrix D (low byte, 8.8 fixed point) |
-| 0x801C | MATRIX_D_H | 8-bit | Transformation matrix D (high byte) |
-| 0x801D | MATRIX_CENTER_X_L | 8-bit | Center point X (low byte) |
-| 0x801E | MATRIX_CENTER_X_H | 8-bit | Center point X (high byte) |
-| 0x801F | MATRIX_CENTER_Y_L | 8-bit | Center point Y (low byte) |
-| 0x8020 | MATRIX_CENTER_Y_H | 8-bit | Center point Y (high byte) |
+| 0x8008 | BG0_CONTROL | 8-bit | BG0 control: bit 0=enable, bit 1=tile size (0=8x8, 1=16x16) |
+| 0x8009 | BG1_CONTROL | 8-bit | BG1 control: bit 0=enable, bit 1=tile size |
+| 0x800A | BG2_SCROLLX_L | 8-bit | Background 2 scroll X (low byte) |
+| 0x800B | BG2_SCROLLX_H | 8-bit | Background 2 scroll X (high byte) |
+| 0x800C | BG2_SCROLLY_L | 8-bit | Background 2 scroll Y (low byte) |
+| 0x800D | BG2_SCROLLY_H | 8-bit | Background 2 scroll Y (high byte) |
+| 0x8021 | BG2_CONTROL | 8-bit | BG2 control: bit 0=enable, bit 1=tile size |
+| 0x8022 | BG3_SCROLLX_L | 8-bit | Background 3 scroll X (low byte) |
+| 0x8023 | BG3_SCROLLX_H | 8-bit | Background 3 scroll X (high byte) |
+| 0x8024 | BG3_SCROLLY_L | 8-bit | Background 3 scroll Y (low byte) |
+| 0x8025 | BG3_SCROLLY_H | 8-bit | Background 3 scroll Y (high byte) |
+| 0x8026 | BG3_CONTROL | 8-bit | BG3 control: bit 0=enable, bit 1=tile size (can be affine layer) |
+| 0x800E | VRAM_ADDR_L | 8-bit | VRAM address (low byte) |
+| 0x800F | VRAM_ADDR_H | 8-bit | VRAM address (high byte) |
+| 0x8010 | VRAM_DATA | 8-bit | VRAM data (auto-increments address) |
+| 0x8012 | CGRAM_ADDR | 8-bit | CGRAM (palette) address |
+| 0x8013 | CGRAM_DATA | 8-bit | CGRAM data (RGB555, 16-bit write) |
+| 0x8014 | OAM_ADDR | 8-bit | OAM (sprite) address |
+| 0x8015 | OAM_DATA | 8-bit | OAM data |
+| 0x8016 | FRAMEBUFFER_ENABLE | 8-bit | Framebuffer enable (0=off, 1=on) |
+| 0x8017 | DISPLAY_MODE | 8-bit | Display mode (0=landscape, 1=portrait) |
+| 0x8018 | MATRIX_CONTROL | 8-bit | Matrix Mode control (bit 0=enable, bit 1=mirror_h, bit 2=mirror_v) |
+| 0x8019 | MATRIX_A_L | 8-bit | Transformation matrix A (low byte, 8.8 fixed point) |
+| 0x801A | MATRIX_A_H | 8-bit | Transformation matrix A (high byte) |
+| 0x801B | MATRIX_B_L | 8-bit | Transformation matrix B (low byte, 8.8 fixed point) |
+| 0x801C | MATRIX_B_H | 8-bit | Transformation matrix B (high byte) |
+| 0x801D | MATRIX_C_L | 8-bit | Transformation matrix C (low byte, 8.8 fixed point) |
+| 0x801E | MATRIX_C_H | 8-bit | Transformation matrix C (high byte) |
+| 0x801F | MATRIX_D_L | 8-bit | Transformation matrix D (low byte, 8.8 fixed point) |
+| 0x8020 | MATRIX_D_H | 8-bit | Transformation matrix D (high byte) |
+| 0x8027 | MATRIX_CENTER_X_L | 8-bit | Center point X (low byte) |
+| 0x8028 | MATRIX_CENTER_X_H | 8-bit | Center point X (high byte) |
+| 0x8029 | MATRIX_CENTER_Y_L | 8-bit | Center point Y (low byte) |
+| 0x802A | MATRIX_CENTER_Y_H | 8-bit | Center point Y (high byte) |
+| 0x802B | WINDOW0_LEFT | 8-bit | Window 0 left edge (0-319) |
+| 0x802C | WINDOW0_RIGHT | 8-bit | Window 0 right edge (0-319) |
+| 0x802D | WINDOW0_TOP | 8-bit | Window 0 top edge (0-199) |
+| 0x802E | WINDOW0_BOTTOM | 8-bit | Window 0 bottom edge (0-199) |
+| 0x802F | WINDOW1_LEFT | 8-bit | Window 1 left edge (0-319) |
+| 0x8030 | WINDOW1_RIGHT | 8-bit | Window 1 right edge (0-319) |
+| 0x8031 | WINDOW1_TOP | 8-bit | Window 1 top edge (0-199) |
+| 0x8032 | WINDOW1_BOTTOM | 8-bit | Window 1 bottom edge (0-199) |
+| 0x8033 | WINDOW_CONTROL | 8-bit | Window control: bit 0=Window0 enable, bit 1=Window1 enable, bits 2-3=logic (0=OR, 1=AND, 2=XOR, 3=XNOR) |
+| 0x8034 | WINDOW_MAIN_ENABLE | 8-bit | Main window enable per layer: bit 0=BG0, 1=BG1, 2=BG2, 3=BG3, 4=sprites |
+| 0x8035 | WINDOW_SUB_ENABLE | 8-bit | Sub window enable (for color math, future use) |
+| 0x8036 | HDMA_CONTROL | 8-bit | HDMA control: bit 0=enable, bits 1-4=layer enable |
+| 0x8037 | HDMA_TABLE_BASE_L | 8-bit | HDMA table base address (low byte, in WRAM) |
+| 0x8038 | HDMA_TABLE_BASE_H | 8-bit | HDMA table base address (high byte) |
+| 0x8039 | HDMA_SCANLINE | 8-bit | Current scanline for HDMA write (0-199) |
+| 0x803A | HDMA_BG0_SCROLLX_L | 8-bit | HDMA: BG0 scroll X for current scanline (low byte) |
+| 0x803B | HDMA_BG0_SCROLLX_H | 8-bit | HDMA: BG0 scroll X (high byte) |
+| 0x803C | HDMA_BG0_SCROLLY_L | 8-bit | HDMA: BG0 scroll Y (low byte) |
+| 0x803D | HDMA_BG0_SCROLLY_H | 8-bit | HDMA: BG0 scroll Y (high byte) |
 
 #### APU Registers (0x9000-0x9FFF)
 
@@ -379,12 +407,14 @@ The system uses a banked memory architecture with 24-bit addressing (bank:offset
 
 ### Background Layers
 
-Two tile-based background layers (BG0 and BG1):
+Four tile-based background layers (BG0, BG1, BG2, BG3) for advanced parallax and layering effects:
 
 - **Tile Size**: 8x8 or 16x16 pixels (configurable per layer)
 - **Tile Format**: 4bpp (4 bits per pixel, 16 colors per tile)
 - **Tilemap**: 64x64 tiles (512x512 pixels for 8x8 tiles)
 - **Scrolling**: Independent X/Y scroll per layer
+- **Priority**: BG3 (highest) → BG2 → BG1 → BG0 (lowest)
+- **BG3**: Can be used as dedicated affine layer (Matrix Mode alternative)
 
 ### Matrix Mode (90's Retro-Futuristic Perspective Effects)
 
@@ -488,7 +518,10 @@ For a "looking down a road" effect, vary the matrix values per scanline:
 
 - **Max Sprites**: 128
 - **Size**: 8x8 or 16x16 pixels
-- **Attributes**: X/Y position, tile index, palette, priority, flip X/Y
+- **Attributes**: X/Y position, tile index, palette, priority (0-3), flip X/Y, blend mode, alpha
+- **Priority Levels**: 0 (lowest, behind all BGs) to 3 (highest, in front of all BGs)
+- **Blending Modes**: Normal (opaque), Alpha blend, Additive, Subtractive
+- **Rendering Order**: Sprites are sorted by priority, then by index (lower index = higher priority if same priority level)
 
 ### VRAM Layout
 
