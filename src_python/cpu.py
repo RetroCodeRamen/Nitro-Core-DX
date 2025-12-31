@@ -221,41 +221,83 @@ def cpu_execute_instruction(instruction):
         op_name = opcode_names.get(opcode, f"OP{opcode:02X}")
         ui.logger.trace(f"Exec: {op_name} mode={mode} reg1={reg1} reg2={reg2} PC={emu.cpu.pc_bank:02X}:{emu.cpu.pc_offset:04X}", "CPU")
     
-    # Get register value helper
+    # Optimized register access - cache logging state to avoid repeated checks
+    _log_enabled = ui.logger.enabled and ui.logger.detailed_logging
+    
+    # Fast register getter - direct attribute access (no function call, no list creation)
+    # Using direct attribute access is fastest in Python
     def get_register(reg_num):
-        """Get register value by number"""
-        registers = [emu.cpu.r0, emu.cpu.r1, emu.cpu.r2, emu.cpu.r3,
-                     emu.cpu.r4, emu.cpu.r5, emu.cpu.r6, emu.cpu.r7]
-        if 0 <= reg_num < 8:
-            return registers[reg_num]
+        """Get register value by number - optimized with direct attribute access"""
+        if reg_num == 0:
+            return emu.cpu.r0
+        elif reg_num == 1:
+            return emu.cpu.r1
+        elif reg_num == 2:
+            return emu.cpu.r2
+        elif reg_num == 3:
+            return emu.cpu.r3
+        elif reg_num == 4:
+            return emu.cpu.r4
+        elif reg_num == 5:
+            return emu.cpu.r5
+        elif reg_num == 6:
+            return emu.cpu.r6
+        elif reg_num == 7:
+            return emu.cpu.r7
         return 0
     
-    # Set register value helper
+    # Fast register setter - direct attribute access, conditional logging
     def set_register(reg_num, value):
-        """Set register value by number"""
-        import ui
+        """Set register value by number - optimized"""
         value = value & 0xFFFF  # Ensure 16-bit
-        old_value = get_register(reg_num)
         if reg_num == 0:
+            if _log_enabled:
+                old = emu.cpu.r0
             emu.cpu.r0 = value
+            if _log_enabled and old != value:
+                ui.logger.trace(f"R0 = {value:04X} (was {old:04X})", "CPU")
         elif reg_num == 1:
+            if _log_enabled:
+                old = emu.cpu.r1
             emu.cpu.r1 = value
+            if _log_enabled and old != value:
+                ui.logger.trace(f"R1 = {value:04X} (was {old:04X})", "CPU")
         elif reg_num == 2:
+            if _log_enabled:
+                old = emu.cpu.r2
             emu.cpu.r2 = value
+            if _log_enabled and old != value:
+                ui.logger.trace(f"R2 = {value:04X} (was {old:04X})", "CPU")
         elif reg_num == 3:
+            if _log_enabled:
+                old = emu.cpu.r3
             emu.cpu.r3 = value
+            if _log_enabled and old != value:
+                ui.logger.trace(f"R3 = {value:04X} (was {old:04X})", "CPU")
         elif reg_num == 4:
+            if _log_enabled:
+                old = emu.cpu.r4
             emu.cpu.r4 = value
+            if _log_enabled and old != value:
+                ui.logger.trace(f"R4 = {value:04X} (was {old:04X})", "CPU")
         elif reg_num == 5:
+            if _log_enabled:
+                old = emu.cpu.r5
             emu.cpu.r5 = value
+            if _log_enabled and old != value:
+                ui.logger.trace(f"R5 = {value:04X} (was {old:04X})", "CPU")
         elif reg_num == 6:
+            if _log_enabled:
+                old = emu.cpu.r6
             emu.cpu.r6 = value
+            if _log_enabled and old != value:
+                ui.logger.trace(f"R6 = {value:04X} (was {old:04X})", "CPU")
         elif reg_num == 7:
+            if _log_enabled:
+                old = emu.cpu.r7
             emu.cpu.r7 = value
-        
-        # Log register change if value changed
-        if old_value != value:
-            ui.logger.trace(f"R{reg_num} = {value:04X} (was {old_value:04X})", "CPU")
+            if _log_enabled and old != value:
+                ui.logger.trace(f"R7 = {value:04X} (was {old:04X})", "CPU")
     
     # Execute based on opcode
     cycles = 1  # Default cycle count

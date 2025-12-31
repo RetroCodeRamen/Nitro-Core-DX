@@ -595,6 +595,21 @@ def ppu_render_tile_layer(layer):
             min_screen_x = max(0, tile_pixel_x)
             max_screen_x = min(config.DISPLAY_WIDTH, tile_pixel_x + tile_size)
             
+            # Determine layer index once (optimization - moved outside inner loop)
+            # BG0=0, BG1=1, BG2=2, BG3=3
+            layer_index = 0  # Default to BG0
+            if layer == emu.ppu.bg1:
+                layer_index = 1
+            elif layer == emu.ppu.bg2:
+                layer_index = 2
+            elif layer == emu.ppu.bg3:
+                layer_index = 3
+            
+            # Cache windowing state check (optimization - check if windowing is enabled for this layer)
+            # If no windows are enabled for this layer, skip window checks entirely
+            window_enable_bits = layer.window_enable
+            windowing_enabled = (window_enable_bits & 0x03) != 0  # Check if any window is enabled
+            
             # Render tile pixels (optimized inner loop)
             for py in range(tile_size):
                 screen_y = tile_pixel_y + py
@@ -621,7 +636,7 @@ def ppu_render_tile_layer(layer):
                     # Read pixel byte
                     pixel_byte = vram[tile_data_addr]
                     
-                    # Extract pixel (optimized - avoid modulo)
+                    # Extract pixel (optimized - avoid modulo, use bitwise ops)
                     if tile_x_local & 1:  # Odd pixel (lower 4 bits)
                         pixel_value = pixel_byte & 0xF
                     else:  # Even pixel (upper 4 bits)
@@ -631,28 +646,20 @@ def ppu_render_tile_layer(layer):
                     if pixel_value == 0:
                         continue
                     
-                    # Check windowing (determine layer index from layer parameter)
-                    # BG0=0, BG1=1, BG2=2, BG3=3
-                    layer_index = 0  # Default to BG0
-                    if layer == emu.ppu.bg1:
-                        layer_index = 1
-                    elif layer == emu.ppu.bg2:
-                        layer_index = 2
-                    elif layer == emu.ppu.bg3:
-                        layer_index = 3
-                    
-                    # Check if pixel should be drawn (window clipping)
-                    if not ppu_check_window(screen_x, screen_y, layer_index):
-                        continue  # Pixel is outside window - skip
+                    # Check windowing only if enabled (optimization - skip function call when disabled)
+                    if windowing_enabled:
+                        if not ppu_check_window(screen_x, screen_y, layer_index):
+                            continue  # Pixel is outside window - skip
                     
                     # Calculate final palette index and write (optimized)
                     # Direct palette cache access (cache is built at start of frame)
                     final_palette_index = palette_base + pixel_value
+                    # Bounds check for palette index (optimization - avoid if possible)
+                    if final_palette_index >= 256:
+                        continue  # Skip invalid palette index
+                    
                     output_index = screen_y * output_width + screen_x
-                    if final_palette_index < 256:
-                        output_buffer[output_index] = _palette_cache[final_palette_index]
-                    else:
-                        output_buffer[output_index] = 0
+                    output_buffer[output_index] = _palette_cache[final_palette_index]
 
 
 def ppu_blend_colors(bg_color, sprite_color, blend_mode, alpha):
