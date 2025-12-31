@@ -5,6 +5,14 @@ Python version - maintains BASIC-like simplicity
 
 import config
 
+# Try to import Cython-optimized CPU module (optional)
+_cython_available = False
+try:
+    import cpu_cython
+    _cython_available = True
+except ImportError:
+    pass
+
 
 def cpu_reset():
     """Initialize CPU to default state"""
@@ -1322,9 +1330,27 @@ def cpu_execute_instruction(instruction):
         pass  # Silently fail if ui module not available
 
 
+# Try to import Cython-optimized CPU module (optional)
+_cython_available = False
+_cython_initialized = False
+try:
+    import cpu_cython
+    _cython_available = True
+except ImportError:
+    pass
+
 def cpu_run_cycles(target_cycles):
     """Run CPU for specified number of cycles"""
+    global _cython_initialized
     emu = config.emulator
+    
+    # Initialize Cython module if available (first time only)
+    if _cython_available and not _cython_initialized:
+        try:
+            cpu_cython.init_cython_cpu()
+            _cython_initialized = True
+        except:
+            pass  # Fall back to Python if initialization fails
     
     # TODO: Implement cycle-accurate execution
     # For now, just execute instructions until cycle limit
@@ -1333,9 +1359,26 @@ def cpu_run_cycles(target_cycles):
         if emu.cpu.interrupt_pending != config.INT_NONE:
             cpu_handle_interrupt()
         
-        # Fetch and execute instruction
+        # Fetch and decode instruction
         instruction = cpu_fetch_instruction()
-        cpu_execute_instruction(instruction)
+        opcode, mode, reg1, reg2 = cpu_decode_instruction(instruction)
+        
+        # Try Cython execution first (if available), fall back to Python
+        if _cython_available and _cython_initialized:
+            try:
+                cycles = cpu_cython.cpu_execute_instruction_cython(instruction, opcode, mode, reg1, reg2)
+                if cycles > 0:
+                    # Cython handled the instruction - update cycle counter
+                    emu.cpu.cycles += cycles
+                else:
+                    # Cython didn't handle it (returned 0) - fall back to Python
+                    cpu_execute_instruction(instruction)
+            except:
+                # Fall back to Python execution if Cython fails
+                cpu_execute_instruction(instruction)
+        else:
+            # Use Python execution
+            cpu_execute_instruction(instruction)
         
         # Step mode: pause after each instruction
         if emu.step_mode:

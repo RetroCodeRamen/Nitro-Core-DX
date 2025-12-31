@@ -5,13 +5,16 @@ Run: python3 setup_cython.py build_ext --inplace
 
 from setuptools import setup, Extension
 from Cython.Build import cythonize
-import numpy
+import os
+
+# Get the source directory
+src_dir = os.path.join(os.path.dirname(__file__), "src_python")
 
 extensions = [
     Extension(
         "cpu_cython",
-        ["src_python/cpu_cython.pyx"],
-        include_dirs=[numpy.get_include()],
+        [os.path.join(src_dir, "cpu_cython.pyx")],
+        include_dirs=[src_dir],
         extra_compile_args=["-O3", "-ffast-math"],  # Aggressive optimization
         extra_link_args=["-O3"],
     ),
