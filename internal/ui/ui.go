@@ -17,6 +17,8 @@ type UI struct {
 	running    bool
 	scale      int
 	fullscreen bool
+	audioDev   sdl.AudioDeviceID
+	debugFrameCount int // For debug logging
 }
 
 // NewUI creates a new UI instance
@@ -71,6 +73,22 @@ func NewUI(emu *emulator.Emulator, scale int) (*UI, error) {
 		return nil, fmt.Errorf("failed to create texture: %w", err)
 	}
 
+	// Open audio device
+	audioSpec := sdl.AudioSpec{
+		Freq:     44100,
+		Format:   sdl.AUDIO_F32,
+		Channels: 2, // Stereo
+		Samples:  735, // Samples per frame (44100 Hz / 60 FPS)
+	}
+	audioDev, err := sdl.OpenAudioDevice("", false, &audioSpec, nil, 0)
+	if err != nil {
+		// Audio is optional, continue without it
+		fmt.Printf("Warning: Failed to open audio device: %v\n", err)
+		audioDev = 0
+	} else {
+		sdl.PauseAudioDevice(audioDev, false) // Start playback
+	}
+
 	return &UI{
 		window:   window,
 		renderer: renderer,
@@ -78,6 +96,7 @@ func NewUI(emu *emulator.Emulator, scale int) (*UI, error) {
 		emulator: emu,
 		running:  true,
 		scale:    scale,
+		audioDev: audioDev,
 	}, nil
 }
 
@@ -103,6 +122,56 @@ func (u *UI) Run() error {
 		// Run emulator frame
 		if err := u.emulator.RunFrame(); err != nil {
 			return fmt.Errorf("emulation error: %w", err)
+		}
+
+		// Queue audio samples
+		if u.audioDev != 0 {
+			audioSamples := u.emulator.GetAudioSamples()
+			if len(audioSamples) > 0 {
+				// Check queue size to prevent backing up (limit to ~2 frames worth)
+				queuedBytes := sdl.GetQueuedAudioSize(u.audioDev)
+				maxQueuedBytes := uint32(len(audioSamples) * 2 * 4 * 2) // 2 frames worth
+				
+				// Debug: Log first frame's audio samples
+				if u.debugFrameCount < 1 {
+					fmt.Printf("[UI] Queuing %d audio samples, queuedBytes=%d, maxQueuedBytes=%d\n", 
+						len(audioSamples), queuedBytes, maxQueuedBytes)
+					if len(audioSamples) > 0 {
+						fmt.Printf("[UI] First 5 samples: %.6f, %.6f, %.6f, %.6f, %.6f\n",
+							audioSamples[0], audioSamples[1], audioSamples[2], audioSamples[3], audioSamples[4])
+					}
+					u.debugFrameCount++
+				}
+				
+				if queuedBytes < maxQueuedBytes {
+					// Convert float32 samples to bytes (stereo: interleaved L/R)
+					// AUDIO_F32 format: native float32, little-endian
+					audioBytes := make([]byte, len(audioSamples)*2*4) // 2 channels * 4 bytes per float32
+					for i, sample := range audioSamples {
+						// Convert float32 to bytes (little-endian, native format)
+						sampleBytes := (*[4]byte)(unsafe.Pointer(&sample))
+						// Left channel
+						audioBytes[i*8] = sampleBytes[0]
+						audioBytes[i*8+1] = sampleBytes[1]
+						audioBytes[i*8+2] = sampleBytes[2]
+						audioBytes[i*8+3] = sampleBytes[3]
+						// Right channel (same sample)
+						audioBytes[i*8+4] = sampleBytes[0]
+						audioBytes[i*8+5] = sampleBytes[1]
+						audioBytes[i*8+6] = sampleBytes[2]
+						audioBytes[i*8+7] = sampleBytes[3]
+					}
+					err := sdl.QueueAudio(u.audioDev, audioBytes)
+					if err != nil {
+						fmt.Printf("[UI ERROR] Failed to queue audio: %v\n", err)
+					}
+				} else {
+					// Queue is full, skip this frame
+					if u.debugFrameCount < 2 {
+						fmt.Printf("[UI] Audio queue full (%d bytes), skipping frame\n", queuedBytes)
+					}
+				}
+			}
 		}
 
 		// Render frame (using manual scaling for perfect pixel rendering)
@@ -367,6 +436,9 @@ func (u *UI) toggleFullscreen() {
 
 // Cleanup cleans up SDL resources
 func (u *UI) Cleanup() {
+	if u.audioDev != 0 {
+		sdl.CloseAudioDevice(u.audioDev)
+	}
 	if u.texture != nil {
 		u.texture.Destroy()
 	}

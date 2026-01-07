@@ -35,6 +35,9 @@ type Emulator struct {
 	// State
 	Running bool
 	Paused  bool
+	
+	// Audio samples from last frame
+	LastAudioSamples []float32
 }
 
 // NewEmulator creates a new emulator instance
@@ -94,6 +97,11 @@ func (e *Emulator) RunFrame() error {
 		return nil
 	}
 
+	// Update APU frame FIRST (handles note duration timers)
+	// This ensures channel status is updated BEFORE the CPU runs,
+	// so ROMs can check channel completion status during the frame
+	e.APU.UpdateFrame()
+
 	// Track CPU cycles before frame
 	cyclesBefore := e.CPU.State.Cycles
 
@@ -114,7 +122,7 @@ func (e *Emulator) RunFrame() error {
 
 	// Generate audio samples (44100 Hz / 60 FPS = 735 samples per frame)
 	audioSamples := e.APU.GenerateSamples(735)
-	_ = audioSamples // TODO: Send to audio output
+	e.LastAudioSamples = audioSamples
 
 	// Update FPS counter
 	e.FrameCount++
@@ -193,6 +201,11 @@ func (e *Emulator) GetOutputBuffer() []uint32 {
 // SetInputButtons sets the controller button state
 func (e *Emulator) SetInputButtons(buttons uint16) {
 	e.Input.Controller1Buttons = buttons
+}
+
+// GetAudioSamples returns the audio samples from the last frame
+func (e *Emulator) GetAudioSamples() []float32 {
+	return e.LastAudioSamples
 }
 
 

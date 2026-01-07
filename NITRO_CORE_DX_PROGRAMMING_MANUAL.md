@@ -1,7 +1,9 @@
 # Nitro-Core-DX Programming Manual
 
 **Version 1.0**  
-**Last Updated: December 2024**
+**Last Updated: January 6, 2026**
+
+> **⚠️ ARCHITECTURE IN DESIGN PHASE**: This system is currently in active development. The architecture is not yet finalized, and changes may break compatibility with existing ROMs. If you're developing software for Nitro-Core-DX, be aware that future changes may require code updates. See [System Manual](SYSTEM_MANUAL.md) for current implementation status and development plans.
 
 ---
 
@@ -356,19 +358,39 @@ The system uses a banked memory architecture with 24-bit addressing (bank:offset
 | 0x803B | HDMA_BG0_SCROLLX_H | 8-bit | HDMA: BG0 scroll X (high byte) |
 | 0x803C | HDMA_BG0_SCROLLY_L | 8-bit | HDMA: BG0 scroll Y (low byte) |
 | 0x803D | HDMA_BG0_SCROLLY_H | 8-bit | HDMA: BG0 scroll Y (high byte) |
+| 0x803E | VBLANK_FLAG | 8-bit | VBlank flag (bit 0 = VBlank active, one-shot, cleared when read) - hardware-accurate frame synchronization |
+| 0x803F | FRAME_COUNTER_LOW | 8-bit | Frame counter low byte (increments once per frame, wraps at 65536) |
+| 0x8040 | FRAME_COUNTER_HIGH | 8-bit | Frame counter high byte |
 
 #### APU Registers (0x9000-0x9FFF)
 
+**Channel Registers (8 bytes per channel):**
+
+Each channel has 8 bytes of registers, starting at:
+- Channel 0: 0x9000-0x9007
+- Channel 1: 0x9008-0x900F
+- Channel 2: 0x9010-0x9017
+- Channel 3: 0x9018-0x901F
+
+**Per-Channel Register Layout:**
+
+| Offset | Name | Size | Description |
+|--------|------|------|-------------|
+| +0 | FREQ_LOW | 8-bit | Frequency low byte (Hz) |
+| +1 | FREQ_HIGH | 8-bit | Frequency high byte (Hz) - triggers phase reset on change |
+| +2 | VOLUME | 8-bit | Volume (0-255, 0=silent, 255=max) |
+| +3 | CONTROL | 8-bit | Control register: bit 0=enable, bits 1-2=waveform |
+| +4 | DURATION_LOW | 8-bit | Note duration low byte (frames, 0=infinite) |
+| +5 | DURATION_HIGH | 8-bit | Note duration high byte (frames) |
+| +6 | DURATION_MODE | 8-bit | Duration mode: bit 0=0 (stop when done), bit 0=1 (loop/restart) |
+| +7 | Reserved | 8-bit | Reserved for future use |
+
+**Global APU Registers:**
+
 | Address | Name | Size | Description |
 |---------|------|------|-------------|
-| 0x9000 | CH0_FREQ_LOW | 8-bit | Channel 0 frequency (low byte) |
-| 0x9001 | CH0_FREQ_HIGH | 8-bit | Channel 0 frequency (high byte) |
-| 0x9002 | CH0_VOLUME | 8-bit | Channel 0 volume (0-255) |
-| 0x9003 | CH0_CONTROL | 8-bit | Channel 0 control (bit 0=enable, bits 2-3=waveform) |
-| 0x9004-0x9007 | CH1_* | 8-bit | Channel 1 (same pattern) |
-| 0x9008-0x900B | CH2_* | 8-bit | Channel 2 (same pattern) |
-| 0x900C-0x900F | CH3_* | 8-bit | Channel 3 (noise/square) |
-| 0x9010 | MASTER_VOLUME | 8-bit | Master volume (0-255) |
+| 0x9020 | MASTER_VOLUME | 8-bit | Master volume (0-255) |
+| 0x9021 | CHANNEL_COMPLETION_STATUS | 8-bit | Channel completion flags (bits 0-3 = channels 0-3, one-shot, cleared immediately after read) |
 
 **Waveform Types:**
 - `0` = Sine
@@ -803,33 +825,42 @@ VRAM (64KB) is organized as:
 - **Channels 0-2**: Sine, Square, or Saw waveform
 - **Channel 3**: Square or Noise waveform
 
+### Execution Order
+
+**Important:** The emulator runs in this order each frame:
+1. **APU.UpdateFrame()** - Decrements durations, sets completion flags
+2. **CPU execution** - Your ROM code runs (can check completion status)
+3. **PPU rendering** - Frame is rendered
+4. **Audio generation** - Audio samples generated
+
+This ensures completion status is available **before** your ROM code runs, so you can check it reliably.
+
 ### Setting Up Audio
 
 1. **Set Frequency** (440 Hz example):
    ```
-   ; Frequency = 440 Hz
-   ; Sample rate = 44100 Hz
-   ; Phase increment = (440 / 44100) * 65536 ≈ 654
-   MOV R1, #0x9000        ; CH0_FREQ_LOW
-   MOV R2, #0x8E          ; Low byte = 0x8E (654 & 0xFF)
-   MOV [R1], R2
-   MOV R1, #0x9001        ; CH0_FREQ_HIGH
-   MOV R2, #0x02          ; High byte = 0x02 (654 >> 8)
-   MOV [R1], R2
+   ; Frequency = 440 Hz (direct value, not phase increment)
+   ; Write low byte first, then high byte
+   MOV R7, #0x9000        ; CH0_FREQ_LOW
+   MOV R0, #0xB8          ; Low byte = 0xB8 (440 & 0xFF)
+   MOV [R7], R0
+   MOV R7, #0x9001        ; CH0_FREQ_HIGH
+   MOV R0, #0x01          ; High byte = 0x01 (440 >> 8)
+   MOV [R7], R0
    ```
 
 2. **Set Volume**:
    ```
-   MOV R1, #0x9002        ; CH0_VOLUME
-   MOV R2, #0x80          ; Volume = 128 (50%)
-   MOV [R1], R2
+   MOV R7, #0x9002        ; CH0_VOLUME
+   MOV R0, #0x80          ; Volume = 128 (50%)
+   MOV [R7], R0
    ```
 
 3. **Enable Channel**:
    ```
-   MOV R1, #0x9003        ; CH0_CONTROL
-   MOV R2, #0x01          ; Bit 0 = enable, bits 2-3 = 0 (sine)
-   MOV [R1], R2
+   MOV R7, #0x9003        ; CH0_CONTROL
+   MOV R0, #0x01          ; Bit 0 = enable, bits 1-2 = 0 (sine)
+   MOV [R7], R0
    ```
 
 ### Waveform Types
@@ -838,6 +869,497 @@ VRAM (64KB) is organized as:
 - **1 (Square)**: Square wave (50% duty cycle)
 - **2 (Saw)**: Sawtooth wave
 - **3 (Noise)**: White noise (LFSR-based, channel 3 only)
+
+### Audio Timing and Note Durations
+
+The APU now supports **automatic note duration control** - a developer-friendly feature that makes timing much easier!
+
+#### Automatic Duration Control (Recommended)
+
+Each channel has **duration registers** that automatically count down each frame. When duration reaches 0, the channel can auto-disable (or loop, depending on mode).
+
+**Key Features:**
+- **Duration in frames**: Set duration directly in frames (60 frames = 1 second at 60 FPS)
+- **Automatic countdown**: APU decrements duration each frame automatically
+- **Auto-disable**: Channel automatically disables when duration expires (if stop mode)
+- **Completion status**: Read `CHANNEL_COMPLETION_STATUS` (0x9021) to detect when channels finish
+
+**Example: Play a note for 1 second (60 frames)**
+
+```
+; Set up channel 0 for a note with 60-frame duration
+MOV R7, #0x9000        ; CH0_FREQ_LOW
+MOV R0, #0x06          ; Low byte (262 Hz = C4)
+MOV [R7], R0
+
+MOV R7, #0x9001        ; CH0_FREQ_HIGH
+MOV R0, #0x01          ; High byte
+MOV [R7], R0
+
+MOV R7, #0x9002        ; CH0_VOLUME
+MOV R0, #0x80          ; Volume = 128
+MOV [R7], R0
+
+; Set duration to 60 frames (1 second)
+MOV R7, #0x9004        ; CH0_DURATION_LOW
+MOV R0, #60            ; Low byte = 60
+MOV [R7], R0
+
+MOV R7, #0x9005        ; CH0_DURATION_HIGH
+MOV R0, #0             ; High byte = 0
+MOV [R7], R0
+
+; Set duration mode: stop when done (mode 0)
+MOV R7, #0x9006        ; CH0_DURATION_MODE
+MOV R0, #0             ; Mode 0 = stop when done
+MOV [R7], R0
+
+; NOW enable the channel (do this LAST!)
+MOV R7, #0x9003        ; CH0_CONTROL
+MOV R0, #0x01          ; Enable, sine wave
+MOV [R7], R0
+```
+
+**Important:** Always set frequency, volume, and duration **BEFORE** enabling the channel!
+
+#### Frame Synchronization Options
+
+The emulator provides **three synchronization mechanisms** for different use cases:
+
+**1. Completion Status Register (0x9021) - One-Shot**
+- **Best for**: Simple audio timing, detecting when channels finish
+- **Behavior**: One-shot flag, cleared immediately after read
+- **Use when**: You only need to know if a channel finished, don't need frame boundaries
+
+**2. Frame Counter (0x803F/0x8040) - Continuous**
+- **Best for**: Precise timing, frame-perfect synchronization, debugging
+- **Behavior**: 16-bit counter that increments once per frame (wraps at 65536)
+- **Use when**: You need to measure time in frames, or wait for specific frame numbers
+
+**3. VBlank Flag (0x803E) - Hardware-Accurate**
+- **Best for**: Hardware-accurate synchronization, FPGA implementation compatibility
+- **Behavior**: One-shot flag set at start of each frame, cleared when read
+- **Use when**: You want to match real hardware behavior (NES, SNES pattern), or plan FPGA implementation
+
+#### Using Completion Status Register
+
+The `CHANNEL_COMPLETION_STATUS` register (0x9021) is a **one-shot flag** that indicates which channels just finished this frame:
+
+- **Bits 0-3**: Channels 0-3 completion flags (1 = channel finished this frame)
+- **One-shot behavior**: Flag is cleared immediately after being read
+- **Read once per frame**: Check this register once per frame to detect channel completion
+
+**Example: Detect when channel 0 finishes and start next note**
+
+```
+main_loop:
+    ; ... your game logic ...
+    
+    ; Check if channel 0 just finished
+    MOV R7, #0x9021        ; CHANNEL_COMPLETION_STATUS
+    MOV R6, [R7]           ; Read completion status (16-bit read)
+    AND R6, #0x01          ; Mask to bit 0 (channel 0 flag)
+    CMP R6, #0             ; Compare with 0
+    BEQ skip_note_update   ; If channel 0 didn't finish, skip update
+    
+    ; Channel 0 finished - start next note!
+    ; ... update frequency, duration, re-enable channel ...
+    
+skip_note_update:
+    JMP main_loop
+```
+
+#### Using Frame Counter
+
+The `FRAME_COUNTER` register (0x803F/0x8040) is a **16-bit counter** that increments once per frame:
+
+- **Low byte (0x803F)**: Frame counter bits 0-7
+- **High byte (0x8040)**: Frame counter bits 8-15
+- **Behavior**: Increments at start of each frame, wraps at 65536
+- **Use for**: Precise timing, frame-perfect synchronization, measuring elapsed time
+
+**Example: Wait for next frame using frame counter**
+
+```
+main_loop:
+    ; Read current frame counter
+    MOV R7, #0x803F        ; FRAME_COUNTER_LOW
+    MOV R3, [R7]           ; Read 16-bit frame counter into R3
+    
+    ; ... your game logic ...
+    
+    ; Wait for frame counter to change (next frame)
+    wait_frame:
+        MOV R7, #0x803F    ; FRAME_COUNTER_LOW
+        MOV R6, [R7]       ; Read current frame counter
+        CMP R6, R3         ; Compare with previous frame
+        BEQ wait_frame     ; If same, keep waiting
+    
+    ; Now we're in a new frame!
+    ; Update frame counter for next iteration
+    MOV R3, R6
+    
+    ; Check completion status (now in new frame)
+    MOV R7, #0x9021        ; CHANNEL_COMPLETION_STATUS
+    MOV R6, [R7]           ; Read completion status
+    ; ... process completion ...
+    
+    JMP main_loop
+```
+
+#### Using VBlank Flag (Hardware-Accurate)
+
+The `VBLANK_FLAG` register (0x803E) is a **one-shot flag** that indicates the start of vertical blanking period:
+
+- **Bit 0**: VBlank active (1 = VBlank period, 0 = not VBlank)
+- **One-shot behavior**: Flag is cleared immediately after being read
+- **Hardware-accurate**: Matches real hardware behavior (NES, SNES, etc.)
+- **Best for**: FPGA implementation, hardware-accurate synchronization
+
+**Example: Wait for VBlank (hardware-accurate pattern)**
+
+```
+main_loop:
+    ; Wait for VBlank signal
+    wait_vblank:
+        MOV R7, #0x803E    ; VBLANK_FLAG
+        MOV R6, [R7]       ; Read VBlank flag
+        AND R6, #0x01      ; Mask to bit 0
+        CMP R6, #0         ; Compare with 0
+        BEQ wait_vblank    ; If not VBlank, keep waiting
+    
+    ; Now we're at start of frame (VBlank period)
+    ; This is the standard pattern for retro game development
+    
+    ; Check completion status
+    MOV R7, #0x9021        ; CHANNEL_COMPLETION_STATUS
+    MOV R6, [R7]           ; Read completion status
+    ; ... process completion ...
+    
+    ; ... your game logic ...
+    
+    JMP main_loop
+```
+
+**Execution Order:**
+The emulator runs in this order each frame:
+1. **APU.UpdateFrame()** - Decrements durations, sets completion flags
+2. **CPU execution** - Your ROM code runs (can check completion status, VBlank, frame counter)
+3. **PPU.RenderFrame()** - Frame is rendered, VBlank flag set, frame counter incremented
+4. **Audio generation** - Audio samples generated
+
+This ensures all synchronization signals are available **before** your ROM code runs, so you can check them reliably.
+
+#### Duration Modes
+
+**Mode 0 (Stop when done):**
+- Channel plays for specified duration
+- When duration reaches 0, channel automatically disables
+- Completion flag is set when channel disables
+- Use for: Single notes, sound effects, one-shot sounds
+
+**Mode 1 (Loop/Restart):**
+- Channel plays for specified duration
+- When duration reaches 0, channel continues playing (duration stays at 0 = infinite)
+- Use for: Looping background music, sustained notes
+
+**Setting Duration:**
+- **Duration = 0**: Channel plays indefinitely (no auto-disable)
+- **Duration > 0**: Channel counts down each frame, auto-disables when reaches 0 (if mode 0)
+
+### Musical Note Frequencies
+
+Common musical note frequencies (in Hz):
+
+| Note | Frequency (Hz) | Low Byte | High Byte |
+|------|----------------|----------|-----------|
+| C4 | 262 | 0x06 | 0x01 |
+| D4 | 294 | 0x26 | 0x01 |
+| E4 | 330 | 0x4A | 0x01 |
+| F4 | 349 | 0x5D | 0x01 |
+| G4 | 392 | 0x88 | 0x01 |
+| A4 | 440 | 0xB8 | 0x01 |
+| B4 | 494 | 0xEE | 0x01 |
+| C5 | 523 | 0x0B | 0x02 |
+
+**C Major Scale (Octave 4):**
+- C4: 262 Hz
+- D4: 294 Hz
+- E4: 330 Hz
+- F4: 349 Hz
+- G4: 392 Hz
+- A4: 440 Hz
+- B4: 494 Hz
+- C5: 523 Hz
+
+### Complete Audio Example: Playing a Scale with Duration Control
+
+This example uses the new duration-based timing system:
+
+```
+; Initialize note index (R4)
+MOV R4, #0x0000           ; Start with note 0 (C4)
+
+; Play first note immediately
+; Set frequency (C4 = 262 Hz)
+MOV R7, #0x9000           ; CH0_FREQ_LOW
+MOV R0, #0x06             ; Low byte (262 & 0xFF)
+MOV [R7], R0
+
+MOV R7, #0x9001           ; CH0_FREQ_HIGH
+MOV R0, #0x01             ; High byte (262 >> 8)
+MOV [R7], R0
+
+; Set volume
+MOV R7, #0x9002           ; CH0_VOLUME
+MOV R0, #0x80             ; Volume = 128
+MOV [R7], R0
+
+; Set duration to 60 frames (1 second)
+MOV R7, #0x9004           ; CH0_DURATION_LOW
+MOV R0, #60               ; Duration = 60 frames
+MOV [R7], R0
+
+MOV R7, #0x9005           ; CH0_DURATION_HIGH
+MOV R0, #0                ; High byte = 0
+MOV [R7], R0
+
+; Set duration mode: stop when done
+MOV R7, #0x9006           ; CH0_DURATION_MODE
+MOV R0, #0                ; Mode 0 = stop when done
+MOV [R7], R0
+
+; NOW enable the channel
+MOV R7, #0x9003           ; CH0_CONTROL
+MOV R0, #0x01             ; Enable, sine wave
+MOV [R7], R0
+
+main_loop:
+    ; ... your game logic ...
+    
+    ; Check if channel 0 just finished (using completion status)
+    MOV R7, #0x9021        ; CHANNEL_COMPLETION_STATUS
+    MOV R6, [R7]           ; Read completion status (16-bit read)
+    AND R6, #0x01          ; Mask to bit 0 (channel 0 flag)
+    CMP R6, #0             ; Compare with 0
+    BEQ skip_note          ; If channel 0 didn't finish, skip update
+    
+    ; Channel 0 finished - start next note!
+    ; Increment note index (cycle 0-7)
+    ADD R4, #1
+    AND R4, #0x07          ; Keep in range 0-7
+    
+    ; Calculate frequency: approximate scale
+    ; For simplicity, use: 262 + (note_index * 32)
+    MOV R7, R4             ; R7 = note index
+    SHL R7, #5             ; R7 = note index * 32
+    ADD R7, #262           ; R7 = 262 + (note_index * 32)
+    
+    ; Set frequency (low byte first, then high byte)
+    MOV R0, R7             ; R0 = frequency
+    AND R0, #0xFF          ; R0 = low byte
+    MOV R7, #0x9000        ; CH0_FREQ_LOW
+    MOV [R7], R0
+    
+    ; High byte: check if note index == 7 (523 Hz needs 0x02)
+    CMP R4, #7
+    BLT note_low
+    MOV R0, #0x02          ; High byte 0x02 for note 7
+    JMP note_high_done
+note_low:
+    MOV R0, #0x01          ; High byte 0x01 for notes 0-6
+note_high_done:
+    MOV R7, #0x9001        ; CH0_FREQ_HIGH
+    MOV [R7], R0
+    
+    ; Set duration to 60 frames again
+    MOV R7, #0x9004        ; CH0_DURATION_LOW
+    MOV R0, #60            ; Duration = 60 frames
+    MOV [R7], R0
+    
+    MOV R7, #0x9005        ; CH0_DURATION_HIGH
+    MOV R0, #0             ; High byte = 0
+    MOV [R7], R0
+    
+    ; Re-enable channel to start the note
+    MOV R7, #0x9003        ; CH0_CONTROL
+    MOV R0, #0x01          ; Enable, sine wave
+    MOV [R7], R0
+    
+skip_note:
+    JMP main_loop
+```
+
+**Key Points:**
+- Duration is set **before** enabling the channel
+- Completion status is checked **once per frame** in the main loop
+- When channel finishes, update frequency/duration and re-enable
+- No manual frame counting needed - APU handles it automatically!
+
+### Frequency Calculation Tips
+
+**Direct Frequency Value:**
+- The APU uses direct frequency values in Hz (0-65535)
+- No conversion needed - just write the frequency value directly
+
+**Calculating Frequency from Note Index:**
+- For a simple scale: `frequency = base_freq + (note_index * step)`
+- Example: C major scale starting at C4 (262 Hz)
+  - `frequency = 262 + (note_index * 32)` (approximate)
+  - More accurate: use a lookup table or precise calculation
+
+**Frequency Update Order:**
+1. Always write **low byte first** (FREQ_LOW)
+2. Then write **high byte** (FREQ_HIGH)
+3. The APU updates the phase increment when the high byte is written
+4. **Phase is automatically reset to 0** when frequency changes (for clean note starts)
+
+### Retro Game Audio Best Practices
+
+#### Phase Reset on Note Change
+
+The APU automatically resets the phase to 0 when the frequency changes. This ensures:
+- **Clean note transitions**: Each note starts from the beginning of the waveform cycle
+- **No warbling**: Prevents phase discontinuities that cause warbling sounds
+- **Authentic retro sound**: Matches behavior of real hardware (NES, SNES)
+
+**Why this matters:**
+- Without phase reset, changing frequency mid-cycle causes the waveform to jump to a different point
+- This creates warbling, clicks, and other artifacts
+- Retro game audio relies on clean note starts for musical clarity
+
+#### Volume Envelope and Note Timing
+
+**Proper Note Timing Sequence:**
+1. **Set frequency** (low byte, then high byte)
+2. **Set volume** (0-255)
+3. **Enable channel** (CONTROL register, bit 0 = 1)
+
+**Note Duration Control:**
+- Use APU duration registers for automatic timing (recommended)
+- Set duration in frames (60 frames = 1 second at 60 FPS)
+- Check completion status register to detect when notes finish
+- No manual frame counting needed!
+
+**Volume Envelope Example:**
+```
+; Start note with full volume
+MOV R7, #0x9002        ; CH0_VOLUME
+MOV R0, #0xFF          ; Full volume
+MOV [R7], R0
+
+; ... play note for duration ...
+
+; Fade out (optional)
+MOV R7, #0x9002
+MOV R0, #0x80          ; Half volume
+MOV [R7], R0
+
+; ... continue ...
+
+; End note
+MOV R7, #0x9003        ; CH0_CONTROL
+MOV R0, #0x00          ; Disable channel
+MOV [R7], R0
+```
+
+#### Waveform Selection for Different Sounds
+
+**Sine Wave (0)**: 
+- Smooth, pure tone
+- Best for: melodies, background music, soft sounds
+- Example: `CONTROL = 0x01` (enable, sine)
+
+**Square Wave (1)**:
+- Harsh, buzzy tone
+- Best for: bass lines, percussion, retro game sound effects
+- Example: `CONTROL = 0x03` (enable, square)
+
+**Saw Wave (2)**:
+- Bright, buzzy tone
+- Best for: leads, synth sounds, special effects
+- Example: `CONTROL = 0x05` (enable, saw)
+
+**Noise (3, Channel 3 only)**:
+- White noise
+- Best for: percussion, explosion sounds, wind effects
+- Example: `CONTROL = 0x07` (enable, noise)
+
+#### Multi-Channel Audio
+
+Use multiple channels for:
+- **Melody + Bass**: Channel 0 for melody, Channel 1 for bass
+- **Harmony**: Multiple channels playing different notes simultaneously
+- **Sound Effects**: Reserve Channel 3 for sound effects (noise)
+
+**Example: Two-Channel Harmony**
+```
+; Channel 0: Play C4 (262 Hz)
+MOV R7, #0x9000        ; CH0_FREQ_LOW
+MOV R0, #0x06          ; Low byte
+MOV [R7], R0
+MOV R7, #0x9001        ; CH0_FREQ_HIGH
+MOV R0, #0x01          ; High byte
+MOV [R7], R0
+MOV R7, #0x9002        ; CH0_VOLUME
+MOV R0, #0x80
+MOV [R7], R0
+MOV R7, #0x9004        ; CH0_DURATION_LOW
+MOV R0, #0             ; Duration = 0 (play indefinitely)
+MOV [R7], R0
+MOV R7, #0x9005        ; CH0_DURATION_HIGH
+MOV R0, #0
+MOV [R7], R0
+MOV R7, #0x9003        ; CH0_CONTROL
+MOV R0, #0x01          ; Enable, sine
+MOV [R7], R0
+
+; Channel 1: Play E4 (330 Hz) - harmony
+MOV R7, #0x9008        ; CH1_FREQ_LOW (0x9000 + 1*8 + 0)
+MOV R0, #0x4A          ; Low byte
+MOV [R7], R0
+MOV R7, #0x9009        ; CH1_FREQ_HIGH (0x9000 + 1*8 + 1)
+MOV R0, #0x01          ; High byte
+MOV [R7], R0
+MOV R7, #0x900A        ; CH1_VOLUME (0x9000 + 1*8 + 2)
+MOV R0, #0x80
+MOV [R7], R0
+MOV R7, #0x900C        ; CH1_DURATION_LOW (0x9000 + 1*8 + 4)
+MOV R0, #0             ; Duration = 0 (play indefinitely)
+MOV [R7], R0
+MOV R7, #0x900D        ; CH1_DURATION_HIGH (0x9000 + 1*8 + 5)
+MOV R0, #0
+MOV [R7], R0
+MOV R7, #0x900B        ; CH1_CONTROL (0x9000 + 1*8 + 3)
+MOV R0, #0x01          ; Enable, sine
+MOV [R7], R0
+```
+
+#### Common Pitfalls and Solutions
+
+**Problem: Channel disables immediately after enabling**
+- **Cause**: Duration was set to 0, or channel was enabled before duration was set
+- **Solution**: Always set frequency, volume, and duration **BEFORE** enabling the channel. Set duration > 0 for timed notes.
+
+**Problem: Completion status always reads 0**
+- **Cause**: Reading completion status after it's been cleared (it's one-shot), or channel never finishes
+- **Solution**: Completion status is cleared immediately after being read (one-shot). Read it once per frame in your main loop. Ensure duration > 0 and mode = 0 (stop when done). Use VBlank or frame counter to ensure you only check once per frame.
+
+**Problem: Notes not changing**
+- **Cause**: Not checking completion status, or branch logic is wrong
+- **Solution**: Read `CHANNEL_COMPLETION_STATUS` (0x9021) once per frame. Use `BEQ` to skip note update if status is 0 (channel didn't finish).
+
+**Problem: Warbling/clicking sounds**
+- **Cause**: Phase not resetting on frequency change (now fixed in APU)
+- **Solution**: Ensure frequency is updated correctly (low byte first, then high byte). APU automatically resets phase when frequency changes.
+
+**Problem: Audio sounds distorted**
+- **Cause**: Volume too high, or multiple channels mixing incorrectly
+- **Solution**: Lower individual channel volumes, check master volume
+
+**Problem: Timing is inconsistent**
+- **Cause**: Using old loop-counter approach instead of duration registers
+- **Solution**: Use APU duration registers for automatic timing. Set duration in frames (60 frames = 1 second).
 
 ---
 
@@ -1187,6 +1709,8 @@ delay_loop:
 | MATRIX_CONTROL | 0x8018 | Matrix Mode enable and mirroring |
 | MATRIX_A/B/C/D | 0x8019-0x8020 | Transformation matrix (16-bit each) |
 | MATRIX_CENTER_X/Y | 0x8027-0x802A | Center point (16-bit each) |
+| VBLANK_FLAG | 0x803E | VBlank flag (bit 0 = VBlank active, one-shot, cleared when read) |
+| FRAME_COUNTER | 0x803F-0x8040 | Frame counter (16-bit, increments once per frame) |
 
 ### Memory Map Quick Reference
 

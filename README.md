@@ -2,6 +2,41 @@
 
 **A Fantasy Console Emulator Combining SNES Graphics with Genesis Power**
 
+> **⚠️ ARCHITECTURE IN DESIGN PHASE**: This system is currently in active development. The architecture is not yet finalized, and changes may break compatibility with existing ROMs. If you're using the current iteration, be aware that future changes may require ROM updates. See [System Manual](SYSTEM_MANUAL.md) for current implementation status and development plans.
+
+---
+
+## Project Status
+
+### ✅ Currently Implemented
+
+- **Core Emulation**: CPU, Memory, PPU, APU, Input systems
+- **Synchronization**: One-shot completion status, frame counter, VBlank flag
+- **Basic Rendering**: Sprite system, background layers, tile rendering
+- **Audio System**: 4-channel audio synthesis with duration control
+- **ROM Loading**: Complete ROM header parsing and execution
+
+### 🚧 In Progress
+
+- **PPU Rendering**: Full tilemap implementation, Matrix Mode transformation
+- **Development Tools**: Logging system, debugger, memory viewer
+
+### ❌ Planned
+
+- **UI Framework**: SDL2-based interface with dockable panels
+- **Advanced Features**: HDMA, large world support, vertical sprites
+- **Development Tools**: CPU debugger, PPU viewer, APU analyzer
+
+For detailed status, see the [System Manual](SYSTEM_MANUAL.md).
+
+---
+
+## Documentation Structure
+
+- **[README.md](README.md)**: Project overview, quick start, features
+- **[Programming Manual](NITRO_CORE_DX_PROGRAMMING_MANUAL.md)**: How to program software for Nitro-Core-DX
+- **[System Manual](SYSTEM_MANUAL.md)**: Architecture, design, development status, FPGA compatibility
+
 ---
 
 ## The Vision: A Love Letter to 1990's Gaming
@@ -253,31 +288,50 @@ The console has a native resolution of 320×200 pixels. To make it usable on mod
 ### Prerequisites
 
 - **Go 1.21 or later** ([Download Go](https://golang.org/dl/))
-- **Git** (for cloning the repository)
+- **SDL2 Development Libraries** (for UI)
+  - Ubuntu/Debian: `sudo apt-get install libsdl2-dev`
+  - macOS: `brew install sdl2`
+  - Windows: Download from [SDL2 website](https://www.libsdl.org/download-2.0.php)
 
 ### Installation
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/yourusername/nitro-core-dx.git
-   cd nitro-core-dx
+   git clone https://github.com/RetroCodeRamen/Nitro-Core-DX.git
+   cd Nitro-Core-DX
    ```
 
-2. **Build the project:**
+2. **Build the emulator:**
    ```bash
    go build -o nitro-core-dx ./cmd/emulator
    ```
 
-3. **Run the emulator:**
+3. **Build a test ROM (optional):**
    ```bash
-   ./nitro-core-dx
+   go build -o demorom ./cmd/demorom
+   ./demorom demo.rom
    ```
 
-### Loading ROMs
+4. **Run the emulator:**
+   ```bash
+   ./nitro-core-dx -rom demo.rom -scale 3
+   ```
 
-1. Click **File → Load ROM** in the menu
-2. Select a `.ncx` ROM file
-3. The emulator will automatically start execution
+### Command Line Options
+
+- `-rom <path>`: Path to ROM file (required)
+- `-unlimited`: Run at unlimited speed (no frame limit)
+- `-scale <1-6>`: Display scale multiplier (default: 3)
+
+### Controls
+
+- **Arrow Keys / WASD**: Move block
+- **Z / W**: A button (change block color)
+- **X**: B button (change background color)
+- **Space**: Pause/Resume
+- **Ctrl+R**: Reset
+- **Alt+F**: Toggle fullscreen
+- **ESC**: Quit
 
 ### Building from Source
 
@@ -285,15 +339,18 @@ The console has a native resolution of 320×200 pixels. To make it usable on mod
 # Build the emulator
 go build -o nitro-core-dx ./cmd/emulator
 
+# Build test ROM generators
+go build -o demorom ./cmd/demorom
+go build -o audiotest ./cmd/audiotest
+
 # Run tests
 go test ./...
 
 # Format code
 go fmt ./...
-
-# Run linter
-golangci-lint run
 ```
+
+For detailed build instructions, see [BUILD_INSTRUCTIONS.md](BUILD_INSTRUCTIONS.md).
 
 ---
 
@@ -324,6 +381,27 @@ golangci-lint run
 
 ---
 
+## Recent Changes (January 6, 2026)
+
+### Synchronization System
+
+Implemented three complementary synchronization mechanisms:
+
+1. **One-Shot Completion Status (0x9021)**: Audio channel completion detection
+2. **Frame Counter (0x803F/0x8040)**: Precise frame-based timing
+3. **VBlank Flag (0x803E)**: Hardware-accurate frame synchronization (FPGA-ready)
+
+All three mechanisms work together to provide flexible, hardware-accurate timing. See [System Manual](SYSTEM_MANUAL.md) for details.
+
+### Architecture Improvements
+
+- ✅ Synchronized execution order (APU → CPU → PPU → Audio)
+- ✅ One-shot flags prevent race conditions
+- ✅ Hardware-accurate signals for FPGA compatibility
+- ✅ Clear timing guarantees
+
+---
+
 ## Development
 
 ### Project Structure
@@ -331,7 +409,10 @@ golangci-lint run
 ```
 nitro-core-dx/
 ├── cmd/
-│   └── emulator/          # Main emulator application
+│   ├── emulator/          # Main emulator application
+│   ├── demorom/           # Demo ROM generator
+│   ├── audiotest/         # Audio test ROM generator
+│   └── testrom/           # Test ROM generator
 ├── internal/
 │   ├── cpu/               # CPU emulation
 │   ├── memory/            # Memory system
@@ -339,13 +420,16 @@ nitro-core-dx/
 │   ├── apu/               # Audio system
 │   ├── input/             # Input system
 │   ├── rom/               # ROM loading
-│   ├── ui/                # User interface
-│   └── debug/             # Debugging tools
-├── docs/                  # Documentation
+│   ├── ui/                # User interface (SDL2)
+│   ├── emulator/          # Emulator orchestration
+│   └── debug/             # Debugging tools (planned)
+├── docs/                  # Documentation (planned)
 ├── test/                  # Test ROMs
 ├── go.mod                 # Go module definition
 ├── go.sum                 # Go module checksums
-└── README.md             # This file
+├── README.md              # This file
+├── SYSTEM_MANUAL.md       # Architecture and design documentation
+└── NITRO_CORE_DX_PROGRAMMING_MANUAL.md  # Programming guide
 ```
 
 ### Contributing

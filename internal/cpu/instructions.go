@@ -42,7 +42,12 @@ func (c *CPU) executeMOV(mode, reg1, reg2 uint8) error {
 		bank := c.State.DBR
 		if addr >= 0x8000 {
 			bank = 0
+			// I/O registers are 8-bit, so only write the low byte
+			c.Mem.Write8(bank, addr, uint8(value&0xFF))
+			c.State.Cycles += 2 // Memory access
+			return nil
 		}
+		// Normal memory: 16-bit write
 		c.Mem.Write16(bank, addr, value)
 		c.State.Cycles += 2 // Memory access
 		return nil

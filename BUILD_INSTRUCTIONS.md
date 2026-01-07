@@ -1,5 +1,7 @@
 # Build Instructions
 
+**Last Updated: January 6, 2026**
+
 ## Prerequisites
 
 ### Go Installation
@@ -79,6 +81,18 @@ go build -o nitro-core-dx ./cmd/emulator
 - **Ctrl+R**: Reset emulator
 - **Alt+F**: Toggle fullscreen
 - **ESC**: Quit
+
+## Debugging Tools
+
+### Logging Output
+
+The `run_with_log.sh` script can be used to capture all emulator output to a log file:
+
+```bash
+./run_with_log.sh -rom test/roms/demo.rom -scale 3
+```
+
+This will create a timestamped log file (e.g., `emulator_log_20260106_193000.txt`) containing all console output.
 
 ## Troubleshooting
 

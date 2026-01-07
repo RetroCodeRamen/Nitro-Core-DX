@@ -95,6 +95,12 @@ func main() {
 		addImmVal(uint16(offset))
 	}
 
+	// Helper for BLT offset (branch if less than, signed)
+	blt := func(offset int16) {
+		add(0xC400)
+		addImmVal(uint16(offset))
+	}
+
 	// Helper for JMP offset
 	jmp := func(offset int16) {
 		add(0xD000)
@@ -123,12 +129,14 @@ func main() {
 	// Current note index (R4 = 0)
 	movImm16(4, 0)
 
-	// Note timer (R5 = 0, counts frames)
-	movImm16(5, 0)
+	// Note timer - use single counter approach for simplicity
+	// R6 = loop iteration counter (accumulates across all iterations)
+	// R7 is used for addresses, so we need to save/restore R6 when using R7
+	movImm16(6, 0) // Loop iteration counter (single counter for note timing)
 
-	// Enable BG0
+	// Disable BG0 (we only want sprites for now)
 	movImm16(7, 0x8008) // R7 = BG0_CONTROL address
-	movImm(0, 0x01)      // R0 = enable BG0 (temporarily use R0)
+	movImm(0, 0x00)      // R0 = disable BG0 (temporarily use R0)
 	movMem(7, 0)
 	movImm16(0, 160) // Restore R0
 
@@ -156,21 +164,25 @@ func main() {
 	movMem(7, 0)
 	movImm16(0, 160) // Restore R0
 
-	// Write tile data to VRAM (8x8 tile = 32 bytes)
-	// Create a solid tile using color index 1 (white from palette 1)
+	// Write tile data to VRAM
+	// Tile 0: Keep blank (all zeros) - reserved as transparent/blank tile
+	// Tile 1: Sprite tile (8x8 tile = 32 bytes)
+	// Write tile 1 at VRAM address 0x0020 (32 bytes = tile 1)
 	movImm16(7, 0x800E) // R7 = VRAM_ADDR_L
-	movImm(0, 0x00)      // R0 = address low byte (temporarily)
+	movImm(0, 0x20)      // R0 = address low byte 0x20 (tile 1 starts at 32) (temporarily)
 	movMem(7, 0)
 	movImm16(0, 160) // Restore R0
 
 	movImm16(7, 0x800F) // R7 = VRAM_ADDR_H
-	movImm(0, 0x00)      // R0 = address high byte (temporarily)
+	movImm(0, 0x00)      // R0 = address high byte 0x00 (temporarily)
 	movMem(7, 0)
 	movImm16(0, 160) // Restore R0
 
 	movImm16(7, 0x8010) // R7 = VRAM_DATA
 	// Write 32 bytes of 0x11 (solid tile, color index 1)
-	movImm16(6, 32) // R6 = 32 (counter)
+	// Temporarily use R3 for tile loop counter (save current R3 value first)
+	// Actually, R3 starts at 0 (background palette), so we can use it directly
+	movImm16(3, 32) // R3 = 32 (counter) - temporarily
 
 	tileLoopStart := len(code)
 	// Write 0x11 to VRAM_DATA
@@ -178,14 +190,46 @@ func main() {
 	movMem(7, 0)
 	movImm16(0, 160) // Restore R0
 	// Decrement counter
-	subImm(6, 1)
+	subImm(3, 1)
 	// Check if done
-	cmpImm(6, 0)
+	cmpImm(3, 0)
 	tileLoopEnd := len(code)
 	bne(calcOffset(tileLoopEnd*2, tileLoopStart*2))
+	// Restore R3 (background palette)
+	movImm16(3, 0) // Restore R3 to 0 (background palette)
+
+	// Initialize audio - play first note immediately
+	// Use lookup table approach: store frequencies in memory or use direct values
+	// For now, use direct frequency value for note 0 (262 Hz = 0x0106)
+	movImm16(7, 262) // R7 = frequency for note 0 (C4 = 262 Hz)
+
+	// Set frequency low byte (use R7 for address, preserve R6!)
+	movImm16(7, 0x9000) // R7 = CH0_FREQ_LOW
+	movReg(0, 7)         // R0 = frequency (temporarily, from R7 calculation above)
+	andImm(0, 0xFF)      // R0 = low byte only
+	movMem(7, 0)
+	movImm16(0, 160) // Restore R0
+
+	// Set frequency high byte
+	movImm16(7, 0x9001) // R7 = CH0_FREQ_HIGH
+	movImm(0, 0x01)     // R0 = high byte
+	movMem(7, 0)
+	movImm16(0, 160) // Restore R0
+
+	movImm16(7, 0x9002) // R7 = CH0_VOLUME
+	movImm(0, 0x80)     // R0 = volume 128
+	movMem(7, 0)
+	movImm16(0, 160) // Restore R0
+
+	movImm16(7, 0x9003) // R7 = CH0_CONTROL
+	movImm(0, 0x01)     // R0 = enable, sine wave
+	movMem(7, 0)
+	movImm16(0, 160) // Restore R0
 
 	// Main loop
 	mainLoop := len(code) // Word index
+	// NOTE: R6 is NOT reset here - it accumulates across loop iterations
+	// It only resets when the threshold is reached (in the audio update section)
 
 	// Latch controller
 	movImm16(7, 0xA001) // R7 = CONTROLLER1_LATCH
@@ -266,54 +310,83 @@ func main() {
 	skipBTarget := len(code)
 	code[skipBPC+1] = uint16(calcOffset((skipBPC+1)*2, skipBTarget*2))
 
-	// Update audio (play scale)
-	// Increment note timer (R5)
-	addImm(5, 1)
+	// Update audio (play scale) - single counter approach
+	// Increment loop iteration counter (R6) - accumulates across all loop iterations
+	addImm(6, 1)
 
-	// Check if 60 frames (1 second) have passed - time to move to next note
-	cmpImm(5, 60)
+	// Check if enough iterations have passed for one note (approximately 1 second)
+	// The loop runs many times per frame (~2000-3000 iterations per frame)
+	// For 1 second = 60 frames, we need ~120,000-180,000 total iterations
+	// Start with 30000 and tune based on actual behavior
+	// This is simpler and more reliable than trying to count "frames"
+	cmpImm(6, 30000)
 	skipNextNotePC := len(code)
-	bne(0) // If timer < 60, not time for next note yet
+	blt(0) // If R6 < 30000, skip note update
 
-	// Reset timer
-	movImm16(5, 0)
+	// Reset counter FIRST before updating frequency
+	// This ensures we only update notes when we've counted enough iterations
+	movImm16(6, 0)
 
 	// Increment note index (R4), cycle 0-7
 	addImm(4, 1)
 	andImm(4, 0x07) // Keep in range 0-7
 
-	skipNextNoteTarget := len(code)
-	code[skipNextNotePC+1] = uint16(calcOffset((skipNextNotePC+1)*2, skipNextNoteTarget*2))
-
-	// Play current note based on R4
-	// We'll use a lookup table approach - calculate frequency from note index
-	// For simplicity, use approximate frequencies: 262 + (R4 * 35)
+	// Play current note based on R4 (only when timer resets)
+	// Use lookup table: calculate address offset for frequency lookup
+	// Store frequencies in WRAM starting at address 0x0000
+	// Frequencies: 262, 294, 330, 349, 392, 440, 494, 523
+	// For simplicity, use a switch-like structure with direct values
+	// R4 = note index (0-7), we'll use a series of comparisons
+	
+	// For now, use approximate calculation but with better accuracy
+	// Note frequencies: 262, 294, 330, 349, 392, 440, 494, 523
+	// Better approximation: base + (note * step) where step varies
+	// Actually, let's use direct lookup via memory or better calculation
+	
+	// Simplified: use note index to calculate approximate frequency
+	// For better accuracy, we'll use: 262 + note_index * 32 (close enough for demo)
+	// But actually, let's use a more accurate method:
+	// For notes 0-1: exact (262, 294)
+	// For notes 2-7: use better approximation
+	
+	// Use direct frequency lookup - store in R7 based on note index
+	// We'll use a series of comparisons to set the correct frequency
+	// For simplicity in demo, use: 262 + (note_index * 32) for now
 	movReg(7, 4)    // R7 = note index
 	shlImm(7, 5)    // R7 = note index * 32
-	addImm(7, 30)   // Add 30 more for better approximation
-	addImm(7, 232)  // R7 = 262 + (note index * 32) + 30 (approximate)
+	addImm(7, 262)  // R7 = 262 + (note index * 32) - approximate
 
-	// Set frequency low byte
-	movImm16(6, 0x9000) // R6 = CH0_FREQ_LOW
-	movReg(0, 7)         // R0 = frequency low byte (temporarily)
-	movMem(6, 0)
+	// Set frequency LOW byte FIRST
+	// R7 already has the frequency from calculation above
+	movReg(0, 7)    // R0 = frequency (from R7)
+	andImm(0, 0xFF) // R0 = low byte only
+	movImm16(7, 0x9000) // R7 = CH0_FREQ_LOW address (R6 preserved!)
+	movMem(7, 0)
 	movImm16(0, 160) // Restore R0
 
-	// Set frequency high byte (most frequencies are < 512, so high byte is 0 or 1)
-	movImm16(6, 0x9001) // R6 = CH0_FREQ_HIGH
-	movImm(0, 0x01)     // R0 = high byte (most need 0x01)
-	movMem(6, 0)
+	// Set frequency HIGH byte SECOND (this completes the frequency update)
+	// Writing the high byte triggers phase reset in APU for clean note start
+	// Calculate high byte: check if note index == 7 (523 Hz needs 0x02, others need 0x01)
+	cmpImm(4, 7)    // Compare note index with 7
+	skipHighByte2PC := len(code)
+	bne(0)          // If not equal, skip to set 0x01
+	movImm(0, 0x02) // R0 = high byte 0x02 (for note 7 = 523 Hz)
+	skipHighByteTarget := len(code)
+	jmp(calcOffset(len(code)*2, skipHighByteTarget*2))
+	skipHighByte2Target := len(code)
+	code[skipHighByte2PC+1] = uint16(calcOffset((skipHighByte2PC+1)*2, skipHighByte2Target*2))
+	movImm(0, 0x01) // R0 = high byte 0x01 (for notes 0-6, frequencies 256-511)
+	skipHighByteTarget = len(code)
+	code[skipHighByteTarget-1] = uint16(calcOffset((skipHighByteTarget-1)*2, skipHighByteTarget*2))
+	
+	movImm16(7, 0x9001) // R7 = CH0_FREQ_HIGH (R6 preserved!)
+	movMem(7, 0)         // Write high byte (triggers phase reset in APU)
 	movImm16(0, 160) // Restore R0
+	// NOTE: Channel stays enabled - phase resets automatically on FREQ_HIGH write
+	// R6 (loop counter) is preserved since we used R7 for addresses
 
-	movImm16(6, 0x9002) // R6 = CH0_VOLUME
-	movImm(0, 0x80)     // R0 = volume 128
-	movMem(6, 0)
-	movImm16(0, 160) // Restore R0
-
-	movImm16(6, 0x9003) // R6 = CH0_CONTROL
-	movImm(0, 0x01)     // R0 = enable, sine wave
-	movMem(6, 0)
-	movImm16(0, 160) // Restore R0
+	skipNextNoteTarget := len(code)
+	code[skipNextNotePC+1] = uint16(calcOffset((skipNextNotePC+1)*2, skipNextNoteTarget*2))
 
 	// Update sprite position (write to OAM)
 	movImm16(7, 0x8014) // R7 = OAM_ADDR
@@ -338,8 +411,8 @@ func main() {
 	movMem(7, 1)
 	movImm16(1, 100) // Restore R1
 
-	// Write tile index (simple block tile)
-	movImm(1, 0x00) // R1 = 0 (temporarily)
+	// Write tile index (tile 1 - tile 0 is reserved as blank)
+	movImm(1, 0x01) // R1 = 1 (temporarily)
 	movMem(7, 1)
 	movImm16(1, 100) // Restore R1
 
@@ -365,16 +438,7 @@ func main() {
 	movMem(7, 1)
 	movImm16(1, 100) // Restore R1
 
-	// Delay loop (wait for next frame)
-	movImm16(7, 0) // R7 = counter
-
-	delayLoopStart := len(code)
-	addImm(7, 1)
-	cmpImm(7, 0x1000) // Delay ~4096 iterations
-	delayLoopEnd := len(code)
-	bne(calcOffset(delayLoopEnd*2, delayLoopStart*2))
-
-	// Jump back to main loop
+	// Jump back to main loop (emulator handles frame timing)
 	jmp(calcOffset(len(code)*2, mainLoop*2))
 
 	// Build ROM file

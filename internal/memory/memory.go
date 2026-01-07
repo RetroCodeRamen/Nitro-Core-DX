@@ -16,6 +16,9 @@ type MemorySystem struct {
 	ROMData []uint8
 	ROMSize uint32
 	ROMBanks uint8
+	
+	// ROM header (for entry point)
+	ROMHeader [32]uint8
 
 	// I/O handlers
 	PPUHandler  IOHandler
@@ -56,6 +59,9 @@ func (m *MemorySystem) LoadROM(data []uint8) error {
 	}
 
 	romSize := uint32(data[6]) | (uint32(data[7]) << 8) | (uint32(data[8]) << 16) | (uint32(data[9]) << 24)
+	
+	// Save header for entry point lookup
+	copy(m.ROMHeader[:], data[0:32])
 	
 	// Load ROM data (skip 32-byte header)
 	if len(data) < int(romSize)+32 {
@@ -140,7 +146,8 @@ func (m *MemorySystem) Write8(bank uint8, offset uint16, value uint8) {
 func (m *MemorySystem) Read16(bank uint8, offset uint16) uint16 {
 	low := m.Read8(bank, offset)
 	high := m.Read8(bank, offset+1)
-	return uint16(low) | (uint16(high) << 8)
+	result := uint16(low) | (uint16(high) << 8)
+	return result
 }
 
 // Write16 writes a 16-bit value to memory (little-endian)
@@ -223,13 +230,13 @@ func (m *MemorySystem) writeIO8(offset uint16, value uint8) {
 
 // GetROMEntryPoint returns the ROM entry point from the header
 func (m *MemorySystem) GetROMEntryPoint() (bank uint8, offset uint16, err error) {
-	if len(m.ROMData) < 32 {
+	if m.ROMSize == 0 {
 		return 0, 0, fmt.Errorf("ROM not loaded")
 	}
 
 	// Entry point is in header (offsets 0x0A-0x0D)
-	entryBank := uint16(m.ROMData[10]) | (uint16(m.ROMData[11]) << 8)
-	entryOffset := uint16(m.ROMData[12]) | (uint16(m.ROMData[13]) << 8)
+	entryBank := uint16(m.ROMHeader[10]) | (uint16(m.ROMHeader[11]) << 8)
+	entryOffset := uint16(m.ROMHeader[12]) | (uint16(m.ROMHeader[13]) << 8)
 
 	return uint8(entryBank), entryOffset, nil
 }

@@ -1,26 +1,29 @@
 # Binaries
+nitro-core-dx
+audiotest
+demorom
+testrom
 *.exe
-*.exe~
 *.dll
 *.so
 *.dylib
-nitro-core-dx
 
-# Test binary, built with `go test -c`
+# ROM files (generated)
+*.rom
+test/roms/*.rom
+
+# Test output
+test_output/
+*.log
+emulator_log_*.txt
+
+# Go build cache
 *.test
-
-# Output of the go coverage tool
 *.out
 
-# Dependency directories
-vendor/
-
-# Go workspace file
-go.work
-
 # IDE files
-.idea/
 .vscode/
+.idea/
 *.swp
 *.swo
 *~
@@ -29,15 +32,7 @@ go.work
 .DS_Store
 Thumbs.db
 
-# Build artifacts
-dist/
-build/
-
-# Logs
-*.log
-
-# Test ROMs (if they contain copyrighted material)
-test/*.ncx
-
-
-
+# Temporary files
+*.tmp
+*.bak
+*.orig

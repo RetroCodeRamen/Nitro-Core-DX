@@ -40,6 +40,14 @@ type PPU struct {
 	debugFrameCount     int
 	HDMAScrollX         [4][200]int16
 	HDMAScrollY         [4][200]int16
+	
+	// Frame counter (for ROM timing) - increments once per frame
+	FrameCounter        uint16
+	
+	// VBlank flag (hardware-accurate synchronization signal)
+	// Set at start of each frame, cleared when read (one-shot)
+	// This matches real hardware behavior (NES, SNES, etc.)
+	VBlankFlag          bool
 
 	// VRAM/CGRAM/OAM access registers
 	VRAMAddr            uint16
@@ -47,6 +55,7 @@ type PPU struct {
 	CGRAMWriteLatch     bool // For 16-bit RGB555 writes
 	CGRAMWriteValue     uint16
 	OAMAddr             uint8
+	OAMByteIndex        uint8 // Current byte index within sprite (0-5)
 
 	// Output buffer (320×200, RGB888)
 	OutputBuffer        [320 * 200]uint32
@@ -96,6 +105,21 @@ func (p *PPU) Read8(offset uint16) uint8 {
 			return p.OAM[p.OAMAddr*6]
 		}
 		return 0
+	case 0x3E: // VBLANK_FLAG (one-shot: cleared when read)
+		// VBlank flag: hardware-accurate synchronization signal
+		// Set at start of each frame, cleared when read
+		// Bit 0 = VBlank active (1 = VBlank period, 0 = not VBlank)
+		// This matches real hardware behavior (NES, SNES, etc.)
+		flag := p.VBlankFlag
+		p.VBlankFlag = false  // Clear immediately after read (one-shot)
+		if flag {
+			return 0x01
+		}
+		return 0x00
+	case 0x3F: // FRAME_COUNTER_LOW
+		return uint8(p.FrameCounter & 0xFF)
+	case 0x40: // FRAME_COUNTER_HIGH
+		return uint8(p.FrameCounter >> 8)
 	default:
 		return 0
 	}
@@ -186,13 +210,19 @@ func (p *PPU) Write8(offset uint16, value uint8) {
 		if p.OAMAddr > 127 {
 			p.OAMAddr = 127
 		}
+		p.OAMByteIndex = 0 // Reset byte index when setting sprite address
 	case 0x15: // OAM_DATA
-		addr := uint16(p.OAMAddr) * 6
+		addr := uint16(p.OAMAddr)*6 + uint16(p.OAMByteIndex)
 		if addr < 768 {
 			p.OAM[addr] = value
-			p.OAMAddr++
-			if p.OAMAddr > 127 {
-				p.OAMAddr = 0
+			p.OAMByteIndex++
+			if p.OAMByteIndex >= 6 {
+				// Move to next sprite after writing 6 bytes
+				p.OAMByteIndex = 0
+				p.OAMAddr++
+				if p.OAMAddr > 127 {
+					p.OAMAddr = 0
+				}
 			}
 		}
 
@@ -293,6 +323,14 @@ func (p *PPU) Write16(offset uint16, value uint16) {
 
 // RenderFrame renders a complete frame
 func (p *PPU) RenderFrame() {
+	// Set VBlank flag at start of frame (hardware-accurate synchronization)
+	// This signal indicates the start of vertical blanking period
+	// ROMs can wait for this signal to synchronize with frame boundaries
+	p.VBlankFlag = true
+	
+	// Increment frame counter at start of frame (for ROM timing)
+	p.FrameCounter++
+	
 	// Clear output buffer
 	for i := range p.OutputBuffer {
 		p.OutputBuffer[i] = 0x000000 // Black
@@ -346,6 +384,40 @@ func (p *PPU) RenderFrame() {
 
 	// Render sprites
 	p.renderSprites()
+	
+	// Debug: Print sprite 0 OAM data
+	if p.debugFrameCount%60 == 0 {
+		fmt.Printf("=== Sprite 0 OAM Debug ===\n")
+		fmt.Printf("  OAM[0-5]: 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X\n",
+			p.OAM[0], p.OAM[1], p.OAM[2], p.OAM[3], p.OAM[4], p.OAM[5])
+		spriteX := int(p.OAM[0])
+		if (p.OAM[1] & 0x01) != 0 {
+			spriteX |= 0xFFFFFF00
+		}
+		spriteY := int(p.OAM[2])
+		tileIndex := uint8(p.OAM[3])
+		attributes := uint8(p.OAM[4])
+		control := uint8(p.OAM[5])
+		paletteIndex := attributes & 0x0F
+		enabled := (control & 0x01) != 0
+		fmt.Printf("  X=%d, Y=%d, Tile=%d, Palette=%d, Enabled=%v\n",
+			spriteX, spriteY, tileIndex, paletteIndex, enabled)
+		tileAddr := uint16(tileIndex) * 32
+		fmt.Printf("  Tile data at VRAM[%d]: 0x%02X 0x%02X 0x%02X 0x%02X\n",
+			tileAddr, p.VRAM[tileAddr], p.VRAM[tileAddr+1],
+			p.VRAM[tileAddr+2], p.VRAM[tileAddr+3])
+		fmt.Printf("  CGRAM palette %d, color 1: ", paletteIndex)
+		if uint16(paletteIndex)*16+1 < 256 {
+			addr := (uint16(paletteIndex)*16 + 1) * 2
+			if addr < 512 {
+				low := p.CGRAM[addr]
+				high := p.CGRAM[addr+1]
+				color := p.getColorFromCGRAM(paletteIndex, 1)
+				fmt.Printf("CGRAM[%d]=0x%02X, CGRAM[%d]=0x%02X -> RGB(0x%06X)\n",
+					addr, low, addr+1, high, color)
+			}
+		}
+	}
 }
 
 // renderBackgroundLayer renders a background layer
@@ -492,14 +564,15 @@ func (p *PPU) renderSprites() {
 		oamAddr := spriteIndex * 6
 		
 		// Read sprite data
-		// Byte 0: X position (low byte, signed)
-		xLow := int8(p.OAM[oamAddr])
+		// Byte 0: X position (low byte, unsigned)
+		xLow := uint8(p.OAM[oamAddr])
 		// Byte 1: X position (high byte, bit 0 only, sign extends)
-		xHigh := int8(p.OAM[oamAddr+1])
-		// Combine X position (sign extend)
-		spriteX := int(xLow) | (int(xHigh) << 8)
+		xHigh := uint8(p.OAM[oamAddr+1])
+		// Combine X position: 9-bit signed value
+		// Low 8 bits from byte 0, sign bit from bit 0 of byte 1
+		spriteX := int(xLow)
 		if (xHigh & 0x01) != 0 {
-			// Sign extend
+			// Sign extend (negative value)
 			spriteX |= 0xFFFFFF00
 		}
 		

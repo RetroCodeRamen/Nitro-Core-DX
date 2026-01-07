@@ -20,6 +20,7 @@ func main() {
 		fmt.Println("  -rom <path>      Path to ROM file (.rom)")
 		fmt.Println("  -unlimited       Run at unlimited speed")
 		fmt.Println("  -scale <1-6>     Display scale (default: 3)")
+		fmt.Println("  -log <file>      Log all output to file")
 		os.Exit(1)
 	}
 
