@@ -6,6 +6,7 @@ import (
 
 	"nitro-core-dx/internal/apu"
 	"nitro-core-dx/internal/cpu"
+	"nitro-core-dx/internal/debug"
 	"nitro-core-dx/internal/input"
 	"nitro-core-dx/internal/memory"
 	"nitro-core-dx/internal/ppu"
@@ -18,6 +19,7 @@ type Emulator struct {
 	PPU    *ppu.PPU
 	APU    *apu.APU
 	Input  *input.InputSystem
+	Logger *debug.Logger // Centralized logger
 
 	// Frame timing
 	FrameLimitEnabled bool
@@ -26,25 +28,35 @@ type Emulator struct {
 	LastFrameTime     time.Time
 
 	// Performance tracking
-	FPS              float64
-	FrameCount       uint64
-	FPSUpdateTime    time.Time
+	FPS               float64
+	FrameCount        uint64
+	FPSUpdateTime     time.Time
 	CPUCyclesPerFrame uint32
-	LastCPUCycles    uint32
+	LastCPUCycles     uint32
 
 	// State
 	Running bool
 	Paused  bool
-	
+
 	// Audio samples from last frame
 	LastAudioSamples []float32
 }
 
 // NewEmulator creates a new emulator instance
 func NewEmulator() *Emulator {
+	// Create centralized logger (10,000 entry buffer)
+	// Logging is disabled by default - components are disabled in NewLogger
+	logger := debug.NewLogger(10000)
+	return NewEmulatorWithLogger(logger)
+}
+
+// NewEmulatorWithLogger creates a new emulator instance with a specific logger
+// This allows enabling logging via command-line flag
+func NewEmulatorWithLogger(logger *debug.Logger) *Emulator {
+
 	mem := memory.NewMemorySystem()
-	ppu := ppu.NewPPU()
-	apu := apu.NewAPU(44100)
+	ppu := ppu.NewPPU(logger)
+	apu := apu.NewAPU(44100, logger)
 	input := input.NewInputSystem()
 
 	// Connect I/O handlers
@@ -52,8 +64,11 @@ func NewEmulator() *Emulator {
 	mem.APUHandler = apu
 	mem.InputHandler = input
 
-	// Create CPU
-	cpu := cpu.NewCPU(mem, nil) // TODO: Add logger
+	// Create CPU logger adapter with default level (None - logging disabled by default)
+	cpuLogger := cpu.NewCPULoggerAdapter(logger, cpu.CPULogNone)
+
+	// Create CPU with logger adapter
+	cpu := cpu.NewCPU(mem, cpuLogger)
 
 	return &Emulator{
 		CPU:               cpu,
@@ -61,6 +76,7 @@ func NewEmulator() *Emulator {
 		PPU:               ppu,
 		APU:               apu,
 		Input:             input,
+		Logger:            logger,
 		FrameLimitEnabled: true,
 		TargetFPS:         60.0,
 		FrameTime:         time.Duration(1000000000 / 60), // 16.666... ms
@@ -87,7 +103,21 @@ func (e *Emulator) LoadROM(data []uint8) error {
 		return fmt.Errorf("failed to get ROM entry point: %w", err)
 	}
 
+	// Verify entry point is valid
+	if bank == 0 {
+		return fmt.Errorf("invalid ROM entry point: bank is 0 (should be 1+)")
+	}
+	if offset < 0x8000 {
+		return fmt.Errorf("invalid ROM entry point: offset 0x%04X (should be >= 0x8000)", offset)
+	}
+
 	e.CPU.SetEntryPoint(bank, offset)
+
+	// Verify entry point was set correctly
+	if e.CPU.State.PCBank != bank {
+		return fmt.Errorf("failed to set entry point: PCBank is %d, expected %d", e.CPU.State.PCBank, bank)
+	}
+
 	return nil
 }
 
@@ -102,6 +132,11 @@ func (e *Emulator) RunFrame() error {
 	// so ROMs can check channel completion status during the frame
 	e.APU.UpdateFrame()
 
+	// Render frame (sets VBlank flag at start, increments frame counter)
+	// This must happen BEFORE CPU execution so CPU can see VBlank flag
+	// The frame rendered uses state from the previous frame's CPU execution
+	e.PPU.RenderFrame()
+
 	// Track CPU cycles before frame
 	cyclesBefore := e.CPU.State.Cycles
 
@@ -109,6 +144,7 @@ func (e *Emulator) RunFrame() error {
 	targetCycles := e.CPU.State.Cycles + 166667
 
 	// Run CPU until target cycles
+	// CPU can now see VBlank flag and frame counter that were set in RenderFrame()
 	if err := e.CPU.ExecuteCycles(targetCycles); err != nil {
 		return fmt.Errorf("CPU error at %s: %w", e.CPU.GetPC(), err)
 	}
@@ -116,9 +152,6 @@ func (e *Emulator) RunFrame() error {
 	// Calculate CPU cycles used this frame
 	cyclesAfter := e.CPU.State.Cycles
 	e.CPUCyclesPerFrame = cyclesAfter - cyclesBefore
-
-	// Render frame
-	e.PPU.RenderFrame()
 
 	// Generate audio samples (44100 Hz / 60 FPS = 735 samples per frame)
 	audioSamples := e.APU.GenerateSamples(735)
@@ -172,7 +205,28 @@ func (e *Emulator) Resume() {
 func (e *Emulator) Reset() {
 	e.CPU.Reset()
 	if e.Memory.ROMData != nil {
-		bank, offset, _ := e.Memory.GetROMEntryPoint()
+		bank, offset, err := e.Memory.GetROMEntryPoint()
+		if err != nil {
+			// If we can't get the entry point, something is wrong
+			// But don't crash - just log it
+			if e.Logger != nil {
+				e.Logger.LogSystem(debug.LogLevelError, fmt.Sprintf("Failed to get ROM entry point during reset: %v", err), nil)
+			}
+			return
+		}
+		// Validate entry point before setting
+		if bank == 0 {
+			if e.Logger != nil {
+				e.Logger.LogSystem(debug.LogLevelError, "Invalid ROM entry point: bank is 0 (should be 1+)", nil)
+			}
+			return
+		}
+		if offset < 0x8000 {
+			if e.Logger != nil {
+				e.Logger.LogSystem(debug.LogLevelError, fmt.Sprintf("Invalid ROM entry point: offset 0x%04X (should be >= 0x8000)", offset), nil)
+			}
+			return
+		}
 		e.CPU.SetEntryPoint(bank, offset)
 	}
 }
@@ -197,7 +251,6 @@ func (e *Emulator) GetOutputBuffer() []uint32 {
 	return e.PPU.OutputBuffer[:]
 }
 
-
 // SetInputButtons sets the controller button state
 func (e *Emulator) SetInputButtons(buttons uint16) {
 	e.Input.Controller1Buttons = buttons
@@ -207,5 +260,3 @@ func (e *Emulator) SetInputButtons(buttons uint16) {
 func (e *Emulator) GetAudioSamples() []float32 {
 	return e.LastAudioSamples
 }
-
-

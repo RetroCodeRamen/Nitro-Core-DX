@@ -22,9 +22,15 @@ func (u *UI) renderFixed() error {
 	
 	// Get renderer output size first
 	outputW, outputH, _ := u.renderer.GetOutputSize()
-	infoBarHeight := int32(8 * u.scale)
+	
+	// Calculate UI element heights
+	menuBarHeight := int32(20 * u.scale)
+	toolbarHeight := int32(30 * u.scale)
+	statusBarHeight := int32(20 * u.scale)
+	emulatorHeight := int32(200 * u.scale)
+	
 	expectedW := int32(320 * u.scale)
-	expectedH := int32(200*u.scale) + infoBarHeight
+	expectedH := menuBarHeight + toolbarHeight + emulatorHeight + statusBarHeight
 	
 	// Verify window size matches expected
 	if int32(outputW) != expectedW || int32(outputH) != expectedH {
@@ -163,12 +169,17 @@ func (u *UI) renderFixed() error {
 	// Ensure no color modulation is applied
 	u.texture.SetColorMod(255, 255, 255)
 
-	// Clear renderer with black background
-	u.renderer.SetDrawColor(0, 0, 0, 255) // Black
-	u.renderer.Clear()
-
-	// Copy texture at 1:1 scale (no scaling needed, already scaled)
-	dstRect := &sdl.Rect{X: 0, Y: 0, W: int32(scaledW), H: int32(scaledH)}
+	// Don't clear renderer here - let renderUI() handle the full screen clear
+	// We'll just draw the emulator screen texture at the correct position
+	// Position emulator screen below menu bar and toolbar
+	// (menuBarHeight and toolbarHeight already calculated above)
+	emulatorY := menuBarHeight + toolbarHeight
+	dstRect := &sdl.Rect{
+		X: 0, 
+		Y: emulatorY, 
+		W: int32(scaledW), 
+		H: int32(scaledH),
+	}
 	srcRect := &sdl.Rect{X: 0, Y: 0, W: int32(scaledW), H: int32(scaledH)}
 	
 	u.renderer.SetScale(1.0, 1.0)

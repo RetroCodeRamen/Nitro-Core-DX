@@ -4,24 +4,54 @@ import (
 	"fmt"
 	"unsafe"
 
-	"github.com/veandco/go-sdl2/sdl"
+	"nitro-core-dx/internal/cpu"
+	"nitro-core-dx/internal/debug"
 	"nitro-core-dx/internal/emulator"
+	"nitro-core-dx/internal/ui/panels"
+
+	"github.com/veandco/go-sdl2/sdl"
 )
 
 // UI represents the user interface
 type UI struct {
-	window     *sdl.Window
-	renderer   *sdl.Renderer
-	texture    *sdl.Texture
-	emulator   *emulator.Emulator
-	running    bool
-	scale      int
-	fullscreen bool
-	audioDev   sdl.AudioDeviceID
+	window          *sdl.Window
+	renderer        *sdl.Renderer
+	texture         *sdl.Texture
+	emulator        *emulator.Emulator
+	running         bool
+	scale           int
+	fullscreen      bool
+	audioDev        sdl.AudioDeviceID
 	debugFrameCount int // For debug logging
+
+	// UI panels
+	showLogViewer      bool
+	showLogControls    bool
+	showRegisterViewer bool
+	showMemoryViewer   bool
+	showTileViewer     bool
+
+	// Panel instances (for interaction)
+	logControlsPanel *panels.LogControls
+
+	// Panel positions and sizes (for future docking system)
+	logViewerRect      *sdl.Rect
+	logControlsRect    *sdl.Rect
+	registerViewerRect *sdl.Rect
+	memoryViewerRect   *sdl.Rect
+	tileViewerRect     *sdl.Rect
+
+	// Menu bar and toolbar for click handling
+	menuBar  *MenuBar
+	toolbar  *Toolbar
+	toolbarY int32
+
+	// Modern text renderer (for UI elements)
+	textRenderer TextRenderer
 }
 
-// NewUI creates a new UI instance
+// NewUI creates a new UI instance (legacy SDL2-only UI)
+// For new development, use NewFyneUI instead
 func NewUI(emu *emulator.Emulator, scale int) (*UI, error) {
 	if err := sdl.Init(sdl.INIT_VIDEO | sdl.INIT_AUDIO); err != nil {
 		return nil, fmt.Errorf("failed to initialize SDL: %w", err)
@@ -31,11 +61,14 @@ func NewUI(emu *emulator.Emulator, scale int) (*UI, error) {
 	// This must be set before creating the renderer
 	sdl.SetHint(sdl.HINT_RENDER_SCALE_QUALITY, "0")
 
-	// Window size: emulator output + info bar at bottom
-	// Info bar is 8 pixels tall (scaled)
-	infoBarHeight := int32(8 * scale)
+	// Window size: menu bar + toolbar + emulator output + status bar
+	menuBarHeight := int32(20 * scale)
+	toolbarHeight := int32(30 * scale)
+	emulatorHeight := int32(200 * scale)
+	statusBarHeight := int32(20 * scale)
+
 	width := int32(320 * scale)
-	height := int32(200*scale) + infoBarHeight
+	height := menuBarHeight + toolbarHeight + emulatorHeight + statusBarHeight
 
 	window, err := sdl.CreateWindow(
 		"Nitro-Core-DX Emulator",
@@ -43,7 +76,7 @@ func NewUI(emu *emulator.Emulator, scale int) (*UI, error) {
 		sdl.WINDOWPOS_CENTERED,
 		width,
 		height,
-		sdl.WINDOW_SHOWN, // Not resizable to prevent scaling issues
+		sdl.WINDOW_SHOWN|sdl.WINDOW_RESIZABLE, // Resizable for panels
 	)
 	if err != nil {
 		sdl.Quit()
@@ -77,27 +110,51 @@ func NewUI(emu *emulator.Emulator, scale int) (*UI, error) {
 	audioSpec := sdl.AudioSpec{
 		Freq:     44100,
 		Format:   sdl.AUDIO_F32,
-		Channels: 2, // Stereo
+		Channels: 2,   // Stereo
 		Samples:  735, // Samples per frame (44100 Hz / 60 FPS)
 	}
 	audioDev, err := sdl.OpenAudioDevice("", false, &audioSpec, nil, 0)
 	if err != nil {
 		// Audio is optional, continue without it
-		fmt.Printf("Warning: Failed to open audio device: %v\n", err)
+		// Log using emulator's logger if available
+		if emu.Logger != nil {
+			emu.Logger.LogUI(debug.LogLevelWarning, fmt.Sprintf("Failed to open audio device: %v", err), nil)
+		} else {
+			fmt.Printf("Warning: Failed to open audio device: %v\n", err)
+		}
 		audioDev = 0
 	} else {
 		sdl.PauseAudioDevice(audioDev, false) // Start playback
 	}
 
-	return &UI{
-		window:   window,
-		renderer: renderer,
-		texture:  texture,
-		emulator: emu,
-		running:  true,
-		scale:    scale,
-		audioDev: audioDev,
-	}, nil
+	// Create modern text renderer for UI elements
+	// Try SDL_ttf first, fall back to simple bitmap font if not available
+	textRenderer, err := NewTextRenderer(scale)
+	if err != nil {
+		// Fall back to simple bitmap font renderer
+		if emu.Logger != nil {
+			emu.Logger.LogUI(debug.LogLevelInfo, fmt.Sprintf("SDL_ttf not available, using simple bitmap font: %v", err), nil)
+		}
+		textRenderer = NewSimpleTextRenderer(scale)
+	}
+
+	ui := &UI{
+		window:       window,
+		renderer:     renderer,
+		texture:      texture,
+		emulator:     emu,
+		running:      true,
+		scale:        scale,
+		audioDev:     audioDev,
+		textRenderer: textRenderer,
+		// Panels hidden by default
+		showLogViewer:      false,
+		showRegisterViewer: false,
+		showMemoryViewer:   false,
+		showTileViewer:     false,
+	}
+
+	return ui, nil
 }
 
 // Run runs the UI main loop
@@ -128,21 +185,11 @@ func (u *UI) Run() error {
 		if u.audioDev != 0 {
 			audioSamples := u.emulator.GetAudioSamples()
 			if len(audioSamples) > 0 {
-				// Check queue size to prevent backing up (limit to ~2 frames worth)
+				// Check queue size to prevent backing up (limit to ~4 frames worth for smoother audio)
 				queuedBytes := sdl.GetQueuedAudioSize(u.audioDev)
-				maxQueuedBytes := uint32(len(audioSamples) * 2 * 4 * 2) // 2 frames worth
-				
-				// Debug: Log first frame's audio samples
-				if u.debugFrameCount < 1 {
-					fmt.Printf("[UI] Queuing %d audio samples, queuedBytes=%d, maxQueuedBytes=%d\n", 
-						len(audioSamples), queuedBytes, maxQueuedBytes)
-					if len(audioSamples) > 0 {
-						fmt.Printf("[UI] First 5 samples: %.6f, %.6f, %.6f, %.6f, %.6f\n",
-							audioSamples[0], audioSamples[1], audioSamples[2], audioSamples[3], audioSamples[4])
-					}
-					u.debugFrameCount++
-				}
-				
+				maxQueuedBytes := uint32(len(audioSamples) * 2 * 4 * 4) // 4 frames worth
+
+				// Only queue if queue isn't too full (prevent audio stuttering)
 				if queuedBytes < maxQueuedBytes {
 					// Convert float32 samples to bytes (stereo: interleaved L/R)
 					// AUDIO_F32 format: native float32, little-endian
@@ -163,14 +210,13 @@ func (u *UI) Run() error {
 					}
 					err := sdl.QueueAudio(u.audioDev, audioBytes)
 					if err != nil {
-						fmt.Printf("[UI ERROR] Failed to queue audio: %v\n", err)
-					}
-				} else {
-					// Queue is full, skip this frame
-					if u.debugFrameCount < 2 {
-						fmt.Printf("[UI] Audio queue full (%d bytes), skipping frame\n", queuedBytes)
+						// Only log if logging is enabled (avoid fmt.Printf overhead)
+						if u.emulator.Logger != nil && u.emulator.Logger.IsComponentEnabled(debug.ComponentUI) {
+							u.emulator.Logger.LogUIf(debug.LogLevelError, "Failed to queue audio: %v", err)
+						}
 					}
 				}
+				// If queue is full, just skip queuing this frame (audio will continue from buffer)
 			}
 		}
 
@@ -178,9 +224,9 @@ func (u *UI) Run() error {
 		if err := u.renderFixed(); err != nil {
 			return fmt.Errorf("render error: %w", err)
 		}
-		
-		// Render debug overlay (FPS, CPU cycles)
-		u.renderDebugOverlay()
+
+		// Render UI elements (menu bar, toolbar, status bar, panels)
+		u.renderUI()
 
 		// Present the frame
 		u.renderer.Present()
@@ -204,6 +250,10 @@ func (u *UI) handleEvent(event sdl.Event) error {
 			return u.handleKeyDown(e.Keysym.Sym)
 		} else if e.Type == sdl.KEYUP {
 			return u.handleKeyUp(e.Keysym.Sym)
+		}
+	case *sdl.MouseButtonEvent:
+		if e.Type == sdl.MOUSEBUTTONDOWN {
+			return u.handleMouseClick(e.X, e.Y, e.Button)
 		}
 	}
 
@@ -229,9 +279,160 @@ func (u *UI) handleKeyDown(key sdl.Keycode) error {
 		if sdl.GetModState()&sdl.KMOD_ALT != 0 {
 			u.toggleFullscreen()
 		}
+	case sdl.K_l:
+		// Toggle log viewer (Ctrl+L)
+		if sdl.GetModState()&sdl.KMOD_CTRL != 0 {
+			u.showLogViewer = !u.showLogViewer
+			if u.emulator.Logger != nil {
+				u.emulator.Logger.LogUIf(debug.LogLevelInfo, "Log viewer %s",
+					map[bool]string{true: "shown", false: "hidden"}[u.showLogViewer])
+			}
+		}
+	case sdl.K_k:
+		// Toggle log controls (Ctrl+K)
+		if sdl.GetModState()&sdl.KMOD_CTRL != 0 {
+			u.showLogControls = !u.showLogControls
+			if u.emulator.Logger != nil {
+				u.emulator.Logger.LogUIf(debug.LogLevelInfo, "Log controls %s",
+					map[bool]string{true: "shown", false: "hidden"}[u.showLogControls])
+			}
+		}
+	// CPU log level shortcuts (Ctrl+1-7)
+	case sdl.K_1:
+		if sdl.GetModState()&sdl.KMOD_CTRL != 0 && u.logControlsPanel != nil {
+			u.logControlsPanel.SetCPULogLevel(cpu.CPULogNone)
+		}
+	case sdl.K_2:
+		if sdl.GetModState()&sdl.KMOD_CTRL != 0 && u.logControlsPanel != nil {
+			u.logControlsPanel.SetCPULogLevel(cpu.CPULogErrors)
+		}
+	case sdl.K_3:
+		if sdl.GetModState()&sdl.KMOD_CTRL != 0 && u.logControlsPanel != nil {
+			u.logControlsPanel.SetCPULogLevel(cpu.CPULogBranches)
+		}
+	case sdl.K_4:
+		if sdl.GetModState()&sdl.KMOD_CTRL != 0 && u.logControlsPanel != nil {
+			u.logControlsPanel.SetCPULogLevel(cpu.CPULogMemory)
+		}
+	case sdl.K_5:
+		if sdl.GetModState()&sdl.KMOD_CTRL != 0 && u.logControlsPanel != nil {
+			u.logControlsPanel.SetCPULogLevel(cpu.CPULogRegisters)
+		}
+	case sdl.K_6:
+		if sdl.GetModState()&sdl.KMOD_CTRL != 0 && u.logControlsPanel != nil {
+			u.logControlsPanel.SetCPULogLevel(cpu.CPULogInstructions)
+		}
+	case sdl.K_7:
+		if sdl.GetModState()&sdl.KMOD_CTRL != 0 && u.logControlsPanel != nil {
+			u.logControlsPanel.SetCPULogLevel(cpu.CPULogTrace)
+		}
 	}
 
 	return nil
+}
+
+// handleMouseClick handles mouse click events
+func (u *UI) handleMouseClick(x, y int32, button uint8) error {
+	if button != sdl.BUTTON_LEFT {
+		return nil // Only handle left clicks
+	}
+
+	menuBarHeight := int32(20 * u.scale)
+
+	// Check if click is in menu bar
+	if y < menuBarHeight && u.menuBar != nil {
+		item, clicked := u.menuBar.HandleClick(x, y)
+		if clicked {
+			u.handleMenuClick(item)
+			return nil
+		}
+	}
+
+	// Check if click is in toolbar
+	if y >= menuBarHeight && y < menuBarHeight+u.toolbarY+int32(30*u.scale) && u.toolbar != nil {
+		btn, clicked := u.toolbar.HandleClick(x, y-u.toolbarY)
+		if clicked {
+			u.handleToolbarClick(btn)
+			return nil
+		}
+	}
+
+	// Check if click is in log controls panel
+	if u.showLogControls && u.logControlsPanel != nil && u.logControlsRect != nil {
+		if x >= u.logControlsRect.X && x < u.logControlsRect.X+u.logControlsRect.W &&
+			y >= u.logControlsRect.Y && y < u.logControlsRect.Y+u.logControlsRect.H {
+			// Click is in log controls panel
+			u.logControlsPanel.HandleClick(x-u.logControlsRect.X, y-u.logControlsRect.Y)
+		}
+	}
+
+	return nil
+}
+
+// handleMenuClick handles menu bar item clicks
+func (u *UI) handleMenuClick(item string) {
+	switch item {
+	case "File":
+		// TODO: File menu (open ROM, exit, etc.)
+		if u.emulator.Logger != nil {
+			u.emulator.Logger.LogUI(debug.LogLevelInfo, "File menu clicked", nil)
+		}
+	case "Emulation":
+		// TODO: Emulation menu (start, pause, reset, etc.)
+		if u.emulator.Logger != nil {
+			u.emulator.Logger.LogUI(debug.LogLevelInfo, "Emulation menu clicked", nil)
+		}
+	case "View":
+		// Toggle log viewer
+		u.showLogViewer = !u.showLogViewer
+		if u.emulator.Logger != nil {
+			u.emulator.Logger.LogUI(debug.LogLevelInfo, fmt.Sprintf("Log viewer %s", map[bool]string{true: "shown", false: "hidden"}[u.showLogViewer]), nil)
+		}
+	case "Debug":
+		// Toggle log controls
+		u.showLogControls = !u.showLogControls
+		if u.emulator.Logger != nil {
+			u.emulator.Logger.LogUI(debug.LogLevelInfo, fmt.Sprintf("Log controls %s", map[bool]string{true: "shown", false: "hidden"}[u.showLogControls]), nil)
+		}
+	case "Help":
+		// TODO: Help menu
+		if u.emulator.Logger != nil {
+			u.emulator.Logger.LogUI(debug.LogLevelInfo, "Help menu clicked", nil)
+		}
+	}
+}
+
+// handleToolbarClick handles toolbar button clicks
+func (u *UI) handleToolbarClick(btn string) {
+	switch btn {
+	case "Start":
+		if !u.emulator.Running {
+			u.emulator.Start()
+		}
+	case "Pause":
+		if u.emulator.Running && !u.emulator.Paused {
+			u.emulator.Pause()
+		}
+	case "Resume":
+		if u.emulator.Running && u.emulator.Paused {
+			u.emulator.Resume()
+		}
+	case "Stop":
+		if u.emulator.Running {
+			u.emulator.Stop()
+		}
+	case "Reset":
+		u.emulator.Reset()
+	case "Step":
+		if u.emulator.Paused {
+			// Step one instruction
+			if err := u.emulator.RunFrame(); err != nil {
+				if u.emulator.Logger != nil {
+					u.emulator.Logger.LogUI(debug.LogLevelError, fmt.Sprintf("Step error: %v", err), nil)
+				}
+			}
+		}
+	}
 }
 
 // handleKeyUp handles key release events
@@ -306,14 +507,14 @@ func (u *UI) render() error {
 	if len(buffer) != 320*200 {
 		return fmt.Errorf("buffer size mismatch: expected %d, got %d", 320*200, len(buffer))
 	}
-	
+
 	pixels := make([]byte, 320*200*3)
 	for i := 0; i < 320*200; i++ {
 		color := buffer[i]
 		// RGB888 format: R, G, B order
-		pixels[i*3] = byte((color >> 16) & 0xFF)     // R
-		pixels[i*3+1] = byte((color >> 8) & 0xFF)    // G
-		pixels[i*3+2] = byte(color & 0xFF)           // B
+		pixels[i*3] = byte((color >> 16) & 0xFF)  // R
+		pixels[i*3+1] = byte((color >> 8) & 0xFF) // G
+		pixels[i*3+2] = byte(color & 0xFF)        // B
 	}
 
 	// Update texture with proper pitch (bytes per row)
@@ -329,22 +530,22 @@ func (u *UI) render() error {
 	// Copy texture to renderer with exact integer scaling
 	// Get renderer output size
 	outputW, outputH, _ := u.renderer.GetOutputSize()
-	
+
 	// Calculate expected sizes
 	infoBarHeight := int32(8 * u.scale)
 	expectedW := int32(320 * u.scale)
 	expectedH := int32(200*u.scale) + infoBarHeight
-	
+
 	// Verify window size matches expected (should be exact)
 	if int32(outputW) != expectedW || int32(outputH) != expectedH {
 		u.window.SetSize(expectedW, expectedH)
 		outputW, outputH, _ = u.renderer.GetOutputSize()
 	}
-	
+
 	// Emulator output: exact 320x200 scaled, at top-left
 	dstW := int32(320 * u.scale)
 	dstH := int32(200 * u.scale)
-	
+
 	// Ensure exact integer scaling - don't allow any clamping that could cause issues
 	if dstW != int32(outputW) || dstH != int32(outputH)-infoBarHeight {
 		// Window size mismatch - this shouldn't happen but handle it
@@ -355,15 +556,15 @@ func (u *UI) render() error {
 			dstH = int32(outputH) - infoBarHeight
 		}
 	}
-	
+
 	// Source: full texture (320x200) - exact source rectangle
 	srcRect := &sdl.Rect{X: 0, Y: 0, W: 320, H: 200}
 	// Destination: exact scaled size at top-left (no centering, no offset)
 	dstRect := &sdl.Rect{X: 0, Y: 0, W: dstW, H: dstH}
-	
+
 	// Reset renderer scale to 1:1 (critical for pixel-perfect rendering)
 	u.renderer.SetScale(1.0, 1.0)
-	
+
 	// Copy texture with exact source and destination rectangles
 	// The hint set earlier should ensure nearest-neighbor scaling
 	if err := u.renderer.Copy(u.texture, srcRect, dstRect); err != nil {
@@ -381,25 +582,13 @@ func (u *UI) render() error {
 
 // renderDebugOverlay renders the info bar below the emulator output
 func (u *UI) renderDebugOverlay() {
-	fps := u.emulator.GetFPS()
-	cycles := u.emulator.GetCPUCyclesPerFrame()
-	
-	// Format FPS string
-	fpsStr := fmt.Sprintf("FPS: %.1f", fps)
-	if fps < 1.0 {
-		fpsStr = fmt.Sprintf("FPS: %.2f", fps)
-	}
-	
-	// Format cycles string
-	cyclesStr := fmt.Sprintf("CPU: %d cycles/frame", cycles)
-	
 	// Get renderer output size
 	outputW, _, _ := u.renderer.GetOutputSize()
-	
+
 	// Info bar is below the emulator output
 	infoBarHeight := int32(8 * u.scale)
 	emulatorHeight := int32(200 * u.scale)
-	
+
 	// Draw black info bar background
 	infoBarRect := &sdl.Rect{
 		X: 0,
@@ -409,18 +598,32 @@ func (u *UI) renderDebugOverlay() {
 	}
 	u.renderer.SetDrawColor(0, 0, 0, 255) // Black
 	u.renderer.FillRect(infoBarRect)
-	
-	// Text position in info bar (centered vertically in the bar)
-	textY := emulatorHeight + (infoBarHeight-int32(8*u.scale))/2
-	textX1 := int32(4 * u.scale)   // Left side
-	textX2 := int32(120 * u.scale) // Right side
-	
-	// White color for text
-	white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
-	
-	// Draw text in info bar
-	u.drawText(u.renderer, fpsStr, textX1, textY, u.scale, white)
-	u.drawText(u.renderer, cyclesStr, textX2, textY, u.scale, white)
+
+	// Draw text in info bar with modern font
+	if u.textRenderer != nil {
+		fps := u.emulator.GetFPS()
+		cycles := u.emulator.GetCPUCyclesPerFrame()
+
+		// Format FPS string
+		fpsStr := fmt.Sprintf("FPS: %.1f", fps)
+		if fps < 1.0 {
+			fpsStr = fmt.Sprintf("FPS: %.2f", fps)
+		}
+
+		// Format cycles string
+		cyclesStr := fmt.Sprintf("CPU: %d cycles/frame", cycles)
+
+		// White color for text
+		white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
+
+		// Text position in info bar (centered vertically in the bar)
+		textY := emulatorHeight + (infoBarHeight-int32(12*u.scale))/2
+		textX1 := int32(4 * u.scale)   // Left side
+		textX2 := int32(120 * u.scale) // Right side
+
+		u.textRenderer.DrawText(u.renderer, fpsStr, textX1, textY, white)
+		u.textRenderer.DrawText(u.renderer, cyclesStr, textX2, textY, white)
+	}
 }
 
 // toggleFullscreen toggles fullscreen mode
@@ -436,6 +639,14 @@ func (u *UI) toggleFullscreen() {
 
 // Cleanup cleans up SDL resources
 func (u *UI) Cleanup() {
+	// Shutdown logger to clean up goroutine (prevents goroutine leak)
+	if u.emulator != nil && u.emulator.Logger != nil {
+		u.emulator.Logger.Shutdown()
+	}
+
+	if u.textRenderer != nil {
+		u.textRenderer.Close()
+	}
 	if u.audioDev != 0 {
 		sdl.CloseAudioDevice(u.audioDev)
 	}
@@ -458,4 +669,3 @@ func (u *UI) SetScale(scale int) {
 	infoBarHeight := int32(8 * scale)
 	u.window.SetSize(int32(320*scale), int32(200*scale)+infoBarHeight)
 }
-

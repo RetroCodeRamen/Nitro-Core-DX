@@ -1,9 +1,10 @@
 package apu
 
 import (
-	"fmt"
 	"math"
 	"time"
+
+	"nitro-core-dx/internal/debug"
 )
 
 // APU represents the Audio Processing Unit
@@ -15,19 +16,22 @@ import (
 // - Clean audio: No artifacts, clicks, or warbling
 // - Flexible: Supports various audio use cases
 type APU struct {
-	Channels       [4]AudioChannel
-	MasterVolume   uint8
-	SampleRate     uint32
+	Channels        [4]AudioChannel
+	MasterVolume    uint8
+	SampleRate      uint32
 	debugFrameCount int
-	
+
+	// Logger for centralized logging
+	Logger *debug.Logger
+
 	// Debug: Track frequency changes
-	lastFrequencyChange [4]time.Time
+	lastFrequencyChange  [4]time.Time
 	frequencyChangeCount [4]int
-	
+
 	// Debug logging control
 	debugLoggingEnabled bool
 	debugLogStartTime   time.Time
-	
+
 	// Channel completion status (developer-friendly!)
 	// Bits 0-3 indicate which channels just finished this frame
 	// ROM can read this once per frame to check for completion
@@ -38,38 +42,40 @@ type APU struct {
 // AudioChannel represents an audio channel
 type AudioChannel struct {
 	// Current state
-	Frequency      uint16  // Current frequency (Hz)
-	Volume         uint8   // Volume (0-255)
-	Enabled        bool    // Channel enabled
-	Waveform       uint8   // 0=sine, 1=square, 2=saw, 3=noise
-	
+	Frequency uint16 // Current frequency (Hz)
+	Volume    uint8  // Volume (0-255)
+	Enabled   bool   // Channel enabled
+	Waveform  uint8  // 0=sine, 1=square, 2=saw, 3=noise
+
 	// Note duration (in frames) - developer-friendly timing!
 	// When set to non-zero, counts down each frame
 	// When reaches 0, channel auto-disables (if autoStop is true)
-	Duration       uint16  // Remaining frames (0 = play indefinitely)
-	DurationMode   uint8   // 0=countdown and stop, 1=countdown and loop (restart note)
-	
+	Duration        uint16 // Remaining frames (0 = play indefinitely)
+	DurationMode    uint8  // 0=countdown and stop, 1=countdown and loop (restart note)
+	InitialDuration uint16 // Initial duration value (for loop mode - stored when channel enabled)
+
 	// Phase accumulator for waveform generation
 	Phase          float64 // Current phase (0 to 2π)
 	PhaseIncrement float64 // Phase increment per sample
-	
+
 	// Noise generator state
-	NoiseLFSR      uint16  // LFSR state for noise waveform
-	
+	NoiseLFSR uint16 // LFSR state for noise waveform
+
 	// Internal: Track frequency updates to prevent unnecessary phase resets
 	// This prevents warbling when the same frequency is written multiple times
-	lastCompleteFrequency uint16 // Last complete frequency that was set
-	pendingFrequencyLow   uint8  // Pending low byte (not yet committed)
+	lastCompleteFrequency  uint16 // Last complete frequency that was set
+	pendingFrequencyLow    uint8  // Pending low byte (not yet committed)
 	frequencyUpdatePending bool   // True if low byte written but high byte not yet written
 }
 
 // NewAPU creates a new APU instance
-func NewAPU(sampleRate uint32) *APU {
+func NewAPU(sampleRate uint32, logger *debug.Logger) *APU {
 	apu := &APU{
-		SampleRate:    sampleRate,
-		MasterVolume:  255,
+		SampleRate:          sampleRate,
+		MasterVolume:        255,
+		Logger:              logger,
 		debugLoggingEnabled: true, // Enable debug logging for first 5 seconds
-		debugLogStartTime: time.Now(),
+		debugLogStartTime:   time.Now(),
 	}
 	return apu
 }
@@ -87,25 +93,27 @@ func (a *APU) Read8(offset uint16) uint8 {
 		// Status is cleared immediately after being read to prevent multiple updates per frame
 		// This ensures the ROM only sees the completion status once per frame
 		status := a.ChannelCompletionStatus
-		a.ChannelCompletionStatus = 0  // Clear immediately after read (one-shot behavior)
-		if a.shouldLog() && status != 0 {
-			fmt.Printf("[APU Read8] CHANNEL_COMPLETION_STATUS read: 0x%02X (channels finished: ", status)
+		a.ChannelCompletionStatus = 0 // Clear immediately after read (one-shot behavior)
+		if a.shouldLog() && status != 0 && a.Logger != nil {
+			channels := []int{}
 			for i := 0; i < 4; i++ {
 				if (status & (1 << i)) != 0 {
-					fmt.Printf("%d ", i)
+					channels = append(channels, i)
 				}
 			}
-			fmt.Printf(") - cleared after read\n")
+			a.Logger.LogAPUf(debug.LogLevelInfo,
+				"CHANNEL_COMPLETION_STATUS read: 0x%02X (channels finished: %v) - cleared after read",
+				status, channels)
 		}
 		return status
 	}
-	
+
 	// Channel-specific registers (8 bytes per channel)
-	channel := int((offset / 8) & 0x3)  // Changed from /4 to /8
-	reg := offset & 0x7                  // Changed from &0x3 to &0x7
-	
+	channel := int((offset / 8) & 0x3) // Changed from /4 to /8
+	reg := offset & 0x7                // Changed from &0x3 to &0x7
+
 	ch := &a.Channels[channel]
-	
+
 	switch reg {
 	case 0: // FREQ_LOW
 		return uint8(ch.Frequency & 0xFF)
@@ -141,25 +149,26 @@ func (a *APU) Read8(offset uint16) uint8 {
 }
 
 // Write8 writes an 8-bit value to APU registers
-// 
+//
 // Register Layout (per channel, 8 bytes each - expanded for developer convenience!):
-//   Offset 0: FREQ_LOW      - Frequency low byte
-//   Offset 1: FREQ_HIGH     - Frequency high byte (triggers update)
-//   Offset 2: VOLUME        - Volume (0-255)
-//   Offset 3: CONTROL       - Enable + waveform
-//   Offset 4: DURATION_LOW  - Note duration low byte (frames)
-//   Offset 5: DURATION_HIGH - Note duration high byte (frames)
-//   Offset 6: DURATION_MODE - Duration mode (0=stop when done, 1=loop/restart)
-//   Offset 7: Reserved
+//
+//	Offset 0: FREQ_LOW      - Frequency low byte
+//	Offset 1: FREQ_HIGH     - Frequency high byte (triggers update)
+//	Offset 2: VOLUME        - Volume (0-255)
+//	Offset 3: CONTROL       - Enable + waveform
+//	Offset 4: DURATION_LOW  - Note duration low byte (frames)
+//	Offset 5: DURATION_HIGH - Note duration high byte (frames)
+//	Offset 6: DURATION_MODE - Duration mode (0=stop when done, 1=loop/restart)
+//	Offset 7: Reserved
 //
 // Design Philosophy: Developer-friendly!
 // - Set frequency, volume, duration, and enable - the APU handles timing automatically
 // - No need to manually count frames or loop iterations
 // - Duration in frames (60 frames = 1 second at 60 FPS)
 func (a *APU) Write8(offset uint16, value uint8) {
-	channel := int((offset / 8) & 0x3)  // Changed from /4 to /8
-	reg := offset & 0x7                  // Changed from &0x3 to &0x7
-	
+	channel := int((offset / 8) & 0x3) // Changed from /4 to /8
+	reg := offset & 0x7                // Changed from &0x3 to &0x7
+
 	// Debug: Log APU writes (only first few to verify it's working)
 	// fmt.Fprintf(os.Stderr, "[APU Write8] offset=0x%04X, channel=%d, reg=%d, value=0x%02X\n", offset, channel, reg, value)
 
@@ -170,14 +179,14 @@ func (a *APU) Write8(offset uint16, value uint8) {
 		ch := &a.Channels[channel]
 		ch.pendingFrequencyLow = value
 		ch.frequencyUpdatePending = true
-		
+
 		// Update the frequency value (but it's incomplete until high byte is written)
 		ch.Frequency = (ch.Frequency & 0xFF00) | uint16(value)
-		
+
 	case 1: // FREQ_HIGH
 		// Complete the frequency update
 		ch := &a.Channels[channel]
-		
+
 		// Reconstruct the complete frequency from pending low byte and new high byte
 		// This ensures we get the correct value even if low byte was written earlier
 		var newFreq uint16
@@ -188,20 +197,20 @@ func (a *APU) Write8(offset uint16, value uint8) {
 			// High byte written without low byte first - use current low byte
 			newFreq = (ch.Frequency & 0x00FF) | (uint16(value) << 8)
 		}
-		
+
 		// Get the old complete frequency for comparison
 		oldFreq := ch.lastCompleteFrequency
-		
+
 		// Update frequency and mark as complete
 		ch.Frequency = newFreq
 		ch.lastCompleteFrequency = newFreq
 		ch.frequencyUpdatePending = false
-		
+
 		// Update phase increment with new frequency
 		a.updatePhaseIncrement(channel)
-		// fmt.Printf("[APU] Channel %d: Frequency updated to %d Hz (0x%04X), PhaseIncrement=%f\n", 
+		// fmt.Printf("[APU] Channel %d: Frequency updated to %d Hz (0x%04X), PhaseIncrement=%f\n",
 		// 	channel, newFreq, newFreq, ch.PhaseIncrement)
-		
+
 		// CRITICAL: Only reset phase if frequency ACTUALLY changed
 		// This prevents warbling from redundant writes while ensuring clean note starts
 		// Real hardware (NES, SNES) resets phase when frequency changes, not on every write
@@ -209,33 +218,34 @@ func (a *APU) Write8(offset uint16, value uint8) {
 			// Frequency changed - reset phase for clean note start
 			// This matches real hardware behavior and prevents phase discontinuities
 			ch.Phase = 0.0
-			
+
 			// Debug logging
 			now := time.Now()
 			a.frequencyChangeCount[channel]++
-			
-			if a.shouldLog() {
+
+			if a.shouldLog() && a.Logger != nil {
 				timeSinceLastChange := time.Duration(0)
 				if !a.lastFrequencyChange[channel].IsZero() {
 					timeSinceLastChange = now.Sub(a.lastFrequencyChange[channel])
 				}
-				fmt.Printf("[APU] Channel %d: Frequency changed %d Hz (0x%04X) -> %d Hz (0x%04X) | Time since last: %v\n", 
+				a.Logger.LogAPUf(debug.LogLevelDebug,
+					"Channel %d: Frequency changed %d Hz (0x%04X) -> %d Hz (0x%04X) | Time since last: %v",
 					channel, oldFreq, oldFreq, newFreq, newFreq, timeSinceLastChange)
 			}
-			
+
 			a.lastFrequencyChange[channel] = now
 		}
 		// If frequency didn't change, phase continues naturally (no reset)
 		// This allows smooth playback without artifacts
-		
+
 	case 2: // VOLUME
 		a.Channels[channel].Volume = value
-		
+
 	case 3: // CONTROL
 		ch := &a.Channels[channel]
 		wasEnabled := ch.Enabled
 		ch.Enabled = (value & 0x01) != 0
-		
+
 		if channel < 3 {
 			// Channels 0-2: waveform in bits 1-2
 			ch.Waveform = (value >> 1) & 0x3
@@ -247,34 +257,48 @@ func (a *APU) Write8(offset uint16, value uint8) {
 				ch.Waveform = 1 // Square
 			}
 		}
-		
+
+		// When enabling a channel, store initial duration for loop mode
+		if !wasEnabled && ch.Enabled && ch.Duration > 0 {
+			ch.InitialDuration = ch.Duration
+		}
+
 		// Debug: Log channel enable/disable
-		if a.shouldLog() {
+		if a.shouldLog() && a.Logger != nil {
 			if !wasEnabled && ch.Enabled {
-				fmt.Printf("[APU] Channel %d: ENABLED - Freq=%d Hz, Volume=%d, Waveform=%d, Duration=%d frames\n", 
-					channel, ch.Frequency, ch.Volume, ch.Waveform, ch.Duration)
+				a.Logger.LogAPUf(debug.LogLevelInfo,
+					"Channel %d: ENABLED - Freq=%d Hz, Volume=%d, Waveform=%d, Duration=%d frames (InitialDuration=%d)",
+					channel, ch.Frequency, ch.Volume, ch.Waveform, ch.Duration, ch.InitialDuration)
 			} else if wasEnabled && !ch.Enabled {
-				fmt.Printf("[APU] Channel %d: DISABLED\n", channel)
+				a.Logger.LogAPUf(debug.LogLevelInfo, "Channel %d: DISABLED", channel)
 			}
 		}
-		
+
 		// When enabling a channel, if duration is set, start the timer
 		// When disabling, duration continues (so re-enabling resumes timing)
-		
+
 	case 4: // DURATION_LOW
 		ch := &a.Channels[channel]
 		ch.Duration = (ch.Duration & 0xFF00) | uint16(value)
-		
+		// Update InitialDuration if channel is enabled (for loop mode)
+		if ch.Enabled && ch.Duration > 0 {
+			ch.InitialDuration = ch.Duration
+		}
+
 	case 5: // DURATION_HIGH
 		ch := &a.Channels[channel]
 		ch.Duration = (ch.Duration & 0x00FF) | (uint16(value) << 8)
 		// When duration is set, channel will count down each frame
-		
+		// Update InitialDuration if channel is enabled (for loop mode)
+		if ch.Enabled && ch.Duration > 0 {
+			ch.InitialDuration = ch.Duration
+		}
+
 	case 6: // DURATION_MODE
 		ch := &a.Channels[channel]
 		ch.DurationMode = value & 0x01 // Bit 0: 0=stop when done, 1=loop
 		// Bit 1+: reserved for future use
-		
+
 	case 7: // Reserved
 		// Reserved for future expansion
 	}
@@ -303,17 +327,21 @@ func (a *APU) Write16(offset uint16, value uint16) {
 func (a *APU) updatePhaseIncrement(channel int) {
 	ch := &a.Channels[channel]
 	freq := float64(ch.Frequency)
-	
+
 	// Calculate phase increment: how much to advance phase per sample
 	// Formula: (frequency / sampleRate) * 2π
 	// This gives us the phase advance per sample for the desired frequency
 	if a.SampleRate == 0 {
-		fmt.Printf("[APU ERROR] SampleRate is 0!\n")
+		if a.Logger != nil {
+			a.Logger.LogAPUf(debug.LogLevelError, "SampleRate is 0!")
+		}
 		return
 	}
 	ch.PhaseIncrement = (freq / float64(a.SampleRate)) * 2.0 * math.Pi
 	if freq > 0 && ch.PhaseIncrement == 0 {
-		fmt.Printf("[APU ERROR] PhaseIncrement is 0 for frequency %f Hz!\n", freq)
+		if a.Logger != nil {
+			a.Logger.LogAPUf(debug.LogLevelError, "PhaseIncrement is 0 for frequency %f Hz!", freq)
+		}
 	}
 }
 
@@ -327,16 +355,17 @@ func (a *APU) GenerateSample() float32 {
 		if !ch.Enabled {
 			continue
 		}
-		
+
 		// Debug: Log if channel is enabled but has no phase increment
 		if ch.PhaseIncrement == 0 && ch.Frequency > 0 {
 			// This shouldn't happen, but log it once
-			if a.debugFrameCount < 5 {
-				fmt.Printf("[APU WARNING] Channel %d enabled with frequency %d Hz but PhaseIncrement is 0! (SampleRate=%d)\n", 
+			if a.debugFrameCount < 5 && a.Logger != nil {
+				a.Logger.LogAPUf(debug.LogLevelWarning,
+					"Channel %d enabled with frequency %d Hz but PhaseIncrement is 0! (SampleRate=%d)",
 					i, ch.Frequency, a.SampleRate)
 			}
 		}
-		
+
 		// Debug logging removed - audio generation is working
 
 		var channelSample float32
@@ -345,7 +374,7 @@ func (a *APU) GenerateSample() float32 {
 		case 0: // Sine wave
 			// Smooth sine wave: sin(phase) gives -1.0 to 1.0
 			channelSample = float32(math.Sin(ch.Phase))
-			
+
 		case 1: // Square wave
 			// 50% duty cycle square wave
 			if ch.Phase < math.Pi {
@@ -353,11 +382,11 @@ func (a *APU) GenerateSample() float32 {
 			} else {
 				channelSample = -1.0
 			}
-			
+
 		case 2: // Sawtooth wave
 			// Linear ramp from -1.0 to 1.0
-			channelSample = float32((ch.Phase / (2.0 * math.Pi)) * 2.0 - 1.0)
-			
+			channelSample = float32((ch.Phase/(2.0*math.Pi))*2.0 - 1.0)
+
 		case 3: // Noise (LFSR-based)
 			// 15-bit Linear Feedback Shift Register
 			// Polynomial: x^15 + x^14 + 1
@@ -377,7 +406,7 @@ func (a *APU) GenerateSample() float32 {
 		// Apply channel volume (0-255 -> 0.0-1.0)
 		volume := float32(ch.Volume) / 255.0
 		channelSample *= volume
-		
+
 		// Debug logging removed - audio generation is working
 
 		// Add to mix
@@ -417,21 +446,36 @@ func (a *APU) UpdateFrame() {
 	// It's cleared immediately after being read (one-shot behavior)
 	// This prevents the ROM from seeing it multiple times per frame
 	// Only set new completion flags if channels finish this frame
-	
+
 	for i := 0; i < 4; i++ {
 		ch := &a.Channels[i]
 		if ch.Duration > 0 {
 			oldDuration := ch.Duration
 			ch.Duration--
-			if a.shouldLog() && i == 0 {
-				fmt.Printf("[APU] Channel %d: Duration %d -> %d (frame %d)\n", i, oldDuration, ch.Duration, a.debugFrameCount)
+			if a.shouldLog() && i == 0 && a.Logger != nil {
+				a.Logger.LogAPUf(debug.LogLevelDebug,
+					"Channel %d: Duration %d -> %d (frame %d)",
+					i, oldDuration, ch.Duration, a.debugFrameCount)
 			}
 			if ch.Duration == 0 {
 				// Duration expired
 				if ch.DurationMode == 1 {
-					// Loop mode: restart the note (reload duration from... wait, we need to store initial duration)
-					// For now, loop mode just keeps playing (duration stays at 0 = infinite)
-					// TODO: Store initial duration for proper looping
+					// Loop mode: reload initial duration and continue playing
+					if ch.InitialDuration > 0 {
+						ch.Duration = ch.InitialDuration
+						if a.shouldLog() && a.Logger != nil {
+							a.Logger.LogAPUf(debug.LogLevelDebug,
+								"Channel %d: Duration expired, looping (reloaded InitialDuration=%d)",
+								i, ch.InitialDuration)
+						}
+					} else {
+						// No initial duration stored - play indefinitely (duration stays at 0)
+						if a.shouldLog() && a.Logger != nil {
+							a.Logger.LogAPUf(debug.LogLevelDebug,
+								"Channel %d: Duration expired, but no InitialDuration stored - playing indefinitely",
+								i)
+						}
+					}
 				} else {
 					// Stop mode: disable channel when duration expires
 					ch.Enabled = false
@@ -439,8 +483,9 @@ func (a *APU) UpdateFrame() {
 					// This flag persists for the entire frame (until next UpdateFrame clears it)
 					a.ChannelCompletionStatus |= (1 << i)
 					// Debug: Log when channel auto-disables
-					if a.shouldLog() {
-						fmt.Printf("[APU] Channel %d: Duration expired, auto-disabled (frame %d, completion status=0x%02X)\n", 
+					if a.shouldLog() && a.Logger != nil {
+						a.Logger.LogAPUf(debug.LogLevelInfo,
+							"Channel %d: Duration expired, auto-disabled (frame %d, completion status=0x%02X)",
 							i, a.debugFrameCount, a.ChannelCompletionStatus)
 					}
 				}

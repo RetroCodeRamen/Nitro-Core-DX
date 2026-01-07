@@ -89,8 +89,9 @@ Frame Start:
      - Sets completion flags (if channels finished)
   
   2. PPU.RenderFrame()
-     - Sets VBlank flag = true
+     - Sets VBlank flag = true (at START of frame, before CPU runs)
      - Increments FrameCounter
+     - Renders frame using state from previous frame's CPU execution
   
   3. CPU.ExecuteCycles(166667)
      - ROM can read:

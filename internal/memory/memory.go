@@ -13,16 +13,16 @@ type MemorySystem struct {
 	WRAMExtended [131072]uint8
 
 	// ROM data
-	ROMData []uint8
-	ROMSize uint32
+	ROMData  []uint8
+	ROMSize  uint32
 	ROMBanks uint8
-	
+
 	// ROM header (for entry point)
 	ROMHeader [32]uint8
 
 	// I/O handlers
-	PPUHandler  IOHandler
-	APUHandler  IOHandler
+	PPUHandler   IOHandler
+	APUHandler   IOHandler
 	InputHandler IOHandler
 }
 
@@ -59,10 +59,10 @@ func (m *MemorySystem) LoadROM(data []uint8) error {
 	}
 
 	romSize := uint32(data[6]) | (uint32(data[7]) << 8) | (uint32(data[8]) << 16) | (uint32(data[9]) << 24)
-	
+
 	// Save header for entry point lookup
 	copy(m.ROMHeader[:], data[0:32])
-	
+
 	// Load ROM data (skip 32-byte header)
 	if len(data) < int(romSize)+32 {
 		return fmt.Errorf("ROM data too small: expected %d bytes, got %d", romSize+32, len(data))
@@ -151,7 +151,7 @@ func (m *MemorySystem) Read16(bank uint8, offset uint16) uint16 {
 }
 
 // Write16 writes a 16-bit value to memory (little-endian)
-// For I/O registers that need special handling (like CGRAM_DATA), 
+// For I/O registers that need special handling (like CGRAM_DATA),
 // write both bytes to the same address
 func (m *MemorySystem) Write16(bank uint8, offset uint16, value uint16) {
 	// Special case: CGRAM_DATA (0x8013) needs two 8-bit writes to the same address
@@ -235,11 +235,17 @@ func (m *MemorySystem) GetROMEntryPoint() (bank uint8, offset uint16, err error)
 	}
 
 	// Entry point is in header (offsets 0x0A-0x0D)
+	// Little-endian: low byte first, then high byte
 	entryBank := uint16(m.ROMHeader[10]) | (uint16(m.ROMHeader[11]) << 8)
 	entryOffset := uint16(m.ROMHeader[12]) | (uint16(m.ROMHeader[13]) << 8)
 
+	// Validate entry point
+	if entryBank == 0 {
+		return 0, 0, fmt.Errorf("invalid ROM entry point: bank is 0 (ROM must be in bank 1+)")
+	}
+	if entryOffset < 0x8000 {
+		return 0, 0, fmt.Errorf("invalid ROM entry point: offset 0x%04X (ROM must start at 0x8000+)", entryOffset)
+	}
+
 	return uint8(entryBank), entryOffset, nil
 }
-
-
-

@@ -34,3 +34,5 @@ go build -o nitro-core-dx ./cmd/emulator
 ./nitro-core-dx -rom test/roms/demo.rom -scale 3
 ```
 
+
+

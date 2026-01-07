@@ -1,6 +1,8 @@
 package ppu
 
-import "fmt"
+import (
+	"nitro-core-dx/internal/debug"
+)
 
 // PPU represents the Picture Processing Unit
 // It implements the memory.IOHandler interface
@@ -48,6 +50,9 @@ type PPU struct {
 	// Set at start of each frame, cleared when read (one-shot)
 	// This matches real hardware behavior (NES, SNES, etc.)
 	VBlankFlag          bool
+	
+	// Logger for centralized logging
+	Logger              *debug.Logger
 
 	// VRAM/CGRAM/OAM access registers
 	VRAMAddr            uint16
@@ -76,7 +81,7 @@ type Window struct {
 }
 
 // NewPPU creates a new PPU instance
-func NewPPU() *PPU {
+func NewPPU(logger *debug.Logger) *PPU {
 	return &PPU{
 		BG0: BackgroundLayer{},
 		BG1: BackgroundLayer{},
@@ -84,6 +89,7 @@ func NewPPU() *PPU {
 		BG3: BackgroundLayer{},
 		Window0: Window{},
 		Window1: Window{},
+		Logger: logger,
 	}
 }
 
@@ -338,8 +344,8 @@ func (p *PPU) RenderFrame() {
 
 	// Debug: Print CGRAM contents once per 60 frames
 	p.debugFrameCount++
-	if p.debugFrameCount == 60 {
-		fmt.Printf("=== CGRAM Debug (palette 0, colors 0-3) ===\n")
+	if p.debugFrameCount == 60 && p.Logger != nil {
+		// Log CGRAM debug info
 		for i := 0; i < 4; i++ {
 			addr := i * 2
 			low := p.CGRAM[addr]
@@ -348,19 +354,31 @@ func (p *PPU) RenderFrame() {
 			r := (color >> 16) & 0xFF
 			g := (color >> 8) & 0xFF
 			b := color & 0xFF
-			fmt.Printf("  Color %d: CGRAM[%d]=0x%02X, CGRAM[%d]=0x%02X -> RGB(%d,%d,%d) = 0x%06X\n", i, addr, low, addr+1, high, r, g, b, color)
+			p.Logger.LogPPUf(debug.LogLevelDebug,
+				"CGRAM palette 0, color %d: CGRAM[%d]=0x%02X, CGRAM[%d]=0x%02X -> RGB(%d,%d,%d) = 0x%06X",
+				i, addr, low, addr+1, high, r, g, b, color)
 		}
-		fmt.Printf("=== First 10 pixels of output buffer ===\n")
+		// Log first 10 pixels
 		for i := 0; i < 10; i++ {
 			color := p.OutputBuffer[i]
 			r := (color >> 16) & 0xFF
 			g := (color >> 8) & 0xFF
 			b := color & 0xFF
-			fmt.Printf("  Pixel %d: 0x%06X (RGB %d,%d,%d)\n", i, color, r, g, b)
+			p.Logger.LogPPUf(debug.LogLevelDebug,
+				"Output buffer pixel %d: 0x%06X (RGB %d,%d,%d)",
+				i, color, r, g, b)
 		}
-		fmt.Printf("=== BG0 state: Enabled=%v, ScrollX=%d, ScrollY=%d ===\n", p.BG0.Enabled, p.BG0.ScrollX, p.BG0.ScrollY)
-		fmt.Printf("=== VRAM[0x4000-0x4003] (first tilemap entry): 0x%02X 0x%02X 0x%02X 0x%02X ===\n", p.VRAM[0x4000], p.VRAM[0x4001], p.VRAM[0x4002], p.VRAM[0x4003])
-		fmt.Printf("=== VRAM[0x0000-0x0003] (first tile data): 0x%02X 0x%02X 0x%02X 0x%02X ===\n", p.VRAM[0x0000], p.VRAM[0x0001], p.VRAM[0x0002], p.VRAM[0x0003])
+		// Log BG0 state
+		p.Logger.LogPPUf(debug.LogLevelDebug,
+			"BG0 state: Enabled=%v, ScrollX=%d, ScrollY=%d",
+			p.BG0.Enabled, p.BG0.ScrollX, p.BG0.ScrollY)
+		// Log VRAM entries
+		p.Logger.LogPPUf(debug.LogLevelDebug,
+			"VRAM[0x4000-0x4003] (first tilemap entry): 0x%02X 0x%02X 0x%02X 0x%02X",
+			p.VRAM[0x4000], p.VRAM[0x4001], p.VRAM[0x4002], p.VRAM[0x4003])
+		p.Logger.LogPPUf(debug.LogLevelDebug,
+			"VRAM[0x0000-0x0003] (first tile data): 0x%02X 0x%02X 0x%02X 0x%02X",
+			p.VRAM[0x0000], p.VRAM[0x0001], p.VRAM[0x0002], p.VRAM[0x0003])
 		p.debugFrameCount = 0
 	}
 
@@ -385,10 +403,10 @@ func (p *PPU) RenderFrame() {
 	// Render sprites
 	p.renderSprites()
 	
-	// Debug: Print sprite 0 OAM data
-	if p.debugFrameCount%60 == 0 {
-		fmt.Printf("=== Sprite 0 OAM Debug ===\n")
-		fmt.Printf("  OAM[0-5]: 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X\n",
+	// Debug: Log sprite 0 OAM data
+	if p.debugFrameCount%60 == 0 && p.Logger != nil {
+		p.Logger.LogPPUf(debug.LogLevelDebug,
+			"Sprite 0 OAM: OAM[0-5]=0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X",
 			p.OAM[0], p.OAM[1], p.OAM[2], p.OAM[3], p.OAM[4], p.OAM[5])
 		spriteX := int(p.OAM[0])
 		if (p.OAM[1] & 0x01) != 0 {
@@ -400,21 +418,23 @@ func (p *PPU) RenderFrame() {
 		control := uint8(p.OAM[5])
 		paletteIndex := attributes & 0x0F
 		enabled := (control & 0x01) != 0
-		fmt.Printf("  X=%d, Y=%d, Tile=%d, Palette=%d, Enabled=%v\n",
+		p.Logger.LogPPUf(debug.LogLevelDebug,
+			"Sprite 0: X=%d, Y=%d, Tile=%d, Palette=%d, Enabled=%v",
 			spriteX, spriteY, tileIndex, paletteIndex, enabled)
 		tileAddr := uint16(tileIndex) * 32
-		fmt.Printf("  Tile data at VRAM[%d]: 0x%02X 0x%02X 0x%02X 0x%02X\n",
+		p.Logger.LogPPUf(debug.LogLevelDebug,
+			"Sprite 0 tile data at VRAM[%d]: 0x%02X 0x%02X 0x%02X 0x%02X",
 			tileAddr, p.VRAM[tileAddr], p.VRAM[tileAddr+1],
 			p.VRAM[tileAddr+2], p.VRAM[tileAddr+3])
-		fmt.Printf("  CGRAM palette %d, color 1: ", paletteIndex)
 		if uint16(paletteIndex)*16+1 < 256 {
 			addr := (uint16(paletteIndex)*16 + 1) * 2
 			if addr < 512 {
 				low := p.CGRAM[addr]
 				high := p.CGRAM[addr+1]
 				color := p.getColorFromCGRAM(paletteIndex, 1)
-				fmt.Printf("CGRAM[%d]=0x%02X, CGRAM[%d]=0x%02X -> RGB(0x%06X)\n",
-					addr, low, addr+1, high, color)
+				p.Logger.LogPPUf(debug.LogLevelDebug,
+					"Sprite 0 CGRAM palette %d, color 1: CGRAM[%d]=0x%02X, CGRAM[%d]=0x%02X -> RGB(0x%06X)",
+					paletteIndex, addr, low, addr+1, high, color)
 			}
 		}
 	}

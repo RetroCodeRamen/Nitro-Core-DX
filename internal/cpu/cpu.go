@@ -38,6 +38,7 @@ const (
 	FlagC = 2 // Carry
 	FlagV = 3 // Overflow
 	FlagI = 4 // Interrupt mask
+	FlagD = 5 // Division by zero (set when division by zero occurs)
 )
 
 // CPU represents the emulated CPU
@@ -71,6 +72,9 @@ func NewCPU(mem MemoryInterface, log LoggerInterface) *CPU {
 }
 
 // Reset resets the CPU to initial state
+// NOTE: PCBank, PCOffset, and PBR are NOT reset here - they should be set
+// by SetEntryPoint() in the emulator. This prevents corruption if Reset()
+// is called after a ROM is loaded.
 func (c *CPU) Reset() {
 	c.State.R0 = 0
 	c.State.R1 = 0
@@ -80,9 +84,10 @@ func (c *CPU) Reset() {
 	c.State.R5 = 0
 	c.State.R6 = 0
 	c.State.R7 = 0
-	c.State.PCBank = 0
-	c.State.PCOffset = 0
-	c.State.PBR = 0
+	// DO NOT reset PCBank, PCOffset, PBR - these are set by SetEntryPoint()
+	// c.State.PCBank = 0
+	// c.State.PCOffset = 0
+	// c.State.PBR = 0
 	c.State.DBR = 0
 	c.State.SP = 0x1FFF // Stack starts at top of WRAM
 	c.State.Flags = 0
@@ -93,9 +98,25 @@ func (c *CPU) Reset() {
 
 // SetEntryPoint sets the CPU entry point
 func (c *CPU) SetEntryPoint(bank uint8, offset uint16) {
+	// Validate entry point
+	if bank == 0 {
+		// This is an error - ROM should never be in bank 0
+		// Bank 0 is WRAM/I/O space, ROM should be in bank 1+
+		// But we'll allow it for now and let the safety check catch it
+	}
+	if offset < 0x8000 {
+		// ROM code should start at 0x8000+ in the bank
+		// But we'll allow it and let the safety check catch it
+	}
+	
 	c.State.PCBank = bank
-	c.State.PCOffset = offset
+	c.State.PCOffset = offset &^ 1 // Ensure 16-bit alignment
 	c.State.PBR = bank
+	
+	// Verify it was set correctly
+	if c.State.PCBank != bank {
+		panic(fmt.Sprintf("SetEntryPoint failed: PCBank is %d, expected %d", c.State.PCBank, bank))
+	}
 }
 
 // GetRegister returns the value of a general-purpose register
@@ -200,18 +221,55 @@ func (c *CPU) UpdateFlagsWithOverflow(a, b, result uint16, isSubtract bool) {
 
 // FetchInstruction fetches the next instruction from memory
 func (c *CPU) FetchInstruction() uint16 {
-	// Read instruction from [PBR:PC]
-	low := c.Mem.Read8(c.State.PBR, c.State.PCOffset)
-	high := c.Mem.Read8(c.State.PBR, c.State.PCOffset+1)
+	// Ensure PC is aligned (instructions are 16-bit)
+	c.State.PCOffset &^= 1
+	
+	// Use PCBank for instruction fetch (PBR should match, but PCBank is authoritative)
+	// If PBR and PCBank are out of sync, use PCBank
+	bank := c.State.PCBank
+	if c.State.PBR != c.State.PCBank {
+		// Sync PBR to PCBank if they're out of sync
+		c.State.PBR = c.State.PCBank
+	}
+	
+	// Safety check: If PCBank is 0 and offset is >= 0x8000, this is I/O space, not ROM!
+	// This indicates a serious bug - PC should never be in I/O space for instruction fetch
+	// This likely means PCBank was incorrectly set to 0, or there's a bug in bank switching
+	// ROM code should always be in bank 1+ (banks 1-125 are ROM space)
+	if bank == 0 && c.State.PCOffset >= 0x8000 {
+		// This is a critical error - trying to execute from I/O space
+		// This should never happen - ROM code should be in bank 1+
+		// The instruction word we're about to read will be garbage from I/O registers
+		// Return a NOP to prevent crash, but this indicates PCBank is wrong
+		// The real issue is that PCBank should not be 0 when executing ROM code
+		return 0x0000 // NOP - but this is wrong, PCBank should be 1+
+	}
+	
+	// Read instruction from [bank:PCOffset]
+	low := c.Mem.Read8(bank, c.State.PCOffset)
+	high := c.Mem.Read8(bank, c.State.PCOffset+1)
+	
+	// Construct instruction word (little-endian: low byte first, then high byte)
+	instruction := uint16(low) | (uint16(high) << 8)
+	
 	c.State.PCOffset += 2
 	c.State.Cycles++
-	return uint16(low) | (uint16(high) << 8)
+	return instruction
 }
 
 // FetchImmediate fetches a 16-bit immediate value
 func (c *CPU) FetchImmediate() uint16 {
-	low := c.Mem.Read8(c.State.PBR, c.State.PCOffset)
-	high := c.Mem.Read8(c.State.PBR, c.State.PCOffset+1)
+	// Ensure PC is aligned (immediates are 16-bit)
+	c.State.PCOffset &^= 1
+	
+	// Use PCBank for immediate fetch (same as instruction fetch)
+	bank := c.State.PCBank
+	if c.State.PBR != c.State.PCBank {
+		c.State.PBR = c.State.PCBank
+	}
+	
+	low := c.Mem.Read8(bank, c.State.PCOffset)
+	high := c.Mem.Read8(bank, c.State.PCOffset+1)
 	c.State.PCOffset += 2
 	c.State.Cycles++
 	return uint16(low) | (uint16(high) << 8)
@@ -219,6 +277,20 @@ func (c *CPU) FetchImmediate() uint16 {
 
 // ExecuteInstruction executes a single instruction
 func (c *CPU) ExecuteInstruction() error {
+	// Safety check: If PCBank is 0 and we're in I/O space, this is a critical error
+	// This should never happen - ROM code should be in bank 1+
+	if c.State.PCBank == 0 && c.State.PCOffset >= 0x8000 {
+		return fmt.Errorf("CRITICAL: Attempting to execute from I/O space (bank 0, offset 0x%04X). PCBank should be 1+ for ROM execution. Current state: PCBank=%d, PCOffset=0x%04X, PBR=%d. This indicates PCBank was incorrectly set to 0 or Reset() was called after LoadROM", 
+			c.State.PCOffset, c.State.PCBank, c.State.PCOffset, c.State.PBR)
+	}
+	
+	// Safety check: If PCBank is 1+ but PCOffset is < 0x8000, this is invalid
+	// ROM code must be at offset 0x8000+ within a bank
+	if c.State.PCBank >= 1 && c.State.PCBank <= 125 && c.State.PCOffset < 0x8000 {
+		return fmt.Errorf("CRITICAL: Attempting to execute from invalid ROM address (bank %d, offset 0x%04X). ROM code must be at offset 0x8000+ within a bank. This indicates PC was corrupted or an invalid jump occurred", 
+			c.State.PCBank, c.State.PCOffset)
+	}
+	
 	// Fetch instruction
 	instruction := c.FetchInstruction()
 	
@@ -238,7 +310,13 @@ func (c *CPU) ExecuteInstruction() error {
 	case 0x0: // NOP
 		return c.executeNOP()
 	case 0x1: // MOV
-		return c.executeMOV(mode, reg1, reg2)
+		if err := c.executeMOV(mode, reg1, reg2); err != nil {
+			// Calculate the PC where this instruction was fetched from
+			fetchPC := c.State.PCOffset - 2
+			return fmt.Errorf("%s (instruction: 0x%04X, mode: %d, reg1: %d, reg2: %d, PC: %02X:%04X, PBR: %02X)", 
+				err, instruction, mode, reg1, reg2, c.State.PCBank, fetchPC, c.State.PBR)
+		}
+		return nil
 	case 0x2: // ADD
 		return c.executeADD(mode, reg1, reg2)
 	case 0x3: // SUB

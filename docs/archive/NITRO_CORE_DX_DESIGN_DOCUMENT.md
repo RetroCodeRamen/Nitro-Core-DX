@@ -192,7 +192,7 @@ The CPU supports the following addressing modes:
 
 3. **Direct Address** (Mode 2)
    - Format: `MOV R1, [R2]`
-   - Load from memory at address in R2
+   - Load 16-bit from memory at address in R2
    - Uses DBR as bank register
    - Address = DBR:R2
 
@@ -207,6 +207,21 @@ The CPU supports the following addressing modes:
    - Format: `PUSH R1` / `POP R1`
    - Uses SP in bank 0
    - Stack grows downward
+
+6. **8-bit Load** (Mode 6)
+   - Format: `MOV R1, [R2]`
+   - Load 8-bit from memory at address in R2, zero-extended to 16-bit
+   - Uses DBR as bank register
+   - Address = DBR:R2
+   - Useful for reading 8-bit I/O registers or byte-aligned data
+
+7. **8-bit Store** (Mode 7)
+   - Format: `MOV [R1], R2`
+   - Store low 8 bits of R2 to memory at address in R1
+   - Uses DBR as bank register
+   - Address = DBR:R1
+   - For I/O addresses (0x8000+), always uses bank 0
+   - Useful for writing to 8-bit I/O registers or byte-aligned data
 
 ### Instruction Set
 
@@ -229,17 +244,19 @@ Some instructions require an additional 16-bit immediate value (Mode 1 instructi
 
 | Instruction | Opcode | Modes | Description |
 |------------|--------|-------|-------------|
-| MOV | 0x1000 | 0-5 | Move/load/store |
+| MOV | 0x1000 | 0-7 | Move/load/store |
 | PUSH | 0x1000 | 4 | Push to stack |
 | POP | 0x1000 | 5 | Pop from stack |
 
 **MOV Modes:**
 - Mode 0: `MOV R1, R2` - Register to register
 - Mode 1: `MOV R1, #imm` - Immediate to register (2 words)
-- Mode 2: `MOV R1, [R2]` - Load from memory [DBR:R2]
+- Mode 2: `MOV R1, [R2]` - Load 16-bit from memory [DBR:R2]
 - Mode 3: `MOV [R1], R2` - Store to memory [DBR:R1]
 - Mode 4: `PUSH R1` - Push R1 to stack
 - Mode 5: `POP R1` - Pop stack to R1
+- Mode 6: `MOV R1, [R2]` - Load 8-bit from memory [DBR:R2] (zero-extended to 16-bit)
+- Mode 7: `MOV [R1], R2` - Store 8-bit to memory [DBR:R1] (stores low byte of R2)
 
 **2. Arithmetic**
 

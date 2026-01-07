@@ -52,19 +52,31 @@ var font8x8 = map[rune][8]uint8{
 
 // drawText draws text directly to the renderer as an overlay
 func (u *UI) drawText(renderer *sdl.Renderer, text string, x, y int32, scale int, color sdl.Color) {
+	// Get actual renderer output width (not limited to emulator screen)
+	outputW, outputH, _ := renderer.GetOutputSize()
+	maxX := int32(outputW)
+	maxY := int32(outputH)
+	
 	charX := x
 	for _, char := range text {
-		if charX+int32(8*scale) > int32(320*u.scale) {
+		// Check if character would go beyond renderer width
+		if charX+int32(8*scale) > maxX {
 			break
 		}
 		if glyph, ok := font8x8[char]; ok {
 			for row := 0; row < 8; row++ {
-				if y+int32(row*scale) >= int32(200*u.scale) {
+				// Check if row would go beyond renderer height
+				if y+int32(row*scale) >= maxY {
 					break
 				}
 				bits := glyph[row]
 				for col := 0; col < 8; col++ {
-					if (bits>>(7-col))&1 != 0 {
+					// Check bit from left to right
+					// Try reversed bit order: read LSB to MSB (right to left in font data)
+					// For col=0 (leftmost pixel), read bit 0 (LSB)
+					// For col=7 (rightmost pixel), read bit 7 (MSB)
+					bitPos := col
+					if (bits>>bitPos)&1 != 0 {
 						// Draw scaled pixel
 						rect := &sdl.Rect{
 							X: charX + int32(col*scale),

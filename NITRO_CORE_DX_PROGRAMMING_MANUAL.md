@@ -76,14 +76,17 @@ The CPU has 8 general-purpose 16-bit registers:
 - **C (Carry)**: Set on unsigned overflow
 - **V (Overflow)**: Set on signed overflow
 - **I (Interrupt)**: Interrupt mask flag
+- **D (Division by Zero)**: Set when division by zero occurs (DIV instruction with divisor = 0)
 
 ### Addressing Modes
 
 1. **Register Direct** (Mode 0): `MOV R1, R2`
 2. **Immediate** (Mode 1): `MOV R1, #0x1234`
-3. **Direct Address** (Mode 2): `MOV R1, [R2]` (load from address in R2)
+3. **Direct Address** (Mode 2): `MOV R1, [R2]` (load 16-bit from address in R2)
 4. **Indirect** (Mode 3): `MOV [R1], R2` (store to address in R1)
-5. **Indexed** (Mode 4): Register + offset (future)
+5. **Stack Operations** (Mode 4/5): `PUSH R1` / `POP R1`
+6. **8-bit Load** (Mode 6): `MOV R1, [R2]` (load 8-bit from address in R2, zero-extended)
+7. **8-bit Store** (Mode 7): `MOV [R1], R2` (store low 8 bits of R2 to address in R1)
 
 ---
 
@@ -129,7 +132,8 @@ Some instructions require an additional 16-bit immediate value.
 - **Format**: `DIV R1, R2` or `DIV R1, #imm`
 - **Opcode**: `0x5000`
 - **Description**: Divides R1 by R2 (or immediate), stores quotient in R1
-- **Flags**: Sets Z, N
+- **Flags**: Sets Z, N, D (division by zero flag)
+- **Division by Zero**: If divisor is 0, result is set to 0xFFFF and the D flag is set. The D flag can be checked to detect division by zero errors.
 - **Example**: `DIV R3, R4` → R3 = R3 / R4
 
 ### Logical Instructions
@@ -185,10 +189,12 @@ Some instructions require an additional 16-bit immediate value.
 - **Modes**:
   - **Mode 0**: `MOV R1, R2` - Register to register
   - **Mode 1**: `MOV R1, #imm` - Immediate to register (next word is immediate)
-  - **Mode 2**: `MOV R1, [R2]` - Load from memory at address in R2
+  - **Mode 2**: `MOV R1, [R2]` - Load 16-bit from memory at address in R2
   - **Mode 3**: `MOV [R1], R2` - Store to memory at address in R1
   - **Mode 4**: `PUSH R1` - Push register to stack
   - **Mode 5**: `POP R1` - Pop stack to register
+  - **Mode 6**: `MOV R1, [R2]` - Load 8-bit from memory at address in R2 (zero-extended to 16-bit)
+  - **Mode 7**: `MOV [R1], R2` - Store 8-bit to memory at address in R1 (stores low byte of R2)
 - **Example**: `MOV R3, #0x1234` → R3 = 0x1234
 
 ### Comparison and Branching
@@ -267,6 +273,7 @@ Some instructions require an additional 16-bit immediate value.
 - **Format**: `POP R1` (MOV mode 5)
 - **Description**: Pops value from stack to register
 - **Example**: `POP R3` → Pop stack to R3
+- **Stack Underflow**: If the stack is empty (SP >= 0x1FFF) or corrupted (SP < 0x0100), the instruction will return an error. Always ensure there is a matching PUSH for each POP.
 
 ### Other Instructions
 
@@ -292,6 +299,8 @@ The system uses a banked memory architecture with 24-bit addressing (bank:offset
 - **Banks 126-127**: Extended WRAM (128KB)
 
 ### I/O Register Map (Bank 0, 0x8000-0xFFFF)
+
+**Important:** All I/O registers are 8-bit only. When writing 16-bit values to I/O addresses (using `MOV [R1], R2` mode 3), only the low byte is written. The high byte is ignored. This applies to all PPU, APU, and Input registers. For normal memory (WRAM, Extended WRAM), 16-bit writes work correctly.
 
 #### PPU Registers (0x8000-0x8FFF)
 
@@ -443,6 +452,8 @@ Four tile-based background layers (BG0, BG1, BG2, BG3) for advanced parallax and
 - **BG3**: Can be used as dedicated affine layer (Matrix Mode alternative)
 
 ### Matrix Mode (Mode 7-Style Effects)
+
+> **⚠️ IMPLEMENTATION STATUS**: Matrix Mode is currently not fully implemented. The transformation matrix registers are available and can be written to, but the rendering pipeline does not yet apply the transformation. Currently, enabling Matrix Mode will render BG0 normally without transformation. This feature is planned for a future release.
 
 Matrix Mode enables advanced perspective and rotation effects on BG0, perfect for creating 3D-style landscapes, racing game tracks, and **pseudo-3D world maps**. This is the console's implementation of SNES Mode 7-style effects, enhanced for larger worlds.
 
@@ -1060,7 +1071,8 @@ This ensures all synchronization signals are available **before** your ROM code 
 
 **Mode 1 (Loop/Restart):**
 - Channel plays for specified duration
-- When duration reaches 0, channel continues playing (duration stays at 0 = infinite)
+- When duration reaches 0, the initial duration is automatically reloaded and the channel continues playing
+- The initial duration is stored when the channel is enabled (if duration > 0)
 - Use for: Looping background music, sustained notes
 
 **Setting Duration:**
@@ -1673,7 +1685,7 @@ delay_loop:
 | Instruction | Opcode | Mode | Description |
 |------------|--------|------|-------------|
 | NOP | 0x0000 | - | No operation |
-| MOV | 0x1000 | 0-5 | Move/load/store |
+| MOV | 0x1000 | 0-7 | Move/load/store |
 | ADD | 0x2000 | 0-1 | Add |
 | SUB | 0x3000 | 0-1 | Subtract |
 | MUL | 0x4000 | 0-1 | Multiply |
