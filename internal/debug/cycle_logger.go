@@ -22,6 +22,7 @@ type PPUStateReader interface {
 	GetDot() int
 	GetVBlankFlag() bool
 	GetFrameCounter() uint16
+	GetOAMByteIndex() uint8
 }
 
 // APUStateReader interface for reading APU state (to avoid import cycles)
@@ -33,26 +34,26 @@ type APUStateReader interface {
 // CPUStateSnapshot represents CPU state for logging (to avoid import cycles)
 type CPUStateSnapshot struct {
 	R0, R1, R2, R3, R4, R5, R6, R7 uint16
-	PCBank                          uint8
-	PCOffset                        uint16
-	PBR                             uint8
-	DBR                             uint8
-	SP                              uint16
-	Flags                           uint8
-	Cycles                          uint32
+	PCBank                         uint8
+	PCOffset                       uint16
+	PBR                            uint8
+	DBR                            uint8
+	SP                             uint16
+	Flags                          uint8
+	Cycles                         uint32
 }
 
 // CycleLogger logs CPU register and memory state for each clock cycle
 // This is useful for debugging timing-sensitive issues
 type CycleLogger struct {
-	file        *os.File
-	maxCycles   uint64
-	startCycle  uint64 // Start logging after this many cycles
+	file         *os.File
+	maxCycles    uint64
+	startCycle   uint64 // Start logging after this many cycles
 	currentCycle uint64
 	totalCycles  uint64 // Total cycles since creation (for offset calculation)
-	enabled     bool
-	mu          sync.Mutex
-	
+	enabled      bool
+	mu           sync.Mutex
+
 	// Interfaces for reading memory and OAM state
 	bus MemoryReader
 	oam OAMReader
@@ -70,16 +71,16 @@ func NewCycleLogger(filename string, maxCycles uint64, startCycle uint64, bus Me
 	}
 
 	logger := &CycleLogger{
-		file:        file,
-		maxCycles:   maxCycles,
-		startCycle:  startCycle,
+		file:         file,
+		maxCycles:    maxCycles,
+		startCycle:   startCycle,
 		currentCycle: 0,
-		totalCycles: 0,
-		enabled:     true,
-		bus:         bus,
-		oam:         oam,
-		ppu:         ppu,
-		apu:         apu,
+		totalCycles:  0,
+		enabled:      true,
+		bus:          bus,
+		oam:          oam,
+		ppu:          ppu,
+		apu:          apu,
 	}
 
 	// Write header
@@ -132,11 +133,24 @@ func (c *CycleLogger) LogCycle(cpuState *CPUStateSnapshot) {
 	if c.bus != nil {
 		// VBlank flag at 0x803E (PPU register 0x3E)
 		vblankFlag = c.bus.Read8(0, 0x803E)
-		
+
 		// OAM registers
 		oamAddr = c.bus.Read8(0, 0x8014) // OAM_ADDR
-		oamData = c.bus.Read8(0, 0x8015) // OAM_DATA
-		
+		// Don't read OAM_DATA through bus.Read8 as it increments the byte index
+		// Instead, read it directly from OAM array if we have OAM access
+		if c.oam != nil && c.ppu != nil {
+			// Read OAM_DATA value directly from OAM array without incrementing byte index
+			// Calculate address based on current OAM_ADDR and byte index
+			oamByteIdx := c.ppu.GetOAMByteIndex()
+			oamAddrValue := oamAddr
+			if oamAddrValue < 128 {
+				addr := uint16(oamAddrValue)*6 + uint16(oamByteIdx)
+				if addr < 768 {
+					oamData = c.oam.ReadOAM(uint8(addr))
+				}
+			}
+		}
+
 		// Read sprite 0 data from OAM
 		if c.oam != nil {
 			// Read sprite 0 data (6 bytes: X_low, X_high, Y, Tile, Attr, Ctrl)
@@ -183,11 +197,11 @@ func (c *CycleLogger) LogCycle(cpuState *CPUStateSnapshot) {
 		cpuState.SP, cpuState.PBR, cpuState.DBR, cpuState.Flags,
 		(cpuState.Flags>>0)&1, (cpuState.Flags>>1)&1, (cpuState.Flags>>2)&1,
 		(cpuState.Flags>>3)&1, (cpuState.Flags>>4)&1, (cpuState.Flags>>5)&1)
-	
+
 	// PPU state
 	fmt.Fprintf(c.file, "PPU:SL:%03d Dot:%03d VB:%v FC:%04d | ",
 		ppuScanline, ppuDot, ppuVBlank, ppuFrameCounter)
-	
+
 	// APU state (compact format)
 	fmt.Fprintf(c.file, "APU:MV:%02X ", apuMasterVol)
 	for i := 0; i < 4; i++ {
@@ -197,10 +211,14 @@ func (c *CycleLogger) LogCycle(cpuState *CPUStateSnapshot) {
 			fmt.Fprintf(c.file, "Ch%d:--- ", i)
 		}
 	}
-	
+
 	// Key memory
-	fmt.Fprintf(c.file, "| VBlank:%02X | OAM_ADDR:%02X | OAM_DATA:%02X | OAM[0-5]:%02X %02X %02X %02X %02X %02X\n",
-		vblankFlag, oamAddr, oamData,
+	oamByteIndex := uint8(0)
+	if c.ppu != nil {
+		oamByteIndex = c.ppu.GetOAMByteIndex()
+	}
+	fmt.Fprintf(c.file, "| VBlank:%02X | OAM_ADDR:%02X | OAM_DATA:%02X | OAM_BYTE_IDX:%d | OAM[0-5]:%02X %02X %02X %02X %02X %02X\n",
+		vblankFlag, oamAddr, oamData, oamByteIndex,
 		oamSprite0[0], oamSprite0[1], oamSprite0[2], oamSprite0[3], oamSprite0[4], oamSprite0[5])
 }
 

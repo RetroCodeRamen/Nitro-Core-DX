@@ -28,6 +28,15 @@ func (b *ROMBuilder) AddImmediate(value uint16) {
 	b.code = append(b.code, value)
 }
 
+// SetImmediateAt sets an immediate value at a specific word index
+// Useful for patching branch offsets after the target address is known
+func (b *ROMBuilder) SetImmediateAt(wordIndex int, value uint16) {
+	if wordIndex < 0 || wordIndex >= len(b.code) {
+		panic(fmt.Sprintf("SetImmediateAt: index %d out of range (code length: %d)", wordIndex, len(b.code)))
+	}
+	b.code[wordIndex] = value
+}
+
 // GetCodeLength returns the current code length in words
 func (b *ROMBuilder) GetCodeLength() int {
 	return len(b.code)

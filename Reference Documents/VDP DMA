@@ -1,0 +1,97 @@
+VDP DMA
+Jump to navigationJump to search
+
+Contents
+1	Description
+2	DMA Operations
+2.1	Memory to VRAM
+2.2	VRAM Fill
+2.3	VRAM Copy
+2.4	DMA Transfer capacity
+Description
+The VDP can perform DMA actions for copying data from ROM/RAM to its RAM, filling its RAM with a value or even copying from its RAM to its RAM.
+
+It's quite useful cause DMA transfer is faster than doing direct access (in VBLANK only, during active scan it's the same).
+
+During DMA the VDP stop the 68k as it's using it bus to access the data.
+
+DMA Operations
+Memory to VRAM
+Step to perform a memory (ROM or RAM) to one of the VDP RAMs :
+
+Enable DMA in VDP register 0x1
+Set VDP auto-increment register (Usually 2 because source address in is increased by 2)
+Set DMA length (VDP registers 0x13 and 0x14)
+Set DMA source address (VDP registers 0x15, 0x16 and 0x17)
+Set the destination address (See setting RAM address) (Don't forget to set CD5 to 1)
+As soon as you set the destination address, the VDP halt the 68k and DMA operation starts.
+Disable DMA in VDP register 0x1
+VRAM Fill
+VRAM Fill is a DMA operation that allows you to fill the VRAM with one 16 bits value (a word).
+
+Step to perform a VRAM Fill :
+
+Enable DMA in VDP register 0x1
+Set VDP auto-increment register (Usually 1)
+Set DMA length (VDP registers 0x13 and 0x14)
+Set VDP register 0x17 to 0x80 (Enable VRAM Fill)
+Set the destination address (See setting RAM address) (Don't forget to set CD5 to 1)
+Set the Fill data by writing the desired value to the data port
+As soon as you set the data, the DMA operation starts.
+Disable DMA in VDP register 0x1
+VRAM Copy
+VRAM Copy is a DMA operation that allows you to duplicate a region of the VRAM to another one.
+
+Steps to perform a VRAM Copy :
+
+Enable DMA in VDP register 0x1
+Set DMA length (VDP registers 0x13 and 0x14)
+Set DMA source address (VDP registers 0x15 and 0x16)
+Set VDP register 0x17 to 0xC0
+Set the destination address (See setting RAM address) (Don't forget to set CD5 and CD4 to 1)
+As soon as you set the destination address, the VDP halt the 68k and DMA operation starts.
+Disable DMA in VDP register 0x1
+DMA Transfer capacity
+Note: This information is from SEGA and hasn't been verified
+
+DMA Mode	Display Mode	Bytes per lines
+Memory to VRAM	H32	During active scan : 16
+During VBLANK : 167
+
+H40	During active scan : 18
+During VBLANK : 205
+
+VRAM Fill	H32	During active scan : 15
+During VBLANK : 166
+
+H40	During active scan : 17
+During VBLANK : 204
+
+VRAM Copy	H32	During active scan : 8
+During VBLANK : 83
+
+H40	During active scan : 9
+During VBLANK : 102
+
+When display is disable (See VDP register 0x1), transfer capacity is the same as in VBLANK.
+
+Category: Video system
+Navigation menu
+Log in
+Request account
+PageDiscussion
+ReadView sourceView history
+Search MegaDrive Development Wiki
+Main page
+Recent changes
+Random page
+Help about MediaWiki
+Tools
+What links here
+Related changes
+Special pages
+Printable version
+Permanent link
+Page information
+This page was last edited on 4 February 2013, at 16:39.
+Content is available under Public Domain unless otherwise noted.

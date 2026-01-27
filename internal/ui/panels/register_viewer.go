@@ -28,19 +28,19 @@ func RegisterViewer(emu *emulator.Emulator, window fyne.Window) (*fyne.Container
 		if emu == nil || emu.CPU == nil {
 			return "CPU not available\n"
 		}
-
+		
 		state := emu.CPU.State
 		var text string
 
 		text += "=== CPU Registers ===\n\n"
-
+		
 		// General purpose registers
 		text += "General Purpose Registers:\n"
 		regs := []uint16{state.R0, state.R1, state.R2, state.R3, state.R4, state.R5, state.R6, state.R7}
 		for i := 0; i < 8; i++ {
 			text += fmt.Sprintf("  R%d: 0x%04X (%5d)  %016b\n", i, regs[i], regs[i], regs[i])
 		}
-
+		
 		text += "\nSpecial Registers:\n"
 		text += fmt.Sprintf("  PC:  %02X:%04X  (Bank: %02X, Offset: %04X)\n", state.PCBank, state.PCOffset, state.PCBank, state.PCOffset)
 		text += fmt.Sprintf("  SP:  0x%04X  (%5d)\n", state.SP, state.SP)
@@ -62,7 +62,7 @@ func RegisterViewer(emu *emulator.Emulator, window fyne.Window) (*fyne.Container
 
 		return text
 	}
-
+	
 	// Update function (called periodically)
 	updateFunc := func() {
 		registerText.SetText(formatRegisterState())

@@ -11,8 +11,8 @@ type MasterClock struct {
 	Cycle uint64
 
 	// Clock speeds (cycles per second)
-	CPUSpeed  uint32 // 10 MHz = 10,000,000 cycles/sec
-	PPUSpeed  uint32 // Same as CPU for now
+	CPUSpeed  uint32 // ~7.67 MHz = 7,670,000 cycles/sec (Genesis-like)
+	PPUSpeed  uint32 // Same as CPU (unified clock)
 	APUSpeed  uint32 // 44,100 Hz sample rate
 
 	// Component cycle counters (when each component should run next)
@@ -48,7 +48,7 @@ func (c *MasterClock) Step() (uint64, error) {
 		if err := c.CPUStep(cyclesToRun); err != nil {
 			return 0, fmt.Errorf("CPU step error: %w", err)
 		}
-		// CPU runs every cycle (10 MHz)
+		// CPU runs every cycle (~7.67 MHz, unified clock)
 		c.CPUNextCycle = c.Cycle + 1
 	}
 
@@ -62,13 +62,13 @@ func (c *MasterClock) Step() (uint64, error) {
 		c.PPUNextCycle = c.Cycle + 1
 	}
 
-	// Check APU (runs at sample rate: 44,100 Hz = every ~227 cycles at 10 MHz)
+	// Check APU (runs at sample rate: 44,100 Hz = every ~174 cycles at ~7.67 MHz)
 	if c.APUStep != nil && c.Cycle >= c.APUNextCycle {
 		cyclesToRun := c.Cycle - c.APUNextCycle + 1
 		if err := c.APUStep(cyclesToRun); err != nil {
 			return 0, fmt.Errorf("APU step error: %w", err)
 		}
-		// APU runs every ~227 cycles (10,000,000 / 44,100 ≈ 226.76)
+		// APU runs every ~174 cycles (7,670,000 / 44,100 ≈ 173.92)
 		apuCyclesPerSample := uint64(c.CPUSpeed / c.APUSpeed)
 		c.APUNextCycle = c.Cycle + apuCyclesPerSample
 	}
@@ -79,12 +79,51 @@ func (c *MasterClock) Step() (uint64, error) {
 }
 
 // StepCycles advances the clock by a specific number of cycles
+// Optimized version: batches CPU/PPU steps since they run every cycle
 func (c *MasterClock) StepCycles(cycles uint64) error {
-	for i := uint64(0); i < cycles; i++ {
-		if _, err := c.Step(); err != nil {
-			return err
+	if cycles == 0 {
+		return nil
+	}
+	
+	// CPU and PPU run every cycle, so we can batch them
+	// Step them for the full batch
+	if c.CPUStep != nil {
+		if err := c.CPUStep(cycles); err != nil {
+			return fmt.Errorf("CPU step error: %w", err)
+		}
+		c.CPUNextCycle += cycles
+	}
+	
+	if c.PPUStep != nil {
+		if err := c.PPUStep(cycles); err != nil {
+			return fmt.Errorf("PPU step error: %w", err)
+		}
+		c.PPUNextCycle += cycles
+	}
+	
+	// APU runs at sample rate - step it for each sample that occurs in this batch
+	if c.APUStep != nil {
+		apuCyclesPerSample := uint64(c.CPUSpeed / c.APUSpeed)
+		cycleAtStart := c.Cycle
+		cycleAtEnd := c.Cycle + cycles
+		
+		// Step APU for each sample that occurs during this batch
+		for c.APUNextCycle < cycleAtEnd {
+			if c.APUNextCycle >= cycleAtStart {
+				// APU sample occurs during this batch - step it
+				if err := c.APUStep(apuCyclesPerSample); err != nil {
+					return fmt.Errorf("APU step error: %w", err)
+				}
+				c.APUNextCycle += apuCyclesPerSample
+			} else {
+				// APU sample was before this batch, advance to next
+				c.APUNextCycle += apuCyclesPerSample
+			}
 		}
 	}
+	
+	// Advance master clock
+	c.Cycle += cycles
 	return nil
 }
 

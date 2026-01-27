@@ -3,18 +3,20 @@ package ppu
 // ScanlineRenderer handles scanline-by-scanline and dot-by-dot rendering
 // This replaces the frame-based RenderFrame() for clock-driven operation
 
-// PPU timing constants (at 10 MHz CPU clock)
+// PPU timing constants (at ~7.67 MHz CPU clock, Genesis-like)
 const (
 	// Display resolution
 	ScreenWidth  = 320
 	ScreenHeight = 200
 
-	// Timing (at 10 MHz)
-	// Each scanline takes: 320 dots (visible) + 40 dots (hblank) = 360 dots
-	// Each dot = 1 CPU cycle at 10 MHz
-	DotsPerScanline = 360
-	VisibleDots     = 320
-	HBlankDots      = 40
+	// Timing (at ~7.67 MHz, synchronized with CPU)
+	// Each scanline takes: 320 dots (visible) + 261 dots (hblank) = 581 dots
+	// Each dot = 1 CPU cycle at ~7.67 MHz
+	// Total: 220 scanlines × 581 dots = 127,820 cycles per frame
+	// At 60 FPS: 7,669,200 Hz ≈ 7.67 MHz (Genesis-like speed)
+	DotsPerScanline = 581 // Changed from 360 to match Genesis-like CPU speed
+	VisibleDots     = 320 // Keep same (visible pixels)
+	HBlankDots      = 261 // Changed from 40 (581 - 320)
 
 	// Frame timing
 	// Visible scanlines: 200
@@ -25,13 +27,88 @@ const (
 )
 
 // StepPPU steps the PPU by a number of cycles (clock-driven)
+// Optimized version: processes scanlines in batches for better performance
 // Returns error if any
 func (p *PPU) StepPPU(cycles uint64) error {
-	for i := uint64(0); i < cycles; i++ {
-		if err := p.stepDot(); err != nil {
-			return err
+	// Initialize scanline/dot counters if needed
+	if !p.scanlineInitialized {
+		p.currentScanline = 0
+		p.currentDot = 0
+		p.scanlineInitialized = true
+		p.frameStarted = false
+	}
+
+	// Check if we need to start a new frame
+	if p.currentScanline == 0 && p.currentDot == 0 && !p.frameStarted {
+		p.startFrame()
+		p.frameStarted = true
+		p.FrameComplete = false
+	}
+
+	cyclesRemaining := cycles
+	for cyclesRemaining > 0 {
+		// Handle HDMA on scanline start (before processing dots)
+		if p.currentDot == 0 && p.HDMAEnabled && p.currentScanline < VisibleScanlines {
+			p.updateHDMA(p.currentScanline)
+		}
+
+		// Calculate cycles until end of current scanline
+		cyclesUntilScanlineEnd := uint64(DotsPerScanline - p.currentDot)
+		if cyclesUntilScanlineEnd > cyclesRemaining {
+			cyclesUntilScanlineEnd = cyclesRemaining
+		}
+
+		// Process visible dots in current scanline
+		if p.currentScanline < VisibleScanlines {
+			// Render all visible dots in this batch
+			for p.currentDot < VisibleDots && cyclesUntilScanlineEnd > 0 {
+				p.renderDot(p.currentScanline, p.currentDot)
+				p.currentDot++
+				cyclesUntilScanlineEnd--
+				cyclesRemaining--
+			}
+
+			// Skip HBlank dots (just advance counter)
+			if p.currentDot >= VisibleDots && cyclesUntilScanlineEnd > 0 {
+				// We're in HBlank, just advance
+				advance := int(cyclesUntilScanlineEnd)
+				if advance > DotsPerScanline-p.currentDot {
+					advance = DotsPerScanline - p.currentDot
+				}
+				p.currentDot += advance
+				cyclesRemaining -= uint64(advance)
+			}
+		} else {
+			// VBlank scanline - just advance counters
+			advance := int(cyclesUntilScanlineEnd)
+			if advance > DotsPerScanline-p.currentDot {
+				advance = DotsPerScanline - p.currentDot
+			}
+			p.currentDot += advance
+			cyclesRemaining -= uint64(advance)
+		}
+
+		// Check if we've reached end of scanline
+		if p.currentDot >= DotsPerScanline {
+			p.endScanline()
+
+			// Set VBlank flag at end of last visible scanline (before incrementing)
+			if p.currentScanline == VisibleScanlines-1 {
+				p.VBlankFlag = true
+			}
+
+			p.currentDot = 0
+			p.currentScanline++
+
+			// Check if frame is complete
+			if p.currentScanline >= TotalScanlines {
+				p.endFrame()
+				p.currentScanline = 0
+				p.frameStarted = false
+			}
 		}
 	}
+
 	return nil
 }
 

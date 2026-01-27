@@ -1,6 +1,6 @@
 # Nitro-Core-DX Programming Manual
 
-**Version 1.1**  
+**Version 1.2**  
 **Last Updated: January 27, 2026**
 
 > **⚠️ ARCHITECTURE IN DESIGN PHASE**: This system is currently in active development. The architecture is not yet finalized, and changes may break compatibility with existing ROMs. If you're developing software for Nitro-Core-DX, be aware that future changes may require code updates. See [System Manual](SYSTEM_MANUAL.md) for current implementation status and development plans.
@@ -706,6 +706,314 @@ Byte = 0x1A
 - **Size**: 768 bytes (128 sprites × 6 bytes)
 - **Location**: VRAM offset 0x9000-0x92FF (typical)
 - **Access**: Via OAM_ADDR (0x8014) and OAM_DATA (0x8015) registers
+
+#### OAM Access Patterns and Byte Index Behavior
+
+**⚠️ CRITICAL**: Understanding OAM byte index behavior is essential for correct sprite updates. Incorrect usage can corrupt sprite data.
+
+**OAM Byte Index Auto-Increment:**
+- When you write to `OAM_DATA` (0x8015), the PPU automatically increments an internal byte index
+- When you read from `OAM_DATA`, the byte index also increments (same as write)
+- After 6 bytes (one complete sprite entry), the byte index wraps to 0 and `OAM_ADDR` advances to the next sprite
+- Writing to `OAM_ADDR` (0x8014) **resets the byte index to 0** for that sprite
+
+**OAM Write Protection:**
+- OAM writes are **only allowed during VBlank** (scanlines 200-262) or before the first frame starts
+- Attempts to write during visible rendering (scanlines 0-199) are ignored
+- **Always wait for VBlank** before updating sprite data to avoid corruption
+
+**Common Pitfalls:**
+
+1. **Partial Updates Without Reset**: If you read some bytes from a sprite (e.g., to check X position), the byte index advances. If you then try to write without resetting `OAM_ADDR`, your writes will go to the wrong bytes.
+
+   ```assembly
+   ; ❌ WRONG: Reading then writing without reset
+   MOV R1, #0x8014  ; OAM_ADDR
+   MOV R2, #0x00    ; Sprite 0
+   MOV [R1], R2
+   MOV R1, #0x8015  ; OAM_DATA
+   MOV R2, [R1]     ; Read X low (byte index now = 1)
+   ; ... do calculations ...
+   MOV [R1], R2     ; Write goes to byte 1 (X high) instead of byte 0!
+   ```
+
+2. **Forgetting to Write Control Byte**: After writing Attributes (byte 4), the byte index increments to 5 (Control byte). If you don't write the Control byte, the next write will wrap to byte 0 and corrupt X position.
+
+   ```assembly
+   ; ❌ WRONG: Writing Attributes without preserving Control byte
+   MOV R1, #0x8014  ; OAM_ADDR
+   MOV R2, #0x00    ; Sprite 0
+   MOV [R1], R2
+   MOV R1, #0x8015  ; OAM_DATA
+   ; Skip to Attributes (byte 4)
+   MOV R2, [R1]     ; Skip X low
+   MOV R2, [R1]     ; Skip X high
+   MOV R2, [R1]     ; Skip Y
+   MOV R2, [R1]     ; Skip Tile
+   MOV R2, #0x01    ; New palette
+   MOV [R1], R2     ; Write Attributes (byte index now = 5)
+   ; Byte index wraps to 0, next write corrupts X position!
+   ```
+
+3. **Reading OAM_DATA Increments Index**: Reading from `OAM_DATA` increments the byte index just like writing. This can cause issues if you read for debugging or checking values.
+
+**Best Practices:**
+
+1. **Always Reset OAM_ADDR Before Updates**: When updating a sprite, always write to `OAM_ADDR` first to reset the byte index to 0.
+
+   ```assembly
+   ; ✅ CORRECT: Reset OAM_ADDR before updating
+   MOV R1, #0x8014  ; OAM_ADDR
+   MOV R2, #0x00    ; Sprite 0
+   MOV [R1], R2     ; Reset byte index to 0
+   MOV R1, #0x8015  ; OAM_DATA
+   ; Now write sprite data starting from byte 0
+   ```
+
+2. **Write Complete Sprite Entries**: When updating a sprite, write all 6 bytes (or at least write the Control byte last to preserve sprite state).
+
+   ```assembly
+   ; ✅ CORRECT: Write complete sprite entry
+   MOV R1, #0x8014  ; OAM_ADDR
+   MOV R2, #0x00    ; Sprite 0
+   MOV [R1], R2
+   MOV R1, #0x8015  ; OAM_DATA
+   MOV R2, #50      ; X low
+   MOV [R1], R2
+   MOV R2, #0x00    ; X high
+   MOV [R1], R2
+   MOV R2, #50      ; Y
+   MOV [R1], R2
+   MOV R2, #0x00    ; Tile index
+   MOV [R1], R2
+   MOV R2, #0x01    ; Attributes (palette 1)
+   MOV [R1], R2
+   MOV R2, #0x03    ; Control (enabled, 16x16)
+   MOV [R1], R2     ; Always write Control byte last!
+   ```
+
+3. **Partial Updates with Care**: If you only need to update some bytes (e.g., just X position), reset `OAM_ADDR`, skip to the byte you want, write it, then write any remaining bytes that need to be preserved.
+
+   ```assembly
+   ; ✅ CORRECT: Partial update preserving Control byte
+   ; Update X position only
+   MOV R1, #0x8014  ; OAM_ADDR
+   MOV R2, #0x00    ; Sprite 0
+   MOV [R1], R2     ; Reset byte index to 0
+   MOV R1, #0x8015  ; OAM_DATA
+   MOV R2, #100     ; New X low
+   MOV [R1], R2     ; Write X low (byte index now = 1)
+   MOV R2, #0x00    ; X high
+   MOV [R1], R2     ; Write X high (byte index now = 2)
+   ; Skip Y, Tile, Attributes (read to advance byte index)
+   MOV R2, [R1]     ; Skip Y (byte index now = 3)
+   MOV R2, [R1]     ; Skip Tile (byte index now = 4)
+   MOV R2, [R1]     ; Skip Attributes (byte index now = 5)
+   MOV R2, #0x03    ; Control byte (preserve enabled, 16x16)
+   MOV [R1], R2     ; Write Control byte
+   ```
+
+4. **Wait for VBlank**: Always wait for VBlank before updating sprites.
+
+   ```assembly
+   ; ✅ CORRECT: Wait for VBlank before sprite updates
+   wait_vblank:
+   MOV R1, #0x803E  ; VBLANK_FLAG
+   MOV R2, [R1]     ; Read VBlank flag
+   MOV R3, #0x00
+   CMP R2, R3       ; Compare with 0
+   BEQ wait_vblank  ; Loop if flag is 0
+   ; Now safe to update sprites
+   ```
+
+#### Sprite Update Best Practices: Lessons from Real-World Debugging
+
+**⚠️ CRITICAL**: These practices are based on actual debugging experience. Following them will prevent common sprite corruption issues.
+
+**1. Register Preservation When Updating Position**
+
+When updating a sprite's X or Y position, you must read and preserve all other sprite fields (Y, Tile, Attributes, Control) before writing the new position. Otherwise, the auto-increment behavior will cause writes to corrupt other fields.
+
+   ```assembly
+   ; ✅ CORRECT: Read all fields before updating X position
+   MOV R1, #0x8014  ; OAM_ADDR
+   MOV R2, #0x00    ; Sprite 0
+   MOV [R1], R2     ; Reset byte index to 0
+   MOV R1, #0x8015  ; OAM_DATA
+   
+   ; Read current sprite data (preserve everything)
+   MOV R2, [R1]     ; Read X low (byte 0) - save to R6
+   MOV R6, R2
+   MOV R2, [R1]     ; Read X high (byte 1) - save to R5
+   MOV R5, R2
+   MOV R2, [R1]     ; Read Y (byte 2) - save to R0
+   MOV R0, R2
+   MOV R2, [R1]     ; Read Tile (byte 3) - save to R3
+   MOV R3, R2
+   MOV R2, [R1]     ; Read Attributes (byte 4) - save to R2
+   MOV R2, R2       ; (R2 already has it)
+   MOV R4, [R1]     ; Read Control (byte 5) - save to R4
+   
+   ; Now calculate new X position
+   ADD R6, #1       ; Increment X low
+   ; ... handle wrapping, sign bit, etc. ...
+   
+   ; Write all 6 bytes back to preserve sprite state
+   MOV R1, #0x8014  ; OAM_ADDR
+   MOV R2, #0x00    ; Sprite 0
+   MOV [R1], R2     ; Reset byte index to 0
+   MOV R1, #0x8015  ; OAM_DATA
+   MOV R2, R6       ; New X low
+   MOV [R1], R2
+   MOV R2, R5       ; New X high
+   MOV [R1], R2
+   MOV R2, R0       ; Preserved Y
+   MOV [R1], R2
+   MOV R2, R3       ; Preserved Tile
+   MOV [R1], R2
+   MOV R2, R2       ; Preserved Attributes (already in R2)
+   MOV [R1], R2
+   MOV R2, #0x03    ; Control byte (enabled, 16x16)
+   MOV [R1], R2
+   ```
+
+   ```assembly
+   ; ❌ WRONG: Updating X without preserving other fields
+   MOV R1, #0x8014  ; OAM_ADDR
+   MOV R2, #0x00    ; Sprite 0
+   MOV [R1], R2
+   MOV R1, #0x8015  ; OAM_DATA
+   MOV R2, [R1]     ; Read X low
+   ADD R2, #1       ; Increment X
+   MOV [R1], R2     ; Write X low
+   ; Problem: Byte index is now 1, but we haven't preserved Y, Tile, Attributes, Control!
+   ; Next write will corrupt X high, and subsequent operations will corrupt other fields
+   ```
+
+**2. Complete Sprite Entry Writes**
+
+Always write all 6 bytes of a sprite entry when updating it. If you only update some fields, you must still write the remaining bytes to preserve their values.
+
+   ```assembly
+   ; ✅ CORRECT: Update palette but preserve all other fields
+   MOV R1, #0x8014  ; OAM_ADDR
+   MOV R2, #0x00    ; Sprite 0
+   MOV [R1], R2
+   MOV R1, #0x8015  ; OAM_DATA
+   
+   ; Skip to Attributes (byte 4)
+   MOV R2, [R1]     ; Skip X low
+   MOV R2, [R1]     ; Skip X high
+   MOV R2, [R1]     ; Skip Y
+   MOV R2, [R1]     ; Skip Tile
+   MOV R2, #0x02    ; New palette (palette 2)
+   MOV [R1], R2     ; Write Attributes (byte index now = 5)
+   MOV R2, #0x03    ; Control byte (MUST write this!)
+   MOV [R1], R2     ; Write Control byte
+   ; If you don't write Control byte, the next OAM operation will wrap and corrupt X
+   ```
+
+**3. Conditional Code Execution (Wrap Blocks)**
+
+When you have code that should only execute under certain conditions (e.g., wrapping when sprite goes off-screen), ensure your branch logic correctly skips the conditional code. If the branch check is incorrect, the conditional code will execute every frame, causing corruption.
+
+   ```assembly
+   ; ✅ CORRECT: Proper wrap check with branch
+   MOV R1, #0x8014  ; OAM_ADDR
+   MOV R2, #0x00    ; Sprite 0
+   MOV [R1], R2
+   MOV R1, #0x8015  ; OAM_DATA
+   MOV R2, [R1]     ; Read X low
+   ADD R2, #1       ; Increment X
+   MOV R6, R2       ; Save incremented X
+   
+   ; Check if X >= 336 (off-screen)
+   MOV R7, #336
+   CMP R6, R7       ; Compare X with 336
+   BLT no_wrap      ; Branch if X < 336 (skip wrap code)
+   ; Wrap code only executes if X >= 336
+   MOV R6, #0xF0    ; Set X to -16 (wrapped)
+   ; ... wrap handling code ...
+   
+   no_wrap:
+   ; Continue with normal sprite update
+   ; ... write sprite data ...
+   ```
+
+   ```assembly
+   ; ❌ WRONG: Wrap code executes every frame
+   MOV R1, #0x8014  ; OAM_ADDR
+   MOV R2, #0x00    ; Sprite 0
+   MOV [R1], R2
+   MOV R1, #0x8015  ; OAM_DATA
+   MOV R2, [R1]     ; Read X low
+   ADD R2, #1       ; Increment X
+   
+   ; Problem: No branch check - wrap code always executes!
+   MOV R2, #0xF0    ; Set X to -16 (WRONG - executes every frame!)
+   ; This causes sprite to wrap immediately, corrupting position
+   ```
+
+**4. Palette Cycling Best Practices**
+
+When cycling through palettes, always read the current Attributes value, modify it, and write it back. Don't forget to write the Control byte after Attributes to preserve sprite state.
+
+   ```assembly
+   ; ✅ CORRECT: Palette cycling with proper preservation
+   MOV R1, #0x8014  ; OAM_ADDR
+   MOV R2, #0x00    ; Sprite 0
+   MOV [R1], R2
+   MOV R1, #0x8015  ; OAM_DATA
+   
+   ; Skip to Attributes (byte 4)
+   MOV R2, [R1]     ; Skip X low
+   MOV R2, [R1]     ; Skip X high
+   MOV R2, [R1]     ; Skip Y
+   MOV R2, [R1]     ; Skip Tile
+   MOV R2, [R1]     ; Read Attributes into R2
+   
+   ; Increment palette (bits [3:0])
+   ADD R2, #1       ; Increment palette
+   MOV R7, #0x0F
+   AND R2, R7       ; Mask to 4 bits (wrap at 16)
+   MOV R7, #0x05
+   CMP R2, R7       ; Compare with 5
+   BLT palette_ok   ; If palette < 5, continue
+   MOV R2, #0x01    ; Wrap to palette 1
+   
+   palette_ok:
+   ; Write Attributes back
+   MOV R1, #0x8014  ; OAM_ADDR (reset byte index)
+   MOV R3, #0x00    ; Sprite 0
+   MOV [R1], R3
+   MOV R1, #0x8015  ; OAM_DATA
+   MOV R3, [R1]     ; Skip X low
+   MOV R3, [R1]     ; Skip X high
+   MOV R3, [R1]     ; Skip Y
+   MOV R3, [R1]     ; Skip Tile
+   MOV R3, R2       ; Copy new palette to R3
+   MOV [R1], R3     ; Write Attributes (byte index now = 5)
+   MOV R3, #0x03    ; Control byte (MUST write this!)
+   MOV [R1], R3     ; Write Control byte
+   ```
+
+**5. Debugging Sprite Issues**
+
+If sprites are flickering, disappearing, or showing incorrect colors:
+
+1. **Check OAM byte index**: Ensure you're resetting `OAM_ADDR` before each sprite update
+2. **Verify complete writes**: Make sure you're writing all 6 bytes (or at least the Control byte)
+3. **Check register preservation**: Verify that you're preserving Y, Tile, Attributes, and Control when updating position
+4. **Verify conditional logic**: Ensure wrap blocks and other conditional code only execute when intended
+5. **Check VBlank timing**: Ensure sprite updates happen during VBlank (scanlines 200-262)
+
+**Common Symptoms and Causes:**
+
+- **Sprite flickers**: Palette or Control byte being overwritten every frame
+- **Sprite disappears**: Control byte set to 0x00 (disabled) or corrupted
+- **Sprite shows wrong colors**: Attributes byte corrupted or palette cycling incorrectly
+- **Sprite wraps immediately**: Wrap check logic incorrect, wrap code executing every frame
+- **Sprite position jumps**: X/Y values corrupted due to incomplete writes
 
 **Tile Data:**
 - **Location**: VRAM (anywhere in 64KB space)
@@ -1611,7 +1919,101 @@ MOV [R1], R2
 ; Emulator handles seamless tile stitching automatically
 ```
 
-### Example 5: Vertical Sprite (Building in 3D World)
+### Example 5: Animated Moving Sprite (Best Practices)
+
+```
+; This example demonstrates proper sprite position updates with field preservation
+; Key principles: Read all fields, preserve them, update position, write all fields back
+
+main_loop:
+    ; Wait for VBlank before updating sprites
+    MOV R1, #0x803E      ; VBLANK_FLAG
+wait_vblank:
+    MOV R2, [R1]         ; Read VBlank flag
+    MOV R7, #0x00
+    CMP R2, R7           ; Compare with 0
+    BEQ wait_vblank      ; Loop if flag is 0
+    
+    ; Read current sprite 0 data (preserve all fields)
+    MOV R1, #0x8014      ; OAM_ADDR
+    MOV R2, #0x00        ; Sprite 0
+    MOV [R1], R2         ; Reset byte index to 0
+    MOV R1, #0x8015      ; OAM_DATA
+    
+    ; Read all 6 bytes and preserve them
+    MOV R2, [R1]         ; Read X low (byte 0)
+    MOV R6, R2           ; Save X low to R6
+    MOV R2, [R1]         ; Read X high (byte 1)
+    MOV R5, R2           ; Save X high to R5
+    MOV R2, [R1]         ; Read Y (byte 2)
+    MOV R0, R2           ; Save Y to R0
+    MOV R2, [R1]         ; Read Tile (byte 3)
+    MOV R3, R2           ; Save Tile to R3
+    MOV R2, [R1]         ; Read Attributes (byte 4)
+    MOV R2, R2           ; Save Attributes to R2 (already in R2)
+    MOV R4, [R1]         ; Read Control (byte 5)
+    MOV R4, R4           ; Save Control to R4 (already in R4)
+    
+    ; Calculate new X position
+    ADD R6, #1           ; Increment X low
+    ; Check for overflow (if X low wraps to 0, increment X high)
+    MOV R7, #0x00
+    CMP R6, R7
+    BNE no_overflow
+    ADD R5, #1           ; Increment X high on overflow
+no_overflow:
+    
+    ; Check if sprite should wrap (X >= 336, fully off-screen)
+    MOV R7, #336         ; Screen width + sprite width
+    CMP R6, R7           ; Compare X low with 336
+    BLT no_wrap          ; Branch if X < 336 (skip wrap)
+    
+    ; Wrap sprite to left side (X = -16)
+    MOV R6, #0xF0        ; X low = 240 (-16 in two's complement)
+    MOV R5, #0x01        ; X high = 1 (sign bit set)
+    
+no_wrap:
+    ; Write all 6 bytes back to OAM (preserve sprite state)
+    MOV R1, #0x8014      ; OAM_ADDR
+    MOV R2, #0x00        ; Sprite 0
+    MOV [R1], R2         ; Reset byte index to 0
+    MOV R1, #0x8015      ; OAM_DATA
+    
+    MOV R2, R6           ; X low (updated)
+    MOV [R1], R2
+    MOV R2, R5           ; X high (updated)
+    MOV [R1], R2
+    MOV R2, R0           ; Y (preserved)
+    MOV [R1], R2
+    MOV R2, R3           ; Tile (preserved)
+    MOV [R1], R2
+    MOV R2, R2           ; Attributes (preserved, already in R2)
+    MOV [R1], R2
+    MOV R2, #0x03        ; Control (preserved: enabled, 16x16)
+    MOV [R1], R2
+    
+    ; Wait for VBlank to clear (so we only update once per VBlank period)
+wait_vblank_clear:
+    MOV R1, #0x803E      ; VBLANK_FLAG
+    MOV R2, [R1]         ; Read VBlank flag
+    MOV R7, #0x00
+    CMP R2, R7           ; Compare with 0
+    BNE wait_vblank_clear ; Loop if flag is 1 (still in VBlank)
+    
+    ; Jump back to main loop
+    JMP main_loop
+```
+
+**Key Points from This Example:**
+
+1. **Always wait for VBlank** before reading/writing sprite data
+2. **Read all 6 bytes** before making any changes
+3. **Preserve all fields** in registers (R0=Y, R3=Tile, R2=Attributes, R4=Control)
+4. **Write all 6 bytes back** after updating position
+5. **Always write Control byte last** to preserve sprite state
+6. **Proper wrap check** with branch to skip wrap code when not needed
+
+### Example 6: Vertical Sprite (Building in 3D World)
 
 ```
 ; Set up vertical sprite for building
@@ -1649,7 +2051,7 @@ MOV [R1], R2
 ; 4. Render sprite at calculated position with scale
 ```
 
-### Example 6: Bouncing Box Animation
+### Example 7: Bouncing Box Animation
 
 ```python
 # Initialize position and direction

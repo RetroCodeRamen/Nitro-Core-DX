@@ -225,9 +225,9 @@
 - ✅ Memory viewer (basic)
 - ⏳ Advanced features (breakpoints, watchpoints)
 
-### Phase 4: Visual Tools ⏳ PLANNED
+### Phase 4: Visual Tools ⏳ PARTIAL
 
-- ⏳ Tile map viewer
+- ✅ Tile Viewer - Visual grid of tiles from VRAM with palette selection
 - ⏳ Sprite viewer
 - ⏳ Palette viewer
 - ⏳ Layer viewer
@@ -329,13 +329,15 @@ Modified `MOV` mode 2 to automatically detect I/O addresses (bank 0, offset >= 0
 - **Cycle-by-Cycle Debug Logger** - Comprehensive logging with PPU/APU state
 - **Register Viewer** - Real-time CPU register display with copy/save functionality
 - **Memory Viewer** - Hex dump viewer with bank/offset navigation
+- **Tile Viewer** - Visual tile grid viewer with palette selection and tile size options
 - **Sprite Movement** - Working sprite animation with VBlank synchronization
 
 ### In Progress ⏳
 
-- Tile Viewer panel
-- Advanced debugging tools
-- Visual debugging tools
+- Advanced debugging tools (breakpoints, watchpoints)
+- Sprite viewer panel
+- Palette viewer panel
+- Layer viewer panel
 - SDK build tools
 - Test coverage expansion
 - TestEmulatorFrameExecution test fix

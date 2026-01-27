@@ -61,7 +61,7 @@ This project is about doing things right from the ground up. While the emulator 
 - Banked memory architecture for flexible addressing
 
 **From Genesis:**
-- Raw processing power (10-12 MHz CPU vs SNES's 2.68 MHz)
+- Raw processing power (~7.67 MHz CPU, Genesis-like speed vs SNES's 2.68 MHz)
 - Fast DMA and high sprite throughput
 - Arcade-friendly performance characteristics
 
@@ -370,7 +370,7 @@ go fmt ./...
 | **Matrix Mode** | Mode 7-style effects with large world support, vertical sprites |
 | **Audio Channels** | 4 channels (sine, square, saw, noise waveforms) |
 | **Audio Sample Rate** | 44,100 Hz |
-| **CPU Speed** | 10 MHz (166,667 cycles per frame at 60 FPS) |
+| **CPU Speed** | ~7.67 MHz (127,820 cycles per frame at 60 FPS, Genesis-like) |
 | **Memory** | 64KB per bank, 256 banks (16MB total address space) |
 | **ROM Size** | Up to 7.8MB (125 banks × 64KB) |
 | **Frame Rate** | 60 FPS target |

@@ -84,6 +84,11 @@ func (p *PPU) GetDot() int {
 	return p.currentDot
 }
 
+// GetOAMByteIndex returns the current OAM byte index (for debugging)
+func (p *PPU) GetOAMByteIndex() uint8 {
+	return p.OAMByteIndex
+}
+
 // BackgroundLayer represents a background layer
 type BackgroundLayer struct {
 	ScrollX     int16
@@ -273,7 +278,7 @@ func (p *PPU) Write8(offset uint16, value uint8) {
 	// OAM access
 	case 0x14: // OAM_ADDR
 		if p.Logger != nil {
-			p.Logger.LogPPUf(debug.LogLevelDebug, "OAM_ADDR write: 0x%02X (sprite %d)", value, value)
+			p.Logger.LogPPUf(debug.LogLevelDebug, "OAM_ADDR write: 0x%02X (sprite %d), byte index was %d, resetting to 0", value, value, p.OAMByteIndex)
 		}
 		// OAM writes are only allowed during VBlank period (hardware-accurate)
 		// During visible rendering (scanlines 0-199), OAM is locked
@@ -290,6 +295,9 @@ func (p *PPU) Write8(offset uint16, value uint8) {
 			p.OAMAddr = 127
 		}
 		p.OAMByteIndex = 0 // Reset byte index when setting sprite address
+		if p.Logger != nil {
+			p.Logger.LogPPUf(debug.LogLevelDebug, "OAM_ADDR set: sprite=%d, byte index reset to %d", p.OAMAddr, p.OAMByteIndex)
+		}
 	case 0x15: // OAM_DATA
 		// OAM writes are only allowed during VBlank period (hardware-accurate)
 		// During visible rendering (scanlines 0-199), OAM is locked
@@ -302,8 +310,8 @@ func (p *PPU) Write8(offset uint16, value uint8) {
 			return
 		}
 		if p.Logger != nil {
-			p.Logger.LogPPUf(debug.LogLevelDebug, "OAM_DATA write: sprite=%d, byte=%d, value=0x%02X",
-				p.OAMAddr, p.OAMByteIndex, value)
+			p.Logger.LogPPUf(debug.LogLevelDebug, "OAM_DATA write: sprite=%d, byte=%d, value=0x%02X, calculated addr=%d",
+				p.OAMAddr, p.OAMByteIndex, value, uint16(p.OAMAddr)*6+uint16(p.OAMByteIndex))
 		}
 		addr := uint16(p.OAMAddr)*6 + uint16(p.OAMByteIndex)
 		if addr < 768 {
@@ -321,6 +329,7 @@ func (p *PPU) Write8(offset uint16, value uint8) {
 					p.OAMAddr = 0
 				}
 			}
+			// Debug logging removed for performance - use -log flag to enable PPU logging if needed
 		} else {
 			if p.Logger != nil {
 				p.Logger.LogPPUf(debug.LogLevelWarning, "OAM_DATA write out of bounds: addr=%d (max 767)", addr)
@@ -714,6 +723,13 @@ func (p *PPU) renderSprites() {
 		control := uint8(p.OAM[oamAddr+5])
 		enabled := (control & 0x01) != 0
 		tileSize16 := (control & 0x02) != 0
+
+		// Log sprite 0 rendering state (for debugging blinking)
+		if spriteIndex == 0 && p.Logger != nil && p.currentScanline == 0 && p.currentDot == 0 {
+			p.Logger.LogPPUf(debug.LogLevelDebug,
+				"SPRITE0_RENDER: Enabled=%v X=%d Y=%d Tile=%d Palette=%d Control=0x%02X",
+				enabled, spriteX, spriteY, tileIndex, paletteIndex, control)
+		}
 
 		if !enabled {
 			continue

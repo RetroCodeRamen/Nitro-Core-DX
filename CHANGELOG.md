@@ -11,6 +11,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Timing Synchronization** - Unified clock system with CPU and PPU synchronized at ~7.67 MHz (Genesis-like speed)
+  - CPU speed: 7,670,000 Hz (changed from 10 MHz)
+  - PPU timing: 220 scanlines × 581 dots = 127,820 cycles per frame
+  - APU timing: ~174 cycles per sample (adjusted for new CPU speed)
+- **Performance Optimizations** - Improved frame rendering performance
+  - Optimized PPU `StepPPU()` to process scanlines in batches instead of dot-by-dot
+  - Removed debug logging overhead (SPRITE0_STATE logging removed)
+  - Batch stepping for CPU/PPU when cycle logging disabled
+  - Performance improved from ~27 FPS to ~35 FPS
+- **NitroLang Language Design** - Designed new compiled language with Lua-like syntax
+  - Documentation: `docs/LANGUAGE_DESIGN.md`
+  - Renamed from "NitroScript" to "NitroLang" (compiled, not interpreted)
+  - Features: Lua-like syntax, compiled to bytecode, inline assembly support
+- **Timing Analysis Documentation** - Added timing analysis and fix summary documents
+  - `docs/TIMING_ANALYSIS.md` - Detailed timing analysis and design decisions
+  - `docs/TIMING_FIX_SUMMARY.md` - Summary of timing synchronization changes
+
+### Changed
+- **CPU Clock Speed** - Reduced from 10 MHz to ~7.67 MHz (Genesis-like)
+  - Target: 127,820 cycles per frame at 60 FPS
+  - Better matches Genesis console speed
+- **PPU Timing** - Adjusted to match CPU speed
+  - Dots per scanline: 360 → 581
+  - HBlank dots: 40 → 261
+  - Total cycles per frame: 79,200 → 127,820
+- **Logging System** - All logging disabled by default
+  - Console logging removed unless `-log` flag is used
+  - Removed SPRITE0_STATE debug output that was causing performance issues
+  - Cycle logging only enabled with `-cyclelog` flag
+- **Build System** - Added `-tags no_sdl_ttf` build option
+  - Allows building without SDL2_ttf dependency
+  - Uses simple bitmap font renderer as fallback
+
+### Fixed
+- **Performance Issues** - Removed excessive logging overhead
+  - Removed `fmt.Printf` statements that were printing to console every frame
+  - Optimized PPU rendering loop
+  - FPS improved from ~27 to ~35
+
 ### Planned
 - Tile Viewer panel for visual VRAM inspection
 - Advanced debugging tools (breakpoints, watchpoints)
@@ -18,6 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Matrix Mode (Mode 7-style) transformation
 - SDK asset pipeline
 - IDE integration
+- Further PPU rendering optimizations to reach 60 FPS
 
 ---
 

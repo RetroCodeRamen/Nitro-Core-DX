@@ -35,12 +35,12 @@ type Emulator struct {
 	LastFrameTime     time.Time
 
 	// Performance tracking
-	FPS                float64
-	FrameCount         uint64
-	FPSUpdateTime      time.Time
-	CPUCyclesPerFrame  uint32
-	LastCPUCycles      uint32
-	CyclesPerFrame     uint64 // 79,200 cycles per frame (220 scanlines × 360 dots)
+	FPS               float64
+	FrameCount        uint64
+	FPSUpdateTime     time.Time
+	CPUCyclesPerFrame uint32
+	LastCPUCycles     uint32
+	CyclesPerFrame    uint64 // 79,200 cycles per frame (220 scanlines × 360 dots)
 
 	// State
 	Running bool
@@ -84,8 +84,12 @@ func NewEmulatorWithLogger(logger *debug.Logger) *Emulator {
 	// Create CPU with bus (not MemorySystem)
 	cpu := cpu.NewCPU(bus, cpuLogger)
 
-	// Create clock scheduler (10 MHz CPU, 10 MHz PPU, 44,100 Hz APU)
-	masterClock := clock.NewMasterClock(10000000, 10000000, 44100)
+	// Create clock scheduler (~7.67 MHz CPU, ~7.67 MHz PPU, 44,100 Hz APU)
+	// Genesis-like speed: 7,670,000 Hz
+	// At 60 FPS: 127,833 cycles per frame (220 scanlines × 581 dots = 127,820 cycles)
+	cpuSpeed := uint32(7670000) // ~7.67 MHz (Genesis-like)
+	ppuSpeed := uint32(7670000) // Same as CPU (unified clock)
+	masterClock := clock.NewMasterClock(cpuSpeed, ppuSpeed, 44100)
 
 	// Register component step functions
 	masterClock.CPUStep = func(cycles uint64) error {
@@ -99,28 +103,28 @@ func NewEmulatorWithLogger(logger *debug.Logger) *Emulator {
 	}
 
 	emu := &Emulator{
-		CPU:                cpu,
-		Bus:                bus,
-		Cartridge:          cartridge,
-		PPU:                ppu,
-		APU:                apu,
-		Input:              input,
-		Logger:             logger,
-		Clock:              masterClock,
-		FrameLimitEnabled:  true,
-		TargetFPS:          60.0,
-		FrameTime:          time.Duration(1000000000 / 60),
-		LastFrameTime:      time.Now(),
-		FPS:                0.0,
-		FrameCount:         0,
-		FPSUpdateTime:      time.Now(),
-		CPUCyclesPerFrame:  0,
-		LastCPUCycles:      0,
-		CyclesPerFrame:     79200, // PPU frame timing: 220 scanlines × 360 dots = 79,200 cycles
-		Running:            false,
-		Paused:              false,
-		AudioSampleBuffer:   make([]int16, 735), // 735 samples per frame
-		AudioSampleIndex:   0,
+		CPU:               cpu,
+		Bus:               bus,
+		Cartridge:         cartridge,
+		PPU:               ppu,
+		APU:               apu,
+		Input:             input,
+		Logger:            logger,
+		Clock:             masterClock,
+		FrameLimitEnabled: true,
+		TargetFPS:         60.0,
+		FrameTime:         time.Duration(1000000000 / 60),
+		LastFrameTime:     time.Now(),
+		FPS:               0.0,
+		FrameCount:        0,
+		FPSUpdateTime:     time.Now(),
+		CPUCyclesPerFrame: 0,
+		LastCPUCycles:     0,
+		CyclesPerFrame:    127820, // PPU frame timing: 220 scanlines × 581 dots = 127,820 cycles (~7.67 MHz at 60 FPS)
+		Running:           false,
+		Paused:            false,
+		AudioSampleBuffer: make([]int16, 735), // 735 samples per frame
+		AudioSampleIndex:  0,
 	}
 
 	return emu
@@ -166,58 +170,94 @@ func (e *Emulator) RunFrame() error {
 	// Track CPU cycles before frame
 	cyclesBefore := e.CPU.State.Cycles
 
-	// Step clock for one frame (79,200 cycles = 220 scanlines × 360 dots per scanline)
+	// Step clock for one frame (127,820 cycles = 220 scanlines × 581 dots per scanline)
 	// The clock scheduler coordinates CPU, PPU, and APU at cycle boundaries
 	// This is the core of FPGA-ready design - all components run cycle-accurately
 	// PPU renders dot-by-dot, scanline-by-scanline, matching hardware timing exactly
-	
+
 	// Generate audio samples during frame execution
 	// At 44,100 Hz sample rate and 60 FPS, we need 735 samples per frame
-	// APU runs every ~227 cycles (10,000,000 / 44,100 ≈ 226.76)
-	apuCyclesPerSample := uint64(10000000 / 44100) // ~227 cycles per sample
+	// APU runs every ~174 cycles (7,670,000 / 44,100 ≈ 173.92)
+	apuCyclesPerSample := uint64(7670000 / 44100) // ~174 cycles per sample
 	samplesGenerated := 0
-	
-	// Step clock cycle by cycle, collecting audio samples
-	for cyclesStepped := uint64(0); cyclesStepped < e.CyclesPerFrame; cyclesStepped++ {
-		_, err := e.Clock.Step()
-		if err != nil {
-			return fmt.Errorf("clock step error: %w", err)
-		}
-		
-		// Log cycle state if cycle logger is enabled
-		if e.CycleLogger != nil && e.CycleLogger.IsEnabled() {
-			// Convert CPU state to snapshot (to avoid import cycles)
+
+	// Optimized clock stepping: step CPU/PPU directly for full frame when cycle logging disabled
+	// Since CPU and PPU run at same speed (unified clock), we can step them for the entire frame
+	// APU needs fine-grained timing (every ~174 cycles), handle separately
+
+	// Step in batches for performance (only cycle-by-cycle if cycle logging enabled)
+	if e.CycleLogger != nil && e.CycleLogger.IsEnabled() {
+		// Cycle logging enabled: step cycle-by-cycle for accuracy
+		for cyclesStepped := uint64(0); cyclesStepped < e.CyclesPerFrame; cyclesStepped++ {
+			_, err := e.Clock.Step()
+			if err != nil {
+				return fmt.Errorf("clock step error: %w", err)
+			}
+
+			// Log cycle state
 			snapshot := &debug.CPUStateSnapshot{
-				R0:      e.CPU.State.R0,
-				R1:      e.CPU.State.R1,
-				R2:      e.CPU.State.R2,
-				R3:      e.CPU.State.R3,
-				R4:      e.CPU.State.R4,
-				R5:      e.CPU.State.R5,
-				R6:      e.CPU.State.R6,
-				R7:      e.CPU.State.R7,
-				PCBank:  e.CPU.State.PCBank,
+				R0:       e.CPU.State.R0,
+				R1:       e.CPU.State.R1,
+				R2:       e.CPU.State.R2,
+				R3:       e.CPU.State.R3,
+				R4:       e.CPU.State.R4,
+				R5:       e.CPU.State.R5,
+				R6:       e.CPU.State.R6,
+				R7:       e.CPU.State.R7,
+				PCBank:   e.CPU.State.PCBank,
 				PCOffset: e.CPU.State.PCOffset,
-				PBR:     e.CPU.State.PBR,
-				DBR:     e.CPU.State.DBR,
-				SP:      e.CPU.State.SP,
-				Flags:   e.CPU.State.Flags,
-				Cycles:  e.CPU.State.Cycles,
+				PBR:      e.CPU.State.PBR,
+				DBR:      e.CPU.State.DBR,
+				SP:       e.CPU.State.SP,
+				Flags:    e.CPU.State.Flags,
+				Cycles:   e.CPU.State.Cycles,
 			}
 			e.CycleLogger.LogCycle(snapshot)
+
+			// Generate audio sample when it's time
+			if cyclesStepped%apuCyclesPerSample == 0 && samplesGenerated < 735 {
+				sampleFixed := e.APU.GenerateSampleFixed()
+				if samplesGenerated < len(e.AudioSampleBuffer) {
+					e.AudioSampleBuffer[samplesGenerated] = sampleFixed
+				}
+				samplesGenerated++
+			}
 		}
-		
-		// Generate audio sample when it's time (every ~227 cycles)
-		if cyclesStepped%apuCyclesPerSample == 0 && samplesGenerated < 735 {
+	} else {
+		// No cycle logging: optimize by stepping CPU/PPU for full frame directly
+		// This bypasses clock scheduler overhead for better performance
+		// Step CPU for entire frame
+		if err := e.CPU.StepCPU(e.CyclesPerFrame); err != nil {
+			return fmt.Errorf("CPU step error: %w", err)
+		}
+
+		// Step PPU for entire frame
+		if err := e.PPU.StepPPU(e.CyclesPerFrame); err != nil {
+			return fmt.Errorf("PPU step error: %w", err)
+		}
+
+		// Step APU for each sample in the frame (735 samples per frame at 44.1kHz, 60 FPS)
+		for samplesGenerated < 735 {
+			if err := e.APU.StepAPU(apuCyclesPerSample); err != nil {
+				return fmt.Errorf("APU step error: %w", err)
+			}
 			sampleFixed := e.APU.GenerateSampleFixed()
 			if samplesGenerated < len(e.AudioSampleBuffer) {
 				e.AudioSampleBuffer[samplesGenerated] = sampleFixed
 			}
 			samplesGenerated++
 		}
+
+		// Update clock cycle counters to keep them in sync
+		e.Clock.Cycle += e.CyclesPerFrame
+		e.Clock.CPUNextCycle += e.CyclesPerFrame
+		e.Clock.PPUNextCycle += e.CyclesPerFrame
+		e.Clock.APUNextCycle += uint64(735 * apuCyclesPerSample)
 	}
 
 	// Calculate CPU cycles used this frame
+	// Note: This is CPU instruction cycles (each instruction takes multiple cycles),
+	// not clock cycles. Clock cycles per frame = 127,820 (220 scanlines × 581 dots)
 	cyclesAfter := e.CPU.State.Cycles
 	e.CPUCyclesPerFrame = cyclesAfter - cyclesBefore
 

@@ -526,7 +526,7 @@ func (a *APU) GenerateSamples(count int) []float32 {
 
 // StepAPU steps the APU by a number of cycles (for clock-driven operation)
 // This is called by the clock scheduler
-// At 10 MHz CPU and 44,100 Hz sample rate, APU runs every ~227 cycles
+// At ~7.67 MHz CPU and 44,100 Hz sample rate, APU runs every ~174 cycles
 func (a *APU) StepAPU(cycles uint64) error {
 	// Generate one sample per APU step
 	// The clock scheduler calls this at the correct rate (44,100 Hz)

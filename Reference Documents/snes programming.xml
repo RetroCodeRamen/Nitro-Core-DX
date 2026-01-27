@@ -1,0 +1,4317 @@
+<mediawiki xmlns="http://www.mediawiki.org/xml/export-0.11/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mediawiki.org/xml/export-0.11/ http://www.mediawiki.org/xml/export-0.11.xsd" version="0.11" xml:lang="en">
+  <siteinfo>
+    <sitename>Wikibooks</sitename>
+    <dbname>enwikibooks</dbname>
+    <base>https://en.wikibooks.org/wiki/Main_Page</base>
+    <generator>MediaWiki 1.46.0-wmf.12</generator>
+    <case>first-letter</case>
+    <namespaces>
+      <namespace key="-2" case="first-letter">Media</namespace>
+      <namespace key="-1" case="first-letter">Special</namespace>
+      <namespace key="0" case="first-letter" />
+      <namespace key="1" case="first-letter">Talk</namespace>
+      <namespace key="2" case="first-letter">User</namespace>
+      <namespace key="3" case="first-letter">User talk</namespace>
+      <namespace key="4" case="first-letter">Wikibooks</namespace>
+      <namespace key="5" case="first-letter">Wikibooks talk</namespace>
+      <namespace key="6" case="first-letter">File</namespace>
+      <namespace key="7" case="first-letter">File talk</namespace>
+      <namespace key="8" case="first-letter">MediaWiki</namespace>
+      <namespace key="9" case="first-letter">MediaWiki talk</namespace>
+      <namespace key="10" case="first-letter">Template</namespace>
+      <namespace key="11" case="first-letter">Template talk</namespace>
+      <namespace key="12" case="first-letter">Help</namespace>
+      <namespace key="13" case="first-letter">Help talk</namespace>
+      <namespace key="14" case="first-letter">Category</namespace>
+      <namespace key="15" case="first-letter">Category talk</namespace>
+      <namespace key="102" case="first-letter">Cookbook</namespace>
+      <namespace key="103" case="first-letter">Cookbook talk</namespace>
+      <namespace key="108" case="first-letter">Transwiki</namespace>
+      <namespace key="109" case="first-letter">Transwiki talk</namespace>
+      <namespace key="110" case="first-letter">Wikijunior</namespace>
+      <namespace key="111" case="first-letter">Wikijunior talk</namespace>
+      <namespace key="112" case="first-letter">Subject</namespace>
+      <namespace key="113" case="first-letter">Subject talk</namespace>
+      <namespace key="710" case="first-letter">TimedText</namespace>
+      <namespace key="711" case="first-letter">TimedText talk</namespace>
+      <namespace key="828" case="first-letter">Module</namespace>
+      <namespace key="829" case="first-letter">Module talk</namespace>
+    </namespaces>
+  </siteinfo>
+  <page>
+    <title>Super NES Programming</title>
+    <ns>0</ns>
+    <id>26810</id>
+    <revision>
+      <id>4489217</id>
+      <parentid>4489191</parentid>
+      <timestamp>2025-05-01T12:07:50Z</timestamp>
+      <contributor>
+        <username>Kittycataclysm</username>
+        <id>3371989</id>
+      </contributor>
+      <comment>Rejected the last 2 text changes (by [[Special:Contributions/120.29.69.184|120.29.69.184]]) and restored revision 4241799 by Kittycataclysm</comment>
+      <origin>4489217</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="3883" sha1="1l5iq8m699eq65wrd7c0j86smlv2jnm" xml:space="preserve">[[Image:PAL-SNES.png|right|thumb|400px|The Super Nintendo Entertainment System]]
+This book is an open work designed for people interested in learning to program for the '''Super Nintendo Entertainment System''' and assumes some basic knowledge on how to program in assembly language, use a command prompt and emulator. 
+
+This book will cover how to write programs for the Super Nintendo Entertainment System. As the CPU of the SNES has a 65c816 core, programming for the SNES is done with 65c816 assembly language.  
+
+If you find any problems with terms or concepts, you can contribute an explanation to it. Feel free to participate and fix errors; you are welcome to do so.  
+
+==Part One: Tutorials==
+*[[Super NES Programming/Introduction to assembly|Introduction to 65816 assembly]]
+*[[Super NES Programming/Initialization Tutorial|Initializing the SNES and changing the background color]] 
+*[[Super NES Programming/DMA tutorial|DMA transfer]]
+*[[Super NES Programming/Graphics tutorial|Using tiles and palettes]] 
+*[[Super NES Programming/pixel editing tutorial|Creating graphics]] for your SNES programs
+*[[Super NES Programming/Loading SPC700 programs|Loading SPC700 programs]] for the SNES sound co-processor
+*[[Super NES Programming/Pointers|Using Pointer Tables]]
+*[[Super NES Programming/Joypad Input|Joypad Input]]
+*[[Super NES Programming/Super FX tutorial|Using the Super FX chip]]
+
+==Programming Techniques==
+*[[Super NES Programming/multiplication|multiplication]]
+*[[Super NES Programming/Animated Sprites|Animated Sprites]]
+*[[Super NES Programming/Platform Physics|Platform Physics]]
+*[[Super NES Programming/Multijointed Sprite Bosses|Multijointed Sprite Bosses]]
+*[[Super NES Programming/How NOT to cause slowdown|How NOT to cause slowdown]]
+
+==Appendices==
+*[[Super NES Programming/SNES Specs| Technical specifications]]
+*[[Super NES Programming/SNES memory map| Memory map]]
+*[[Super NES Programming/65c816 reference| 65c816 reference]]
+*[[Super NES Programming/SPC700 reference| SPC700 reference]]
+*[[Super NES Programming/Homebrew_SNES_games| Homebrew Super NES games]]
+*[[Super NES Programming/SNES_Emulators| SNES Emulators]]
+*[[Super NES Programming/SNES_Hardware_Registers| SNES hardware registers]]
+*[[Super NES Programming/Initialization_Tutorial/Snes_Init| Snes_Init.asm Code]]
+
+==Tools==
+* The [http://www.villehelin.com/wla.html WLA-65816 Micro Assembler] is an open-source, cross-platform 65816 assembler used for these tutorials.
+* [http://geigercount.net/crypt/ Geiger's debugging version of Snes9x] lets you step through a SNES ROM's execution, set breakpoints, examine audio and video memory, and more.  Only available for Windows.
+* [http://byuu.org/emulation/higan/ higan (formerly bsnes)] is an SNES emulator written by byuu that strives for more exact hardware emulation. It strays away from using ROM-specific hacks and the like, but requires higher machine specs than other emulators.
+
+==Resources==
+
+* [http://wiki.superfamicom.org/ SNES Development Wiki] Technical Documents, Tutorials and References
+* [http://vintagedev.org Vintage Dev (broken)] is a great set of in-depth SNES programming tutorials &amp; tools. [http://web.archive.org/web/20100425070214/http://vintagedev.org/ Vintage Dev at Wayback Machine (archived January 20, 2010)]
+* [irc://irc.efnet.org/snesdev #snesdev], a Super NES development channel on the EFnet server. (on [[w:IRC|IRC]])
+* [http://www.zophar.net/tech/snes.html Some SNES technical documents]
+* [http://www.romhacking.net ROMhacking.net] has a variety of documents on assembly programming, SNES hardware info, and sample source code!
+
+==Contributors==
+Put your name here if you have contributed to this Wikibook.
+*[[User:Snarius|Snarius]] --Started this book, wrote most of it.
+
+{{Shelves|Console game programming|Assembly languages}}
+{{alphabetical|S}}
+{{status|25%}}
+
+[[ko:슈퍼 패미컴 프로그래밍]]</text>
+      <sha1>1l5iq8m699eq65wrd7c0j86smlv2jnm</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Template:NAIVEBOOKNAME</title>
+    <ns>10</ns>
+    <id>153997</id>
+    <revision>
+      <id>3364930</id>
+      <parentid>1767387</parentid>
+      <timestamp>2018-01-22T17:55:27Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <minor/>
+      <comment>Pi zero moved page [[Template:FULLBOOKNAME]] to [[Template:NAIVEBOOKNAME]]: description</comment>
+      <origin>3364930</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="109" sha1="p6elrbww9zt8w5vven8h68v7asswoj9" xml:space="preserve">&lt;includeonly&gt;{{#titleparts:{{{1|{{FULLPAGENAME}}}}}|1}}&lt;/includeonly&gt;&lt;noinclude&gt;{{documentation}}&lt;/noinclude&gt;</text>
+      <sha1>p6elrbww9zt8w5vven8h68v7asswoj9</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Template:Evalx</title>
+    <ns>10</ns>
+    <id>377857</id>
+    <revision>
+      <id>3688617</id>
+      <parentid>3688616</parentid>
+      <timestamp>2020-05-10T14:59:16Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <minor/>
+      <comment>2 revisions imported from [[:n:Template:Evalx]]: update</comment>
+      <origin>3688616</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="160" sha1="77jf01obaj2wdfjktjywia51lpveckw" xml:space="preserve">{{safesubst:&lt;noinclude/&gt;#invoke:{{safesubst:&lt;noinclude/&gt;#if:{{{test-eval|}}}|{{{test-eval}}}|Wikilisp}}|trep|{{{1|}}}}}&lt;noinclude&gt;
+{{Documentation}}&lt;/noinclude&gt;</text>
+      <sha1>77jf01obaj2wdfjktjywia51lpveckw</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Template:BOOKCATEGORY</title>
+    <ns>10</ns>
+    <id>378612</id>
+    <revision>
+      <id>3696767</id>
+      <parentid>3365859</parentid>
+      <timestamp>2020-06-06T04:24:57Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <comment>safesubst</comment>
+      <origin>3696767</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="175" sha1="iwwpkbvabom52cebzb3ibkm2696erug" xml:space="preserve">&lt;includeonly&gt;Category:Book:{{{book|{{safesubst:&lt;noinclude/&gt;BOOKNAME|{{{1|{{safesubst:&lt;noinclude/&gt;FULLPAGENAME}}}}}}}}}}&lt;/includeonly&gt;&lt;noinclude&gt;
+{{Documentation}}
+&lt;/noinclude&gt;</text>
+      <sha1>iwwpkbvabom52cebzb3ibkm2696erug</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Module:TScope</title>
+    <ns>828</ns>
+    <id>378746</id>
+    <revision>
+      <id>3149555</id>
+      <parentid>3149438</parentid>
+      <timestamp>2016-11-18T20:02:41Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <minor/>
+      <comment>Protected "[[Module:TScope]]": high-impact page ([Edit=Allow only administrators] (indefinite) [Move=Allow only administrators] (indefinite))</comment>
+      <origin>3149555</origin>
+      <model>Scribunto</model>
+      <format>text/plain</format>
+      <text bytes="3756" sha1="n3blx1g9jcetmcolf1n2fiuhyaql9nh" xml:space="preserve">local export = {}
+
+export.override = function( frame )
+	local title = frame.args[1]
+	local args = {}
+	for v, k in pairs( frame:getParent().args ) do
+		args[v] = k
+	end
+	for v, k in pairs( frame.args ) do
+		if type( v ) == "number" then
+			if v ~= 1 then
+				args[ v - 1 ] = k
+			end
+		else
+			args[v] = k
+		end
+	end
+	return frame:expandTemplate{ title = title, args = args }
+end
+
+export.prepend = function( frame )
+	local title = frame.args[1]
+	local args = {}
+	local displace = 0;
+	for v, k in pairs( frame.args ) do
+		if (type( v ) == "number") and (v ~= 1) then
+			args[ v - 1 ] = k
+			displace = math.max( displace, (v - 1) )
+		end
+	end
+	for v, k in pairs( frame:getParent().args ) do
+		if type( v ) == "number" then
+			args[ displace + v ] = k
+		else
+			args[v] = k
+		end
+	end
+	for v, k in pairs( frame.args ) do
+		if type( v ) ~= "number" then
+			args[v] = k
+		end
+	end
+	return frame:expandTemplate{ title = title, args = args }
+end
+
+export.append = function( frame )
+	local title = frame.args[1]
+	local args = {}
+	local displace = 0;
+	for v, k in pairs( frame:getParent().args ) do
+		if type( v ) == "number" then
+			displace = math.max( displace, v )
+		end
+		args[v] = k
+	end
+	for v, k in pairs( frame.args ) do
+		if type( v ) == "number" then
+			if v ~= 1 then
+				args[ displace + v - 1 ] = k
+			end
+		else
+			args[v] = k
+		end
+	end
+	return frame:expandTemplate{ title = title, args = args }
+end
+
+export.drop = function( frame )
+	local title = frame.args[1]
+	local args = {}
+	for v, k in pairs( frame:getParent().args ) do
+		if type( v ) ~= "number" then
+			args[v] = k
+		end
+	end
+	for v, k in pairs( frame.args ) do
+		if type( v ) == "number" then
+			if v ~= 1 then
+				args[ v - 1 ] = k
+			end
+		else
+			args[v] = k
+		end
+	end
+	return frame:expandTemplate{ title = title, args = args }
+end
+
+export.shiftLeft = function( frame )
+	local title = frame.args[1]
+	local args = {}
+	local displace = tonumber( frame.args[2] )
+	if displace == nil then displace = 0 end
+	for v, k in pairs( frame:getParent().args ) do
+		if type( v ) == "number" then
+			if v &gt;= displace then
+				args[ v - displace ] = k
+			end
+		else
+			args[v] = k
+		end
+	end
+	for v, k in pairs( frame.args ) do
+		if type( v ) == "number" then
+			if v &gt; 2 then
+				args[ v - 2 ] = k
+			end
+		else
+			args[v] = k
+		end
+	end
+	return frame:expandTemplate{ title = title, args = args }
+end
+
+export.map = function( frame )
+	local title = frame.args[1]
+	local displace = frame.args[2]
+	if displace == nil then
+		displace = 0
+	else
+		displace = tonumber( displace )
+	end
+	local args = {}
+	local data = {}
+	local maxv = 0
+	for v, k in pairs( frame:getParent().args ) do
+		if (type( v ) ~= "number") then
+			args[v] = k
+		elseif v &lt;= displace then
+			args[v + 1] = k
+		else
+			data[v] = k
+			maxv = math.max( v, maxv )
+		end
+	end
+	for v, k in pairs( frame.args ) do
+		if type( v ) ~= "number" then
+			args[v] = k
+		elseif v &gt; 2 then
+			args[v - 1] = k
+		end
+	end
+	local result = ""
+	for v = 1, maxv do
+		if data[v] ~= nil then
+			args[1] = data[v]
+			result = result .. frame:expandTemplate{ title = title, args = args }
+		end
+	end
+	return result
+end
+
+export.static = function( frame )
+	return frame:getParent():getTitle()
+end
+
+local function tabulate( args )
+	local s = ''
+	for k, v in pairs( args ) do
+		s = s .. '|-\n| ' .. k .. '\n| &lt;code&gt;' .. v .. '&lt;/code&gt;\n'
+	end
+	if s ~= '' then
+		s = '{| class="wikitable"\n|-\n! key\n! value\n' .. s .. '|}'
+	end
+	return s
+end
+
+export.echo = function( frame )
+	local mp = tabulate( frame.args )
+	local cp = tabulate( frame:getParent().args )
+	if mp ~= '' then
+		mp = 'module parameters:\n' .. mp .. '\n'
+	end
+	if cp ~= '' then
+		cp = 'context parameters:\n' .. cp .. '\n'
+	else
+		cp = 'no context parameters.\n'
+	end
+	return mp .. cp
+end
+
+return export</text>
+      <sha1>n3blx1g9jcetmcolf1n2fiuhyaql9nh</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Module:Wikilisp</title>
+    <ns>828</ns>
+    <id>377838</id>
+    <revision>
+      <id>3768483</id>
+      <parentid>3768482</parentid>
+      <timestamp>2020-11-12T13:17:35Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <minor/>
+      <comment>1 revision imported from [[:n:Module:Wikilisp]]: update</comment>
+      <origin>3768482</origin>
+      <model>Scribunto</model>
+      <format>text/plain</format>
+      <text bytes="48570" sha1="12jjajxcyn4sdpgtc7h7i02ar29wpjl" xml:space="preserve">local export = {}
+
+local wikilispversion = "0.19 (November 4, 2019)"
+
+--[[ some basic abstractions ]]
+
+local function stype( x ) -- type of sexpr
+	local t = type( x )
+	if t == "table" then t = x.type end
+	return t
+end
+
+local function seterr( x, ... )
+	if type(x) ~= "table" then
+		return seterr( {}, x, ... )
+	else
+		x.type = "error"
+		x.msg = mw.ustring.format( ... )
+		return x
+	end
+end
+
+--[[ parse text to a sequence of sexprs ]]
+
+local function tok3( ls, t )
+	-- tokenize lua string t, with no string literals comments or parens;
+	--   append to ls
+	local p1,p2 = mw.ustring.find( t, "[^%s]+" )
+	while p1 ~= nil do
+		local t1 = mw.ustring.sub(t, p1, p2)
+		local n1 = tonumber(t1)
+		if n1 ~= nil then
+			ls[1 + #ls] = n1
+		elseif t1 == "true" then
+			ls[1 + #ls] = true
+		elseif t1 == "false" then
+			ls[1 + #ls] = false
+		else
+			ls[1 + #ls] = {
+				type = "symbol",
+				name = t1
+			}
+		end
+		t = mw.ustring.sub(t, (p2 + 1))
+		p1,p2 = mw.ustring.find( t, "[^%s]+" )
+	end
+end
+
+local function tok2( ls, t )
+	-- tokenize lua string t, with no string literals or comments; append to ls
+	local p1 = mw.ustring.find( t, "[()\\]" )
+	while p1 ~= nil do
+		tok3( ls, mw.ustring.sub(t, 1, (p1 - 1)) )
+		ls[1 + #ls] = { type = mw.ustring.sub(t, p1, p1) }
+		if ls[#ls].type == "\\" then
+			ls[#ls].name = ls[#ls].type
+			ls[#ls].type = "symbol"
+		end
+		t = mw.ustring.sub(t, (p1 + 1))
+		p1 = mw.ustring.find( t, "[()\\]" )
+	end
+	tok3( ls, t )
+end
+
+local function tok1( ls, t )
+	-- tokenize lua string t, thru first string literal or comment; append to ls
+	-- if not finished, append untokenized remainder string and return true
+	local p0 = mw.ustring.find( t, ';' )
+	local p1 = mw.ustring.find( t, '"' )
+	local p2 = mw.ustring.find( t, "'" )
+	if (p0 ~= nil) and (((p1 == nil) or (p0 &lt; p1)) and
+						((p2 == nil) or (p0 &lt; p2))) then
+		-- process a comment
+		tok2( ls, mw.ustring.sub( t, 1, (p0 - 1) ) )
+		p1 = mw.ustring.find( t, '\n', (p0 + 1) )
+		if p1 == nil then
+			return false
+		else
+			ls[1 + #ls] = mw.ustring.sub( t, (p1 + 1) )
+			return true
+		end
+	elseif (p1 ~= nil) and ((p2 == nil) or (p1 &lt; p2)) then
+		-- process a string literal starting with double-quote
+		p2 = p1 + 1
+		while true do
+			p2 = mw.ustring.find( t, '"', p2 )
+			if p2 == nil then
+				seterr(ls, 'mismatched string-literal delimiter (")')
+				return false
+			elseif (p2 &lt; mw.ustring.len( t )) and
+				(mw.ustring.codepoint( t, (p2 + 1) ) == 34)
+			then
+				p2 = (p2 + 2)
+			else
+				tok2( ls, mw.ustring.sub( t, 1, (p1 - 1) ) )
+				ls[1 + #ls] = mw.ustring.gsub(
+					mw.ustring.sub( t, (p1 + 1), (p2 - 1) ),
+					'""', '"') -- inverse operation is at write_sexpr
+				ls[1 + #ls] = mw.ustring.sub( t, (p2 + 1) )
+				return true
+			end
+		end
+	elseif p2 ~= nil then
+		-- process a string literal starting with single-quote
+		-- side benefit: precludes Lisp shorthand for "suppress eval"
+		p1 = p2
+		p2 = mw.ustring.find( t, "'", (p1 + 1) )
+		if p2 == nil then
+			seterr(ls, "mismatched string-literal delimiter (')")
+			return false
+		else
+			tok2( ls, mw.ustring.sub( t, 1, (p1 - 1) ) )
+			ls[1 + #ls] = mw.ustring.sub( t, (p1 + 1), (p2 - 1) )
+			ls[1 + #ls] = mw.ustring.sub( t, (p2 + 1) )
+			return true
+		end
+	else
+		tok2( ls, t )
+		return false
+	end
+end
+
+local function parse_next( x1, p1, x2 )
+	-- parse one sexpr from token list x1 position p1, append sexpr to p2
+	-- return new value for p1
+	if stype(x1[p1]) == ")" then
+		seterr(x2, "unmatched right-paren")
+		return 1 + #x1
+	elseif stype(x1[p1]) ~= "(" then
+		x2[1 + #x2] = x1[p1]
+		return p1 + 1
+	else
+		p1 = p1 + 1
+		local x3 = { type = "list" }
+		x2[1 + #x2] = x3
+		while p1 &lt;= #x1 do
+			if stype(x1[p1]) == ")" then
+				return p1 + 1
+			end
+			p1 = parse_next( x1, p1, x3 )
+		end
+		seterr(x2, "unmatched left-paren")
+		return p1
+	end
+end
+
+local function parse_sexpr( x1 )
+	-- x1 is an error or a list of tokens
+	if x1.type ~= "list" then
+		return x1
+	else
+		local p1 = 1 --next item to read from x1
+		local x2 = { type = "list" }
+		while p1 &lt;= #x1 do
+			p1 = parse_next( x1, p1, x2 )
+		end
+		return x2
+	end
+end
+
+local function text_to_sexpr( t )
+	local ls = { type = "list" }
+	while tok1( ls, t ) do
+		t = ls[#ls]
+		ls[#ls] = nil
+	end
+	ls = parse_sexpr( ls )
+	return ls
+end
+
+--[[ write/display a sexpr ]]
+
+local function write_sexpr( x )
+	if type(x) == "number" then
+		return tostring( x )
+	elseif type(x) == "string" then
+		return mw.ustring.format('"%s"', mw.ustring.gsub( x, '"', '""' )) -- inverse operation is at tok1
+	elseif type(x) == "boolean" then
+		if x then return "true" else return "false" end
+	elseif type(x) ~= "table" then
+		return mw.ustring.format("&amp;lt;unrecognized internal type: %s&amp;gt;", type(x))
+	elseif x.type == "symbol" then
+		return x.name
+	elseif x.type == "fn" then
+		return mw.ustring.format("&amp;lt;%s&amp;gt;", write_sexpr( x.comb ))
+	elseif x.type == "op" then
+		if x.name ~= nil then
+			return mw.ustring.format("[op: %s]", x.name)
+		else
+			return "[op]"
+		end
+	elseif x.type == "list" then
+		local r = {}
+		r[1] = "("
+		for k = 1, #x do
+			r[k+1] = write_sexpr( x[k] )
+		end
+		r[#r + 1] = ")"
+		return table.concat(r, " ")
+	elseif x.type == "error" then
+		return mw.ustring.format("&amp;lt;error: %s&amp;gt;", x.msg)
+	elseif x.type == "pattern" then
+		return mw.ustring.format('&amp;lt;pattern: "%s"&amp;gt;', x.pat)
+	elseif x.type ~= nil then
+		return mw.ustring.format("&amp;lt;unrecognized type: %s&amp;gt;", x.type)
+	else
+		return "&amp;lt;missing type&amp;gt;"
+	end
+end
+
+local function display_sexpr( x )
+	if stype(x) == "string" then
+		return x
+	else
+		return write_sexpr( x )
+	end
+end
+
+--[[ evaluation tools ]]
+
+local maxdepth = 4 -- maximum call-nesting depth
+
+local combine
+
+local function eval( x, env, depth )
+	if type(x) ~= "table" then -- literal
+		return x
+	elseif x.type == "symbol" then
+		local v = env[x.name]
+		if v == nil then
+			return seterr("undefined symbol: %s", x.name)
+		else
+			return v
+		end
+	elseif x.type ~= "list" then -- literal
+		return x
+	elseif #x == 0 then -- empty list
+		return x
+	else -- combination
+		local c = eval( x[1], env, depth )
+		if stype(c) == "error" then return c end
+		local ls = { type = "list" }
+		for k = 2, #x do
+			ls[k - 1] = x[k]
+		end
+		return combine( c, ls, env, depth )
+	end
+end
+
+combine = function( c, ls, env, depth )
+	while stype(c) == "fn" do
+		local ls2 = { type = "list" }
+		for k = 1, #ls do
+			ls2[k] = eval( ls[k], env, depth )
+			if stype(ls2[k]) == "error" then return ls2[k] end
+		end
+		c = c.comb
+		ls = ls2
+	end
+	if stype(c) ~= "op" then
+		return seterr("called object is not a combiner: %s", write_sexpr(c))
+	elseif (c.shallow ~= nil) then
+		return c.op(ls, env, depth)
+	elseif (depth == nil) or (depth &lt; 1) then
+		if maxdepth &gt; 1 then
+			return seterr(
+				"exceeded maximum call-nesting depth (%i)",
+				maxdepth)
+		else
+			return seterr("exceeded maximum call-nesting depth")
+		end
+	else
+		return c.op(ls, env, (depth - 1))
+	end
+end
+
+local function eval_seq( ls, env, depth )
+	-- ls must be an error or a list
+	if ls.type == "error" then return ls end
+	if #ls == 0 then return ls end
+	for k = 1, (#ls - 1) do
+		local x = eval( ls[k], env, depth )
+		if stype(x) == "error" then return x end
+	end
+	return eval( ls[#ls], env, depth )
+end
+
+local function eval_all( ls, env, depth, cutoff )
+	-- ls must be an error or a list
+	if ls.type == "error" then return ls end
+	local ls2 = { type="list" }
+	for k = 1, #ls do
+		ls2[k] = eval( ls[k], env, depth )
+		if stype(ls2[k]) == "error" then return ls2[k] end
+		if (cutoff ~= nil) and cutoff(ls2[k]) then return ls2 end
+	end
+	return ls2
+end
+
+local function combine_all( ops, args, env, depth, cutoff )
+	-- ops must be a list; args must be an error or a list
+	if args.type == "error" then return args end
+	local ls2 = { type="list" }
+	for k = 1, #ops do
+		ls2[k] = combine( ops[k], args, env, depth )
+		if stype(ls2[k]) == "error" then return ls2[k] end
+		if (cutoff ~= nil) and cutoff(ls2[k]) then return ls2 end
+	end
+	return ls2
+end
+
+--[[ generic combiner constructors ]]
+
+local function make_op( f, nm, sh )
+	return {
+		type = "op",
+		op = f,
+		name = nm,
+		shallow = sh
+	}
+end
+
+local function checktype( t, o, k ) -- types list, operands list, index
+	if #t == 0 then return "" end
+	o = o[k] -- particular operand
+	if k &gt; #t then k = #t end
+	t = t[k] -- particular type
+	-- t should now be a string or internal function
+	if type(t) == "string" then
+		if stype(o) == t then t = "" end -- clear if no error
+	else
+		t = t(o) -- assume internal function works correctly
+	end
+	-- t should now be type name if error, empty string if okay
+	return t
+end
+
+local function type_err( cname, tname, x )
+	-- combiner name, type name(s), operand
+	-- type name may be a string or an array of strings
+	local where = ""
+	if cname ~= nil then where = " to [op: " .. cname .. "]" end
+	if type(tname) == "table" then
+		if #tname == 0 then tname = "[unknown]"
+		else
+			for k = 1, #tname do
+				while tname[k] == "" do
+					for j = (k + 1), #tname do tname[j - 1] = tname[j] end
+					tname[#tname] = nil
+				end
+				if tname[k] ~= nil then
+					for j = (k + 1), #tname do
+						if tname[k] == tname[j] then tname[j] = "" end
+					end
+				end
+			end
+			if #tname == 1 then tname = tname[1]
+			else
+				tname[#tname] = "or " .. tname[#tname]
+				if #tname == 2
+				then tname = table.concat( tname, " " )
+				else tname = table.concat( tname, ", " )
+				end
+			end
+		end
+	end
+	local what = write_sexpr(x)
+	if #what &gt; 64 then what = stype(x) end
+	return seterr(
+		"bad operand%s: expected %s, got %s", where, tname, what)
+end
+
+local function typed_op( ... )
+	-- alternating type (string or function) and op (table or function)
+	-- strong recommendation: first op should be a table
+	local ls0 = { ... }
+	local n0 = select( '#', ... )
+	local opname, shallow
+	if type(ls0[2]) == "table" then
+		opname = ls0[2].name
+		shallow = ls0[2].shallow
+	end
+	local f = function(ls, env, depth)
+		if #ls == 0 then
+			local op = ls0[2]
+			if type(op) == "table" then op = op.op end
+			return op( ls, env, depth )
+		end
+		local ek = 1 -- operand number of accumulated error type names
+		local enames = {} -- list of failed types for ls[ek]
+		for j = 1, n0, 2 do
+			local types = ls0[j]
+			local op = ls0[j + 1]
+			if type(op) == "table" then op = op.op end
+			local t = ""
+			for k = 1, #ls do
+				if #t == 0 then
+					t = checktype( types, ls, k )
+					if #t &gt; 0 then
+						if k &gt; ek then
+							ek = k
+							enames = { t }
+						elseif k == ek then
+							enames[1 + #enames] = t
+						end
+					end
+				end
+			end
+			if #t == 0 then return op( ls, env, depth ) end
+		end
+		return type_err( opname, enames, ls[ek] )
+	end
+	return make_op( f, opname, shallow )
+end
+
+local function nary_op( c, n, m )
+	local f = function(ls, env, depth)
+		if n &lt; 0 then
+			if #ls &lt; -n then
+				local where = ""
+				if c.name ~= nil then where = " to [op: " .. c.name .. "]" end
+				return seterr(
+					"too few operands%s: expected at least %i, got %i",
+					where, -n, #ls)
+			end
+		elseif m == nil then
+			if #ls ~= n then
+				local where = ""
+				if c.name ~= nil then where = " to [op: " .. c.name .. "]" end
+				return seterr(
+					"wrong number of operands%s: expected %i, got %i",
+					where, n, #ls)
+			end
+		else
+			if #ls &lt; n then
+				local where = ""
+				if c.name ~= nil then where = " to [op: " .. c.name .. "]" end
+				return seterr(
+					"too few operands%s: expected at least %i, got %i",
+					where, n, #ls)
+			elseif #ls &gt; m then
+				local where = ""
+				if c.name ~= nil then where = " to [op: " .. c.name .. "]" end
+				return seterr(
+					"too many operands%s: expected at most %i, got %i",
+					where, m, #ls)
+			end
+		end
+		return c.op( ls, env, depth )
+	end
+	return make_op( f, c.name, c.shallow )
+end
+
+local function binary_pred( test, nm )
+	return make_op(function (ls)
+			for k = 2, #ls do
+				if not test(ls[k - 1], ls[k]) then
+					return false
+				end
+			end
+			return true
+		end, nm, true)
+end
+
+local function unary_pred( test, nm )
+	return make_op(function (ls)
+			for k = 1, #ls do
+				if not test(ls[k]) then
+					return false
+				end
+			end
+			return true
+		end, nm, true)
+end
+
+local function wrap( c )
+	return {
+		type = "fn",
+		comb = c
+	}
+end
+
+--[[ wiki parsing stuff
+	entry:  (char-code  (first-pos  last-pos  left-index))
+	        (descriptor  (first-pos  last-pos  left-index)  entry  entry  ...)
+	item entries contain part entries, part entries contain item entries
+	left-index is removed at end of parse
+]]
+
+local lsquare,rsquare, lcurly,rcurly, pipe = 91,93, 123,125, 124
+
+local function wikileft(e) -- is entry a left-delimiter?
+	return ((e[1] == lsquare) or (e[1] == lcurly)) and (e[2][1] ~= e[2][2])
+end
+
+local function wikilen(e) -- how long is this entry?
+	return 1 + e[2][2] - e[2][1]
+end
+
+local function wikisub( m, d ) -- parse, descriptor
+	local k2 = #m          -- index of right delimiter
+	local k1 = m[k2][2][3] -- index of left delimiter
+	local p = { type = "list", "part", { type = "list" } } -- first part
+	p[2][1] = (m[k1][2][2] + 1) -- start of first part
+	local e = { -- entry containing parts
+		type = "list",
+		d,
+		{ type = "list",
+		  (m[k1][2][2] - (m[k2][2][2] - m[k2][2][1])),
+		  m[k2][2][2],
+		  k1
+		},
+		p
+	}
+	for k = (k1 + 1), (k2 - 1) do
+		if type(m[k][1]) ~= "number" then
+			m[k][2][3] = nil
+			p[1 + #p] = m[k]
+		elseif m[k][1] == pipe then
+			p[2][2] = (m[k][2][1] - 1) -- end of current part
+			p = { type = "list", "part", { type = "list" } } -- next part
+			p[2][1] = (m[k][2][2] + 1) -- start of this part
+			e[1 + #e] = p -- add to list of parts
+		end
+		m[k] = nil
+	end
+	p[2][2] = (m[k2][2][1] - 1) -- end of last part
+	m[k2] = nil
+	m[k1][2][2] = (e[2][1] - 1)
+	if (m[k1][2][1] &gt; m[k1][2][2]) then
+		e[2][3] = m[k1][2][3]
+		m[k1] = nil
+	end
+	m[1 + #m] = e
+end
+
+local function parse_wiki( ls )
+	local s = ls[1]                             -- string to parse
+	local m = { type = "list" }                 -- result of parse
+	local k = mw.ustring.find( s, "[%[%]{}|]" ) -- position in string
+	while k ~= nil do
+		local c = mw.ustring.codepoint(s,k)
+		if #m == 0 then
+			if (c == lsquare) or (c == lcurly) then
+				m[1] = {type="list", c, {type="list", k, k, 0}}
+			end
+		elseif (k == (m[#m][2][2] + 1)) and (c == m[#m][1]) and (c ~= pipe) then
+			m[#m][2][2] = k
+			if m[#m][2][3] &gt; 0 then
+				local e2 = m[#m]
+				local e1 = m[e2[2][3]]
+				if (e2[1] == rcurly) and (e1[1] == lcurly) and
+					(wikilen(e2) == 3) and (wikilen(e1) &gt; 2)
+				then
+					wikisub( m, "param" )
+				elseif (e2[1] == rsquare) and (e1[1] == lsquare) and
+					(wikilen(e2) == 2) and (wikilen(e1) &gt; 1)
+				then
+					wikisub( m, "link" )
+				end
+			end
+		else
+			if m[#m][2][3] &gt; 0 then
+				local e2 = m[#m]
+				local e1 = m[e2[2][3]]
+				if (e2[1] == rcurly) and (e1[1] == lcurly) and
+					(wikilen(e2) == 2) and (wikilen(e1) &gt; 1)
+				then
+					wikisub( m, "call" )
+				end
+			end
+			m[1 + #m] = {type="list", c, {type="list", k, k}}
+			if wikileft(m[#m - 1]) then
+				m[#m][2][3] = (#m - 1)
+			else
+				m[#m][2][3] = m[#m - 1][2][3]
+			end
+		end
+		k = mw.ustring.find( s, "[%[%]{}|]", (k + 1) )
+	end
+	if #m == 0 then return m end
+	if m[#m][2][3] &gt; 0 then
+		local e2 = m[#m]
+		local e1 = m[e2[2][3]]
+		if (e2[1] == rcurly) and (e1[1] == lcurly) and
+			(wikilen(e2) == 2) and (wikilen(e1) &gt; 1)
+		then
+			wikisub( m, "call" )
+		end
+	end
+	local m2 = { type = "list" }
+	for j = 1, #m do
+		if type(m[j][1]) ~= "number" then
+			m[j][2][3] = nil
+			m2[1 + #m2] = m[j]
+		end
+	end
+	return m2
+end
+
+--[[ miscellaneous ]]
+
+local function int_tc(x)
+	if (type(x) ~= "number") or (x ~= math.floor(x)) then
+		return "integer"
+	else
+		return ""
+	end
+end
+
+local function posint_tc(x)
+	if (type(x) ~= "number") or (x ~= math.floor(x)) or (x &lt; 1) then
+		return "positive integer"
+	else
+		return ""
+	end
+end
+
+local function logical_and( ls ) -- for and?
+	for k = 1, #ls do
+		if stype(ls[k]) ~= "boolean" then
+			return seterr(
+				"bad operand to [op: and?]: expected boolean, got %s",
+				write_sexpr(ls[k]))
+		end
+	end
+	for k = 1, #ls do if not ls[k] then return false end end
+	return true
+end
+
+local function logical_or( ls ) -- for or?
+	for k = 1, #ls do
+		if stype(ls[k]) ~= "boolean" then
+			return seterr(
+				"bad operand to [op: or?]: expected boolean, got %s",
+				write_sexpr(ls[k]))
+		end
+	end
+	for k = 1, #ls do if ls[k] then return true end end
+	return false
+end
+
+local function and_fn(ls, env, depth)
+	ls = eval_all( ls, env, depth,
+		function (x)
+			return (stype(x) == "boolean") and not x
+		end)
+	if stype(ls) == "error" then return ls end
+	if (#ls == 0) or (stype(ls[1]) == "boolean") then
+		return logical_and(ls)
+	end
+	local ops = { type="list" }
+	for k = 1, #ls do
+		if stype(ls[k]) == "fn" then ops[k] = ls[k].comb
+		elseif stype(ls[k]) == "op" then ops[k] = ls[k]
+		elseif k == 1 then
+			return seterr(
+				"bad operand to [op: and?]: expected boolean or combiner, got %s",
+				write_sexpr(ls[k]))
+		else
+			return seterr(
+				"bad operand to [op: and?]: expected combiner, got %s",
+				write_sexpr(ls[k]))
+		end
+	end
+	return wrap(make_op(function (ls, env, depth)
+			ls = combine_all(ops, ls, env, depth,
+				function (x)
+					return (stype(x) ~= "boolean") or not x
+				end)
+			if ls.type == "error" then return ls end
+			return logical_and(ls)
+		end, "and?", true))
+end
+
+local function or_fn(ls, env, depth)
+	ls = eval_all(ls, env, depth,
+		function (x)
+			return (stype(x) == "boolean") and x
+		end)
+	if stype(ls) == "error" then return ls end
+	if (#ls == 0) or (stype(ls[1]) == "boolean") then
+		return logical_or(ls)
+	end
+	local ops = { type="list" }
+	for k = 1, #ls do
+		if stype(ls[k]) == "fn" then ops[k] = ls[k].comb
+		elseif stype(ls[k]) == "op" then ops[k] = ls[k]
+		elseif k == 1 then
+			return seterr(
+				"bad operand to [op: or?]: expected boolean or combiner, got %s",
+				write_sexpr(ls[k]))
+		else
+			return seterr(
+				"bad operand to [op: or?]: expected combiner, got %s",
+				write_sexpr(ls[k]))
+		end
+	end
+	return wrap(make_op(function (ls, env, depth)
+			ls = combine_all(ops, ls, env, depth,
+				function (x)
+					return (stype(x) ~= "boolean") or x
+				end)
+			if ls.type == "error" then return ls end
+			return logical_or(ls)
+		end, "or?", true))
+end
+
+local function valid_parmlist( ls ) -- for \
+	if stype(ls) ~= "list" then return false end
+	for k = 1, #ls do
+		if stype(ls[k]) ~= "symbol" then return false end
+	end
+	return true
+end
+
+local function match_parmlist( parms, ls ) -- for \
+	local env = {}
+	for k = 1, #parms do env[parms[k].name] = ls[k] end
+	return env
+end
+
+local function lambda_fn(ls, senv)
+	local parms = ls[1]
+	if stype(parms) == "symbol" then
+		parms = { type="list", parms }
+	elseif not valid_parmlist(parms) then
+		return seterr(
+			"bad parameter-list operand to [op: \\]: %s",
+			write_sexpr(parms))
+	end
+	local body = { type = "list" }
+	for k = 2, #ls do body[k - 1] = ls[k] end
+	return wrap(nary_op(make_op(function (ls, denv, depth)
+		-- denv is ignored
+		local env = match_parmlist( parms, ls )
+		setmetatable(env, { __index = senv })
+		return eval_seq(body, env, depth)
+	end), #parms))
+end
+
+local relevantFrame = mw.getCurrentFrame()
+
+local function getarg_fn(ls)
+	local args = relevantFrame.args
+	local t = nil
+	if stype(ls[1]) == "number" then
+		t = ls[1]
+	else -- must be number or string
+		t = ls[1]
+	end
+	t = args[t]
+	if t == nil then return { type = "list" } end
+	return t
+end
+
+local function getargexpr_fn(ls)
+	local args = relevantFrame.args
+	local t = nil
+	if stype(ls[1]) == "number" then
+		t = ls[1]
+	else -- must be number or string
+		t = ls[1]
+	end
+	t = args[t]
+	if t == nil then return { type = "list" } end
+	t = text_to_sexpr(t)
+	if stype(t) == "error" then return { type = "list" } end
+	if #t ~= 1 then return { type = "list" } end
+	return t[1]
+end
+
+local function filter_fn(ls, env, depth)
+	local preds = { type = "list" }
+	for k = 2, #ls do preds[k - 1] = ls[k].comb end -- predicates
+	local function hof(ls, n, f, app)
+		-- copy first n elements of ls, apply f to later elements
+		-- if app, instead skip first n, and return result,app
+		if app == nil then app = false end
+		local ls2 = { type = "list" }
+		if #ls &lt;= n then
+			if app then return ls2,app else return ls end
+		end
+		if not app then for k = 1, n do ls2[k] = ls[k] end end
+		for k = (n + 1), #ls do
+			local x,app2 = f(ls[k])
+			if stype(x) == "error" then return x end
+			if app2 == nil then app2 = false end
+			if app2 then
+				for j = 1, #x do ls2[1 + #ls2] = x[j] end
+			else
+				ls2[1 + #ls2] = x
+			end
+		end
+		return ls2,app
+	end
+	local function filter_entry(entry)
+		local b = combine_all(preds, {type="list", entry}, env, depth,
+			function (x)
+				return (stype(x) ~= "boolean") or not x
+			end)
+		if stype(b) == "error" then return b end
+		b = logical_and(b)
+		if stype(b) == "error" then return b end
+		if b then
+			if stype(entry) == "list" then
+				return hof(entry, 2, function (part)
+						return hof(part, 2, filter_entry)
+					end)
+			else
+				return entry
+			end
+		else
+			if stype(entry) == "list" then
+				return hof(entry, 2, function (part)
+						return hof(part, 2, filter_entry, true)
+					end, true)
+			else
+				return { type = "list" }, true
+			end
+		end
+	end
+	return hof(ls[1], 0, filter_entry)
+end
+
+local function item_tc(x)
+	if (stype(x) == "list") and (#x &gt; 1) and
+		(stype(x[1]) == "string") and (x[1] ~= "part") and
+		(stype(x[2]) == "list") and (#x[2] == 2) and
+		(int_tc(x[2][1]) == "") and (int_tc(x[2][2]) == "")
+	then
+		return ""
+	else
+		return "item"
+	end
+end
+
+local function part_tc(x)
+	if (stype(x) == "list") and (#x &gt; 1) and (x[1] == "part") and
+		(stype(x[2]) == "list") and (#x[2] == 2) and
+		(int_tc(x[2][1]) == "") and (int_tc(x[2][2]) == "")
+	then
+		return ""
+	else
+		return "part"
+	end
+end
+
+local function cd_tc(x)
+	if (stype(x) == "list") and (#x &gt; 0) then
+		if stype(x[1]) == "string" then x = x[2] end
+		if (x ~= nil) and (stype(x) == "list") and (#x == 2) and
+			(int_tc(x[1]) == "") and (int_tc(x[2]) == "")
+		then
+			return ""
+		end
+	end
+	return "coordinates descriptor"
+end
+
+local function cd_ls_tc(x)
+	local ok = true
+	if stype(x) ~= "list" then ok = false
+	else for k = 1, #x do if cd_tc(x[k]) ~= "" then ok = false end end
+	end
+	if ok then return ""
+	else return "list of coordinates descriptors"
+	end
+end
+
+local function getsubstr_ntv(s, k1, k2) -- k1, k2 ints if provided
+	if k1 == nil then return s end
+	if k1 &lt; 1 then k1 = 1 end
+	if k2 ~= nil then
+		if k2 &gt;= mw.ustring.len(s) then k2 = nil end
+	end
+	return mw.ustring.sub( s, k1, k2 )
+end
+
+local function cd_norm(x) -- assumes cd_tc
+	if stype(x[1]) == "number" then return x else return x[2] end
+end
+
+local function getsubstr_int_fn(ls)
+	local s = ls[1]
+	return getsubstr_ntv(s, ls[2], ls[3])
+end
+
+local function getsubstr_cd_fn(ls)
+	local s = ls[1]
+	local c = cd_norm(ls[2])
+	return getsubstr_ntv(s, c[1], c[2])
+end
+
+local function getsubstr_ls_fn(ls)
+	local s = ls[1]
+	local r = { type = "list" }
+	for k = 1, #ls[2] do
+		r[k] = cd_norm(ls[2][k])
+	end
+	for k = 1, #r do r[k] = getsubstr_ntv(s, r[k][1], r[k][2]) end
+	return r
+end
+
+local function setsubstr_ls(s, lsc, lss)
+	-- string, array of cds, array of strings
+	local n = math.min(#lsc, #lss) -- just ignore extras of either
+	if n == 0 then return s end
+	local function berr(...)
+		return seterr("bounds violation in [op: set-substring]: %s",
+			mw.ustring.format( ... ))
+	end
+	if lsc[1][1] &lt; 1 then
+		return berr("segment starts left of string start (%i)", lsc[1][1])
+	end
+	if lsc[n][2] &gt; mw.ustring.len(s) then
+		return berr("segment ends right of string end (%i, %i)",
+			lsc[n][2], mw.ustring.len(s))
+	end
+	local r = {}
+	for k = 1, n do
+		if lsc[k][1] &gt; (lsc[k][2] + 1) then
+			return berr("segment starts right of its own end (%i, %i)",
+				lsc[k][1], lsc[k][2])
+		end
+		r[2 * k] = lss[k]
+	end
+	r[1] = mw.ustring.sub(s, 1, (lsc[1][1] - 1))
+	r[1 + (2 * n)] = mw.ustring.sub(s, (lsc[n][2] + 1))
+	for k = 2, n do
+		if lsc[k - 1][2] &gt;= lsc[k][1] then
+			return berr("segment ends right of next segment start (%i, %i)",
+				lsc[k - 1][2], lsc[k][1])
+		end
+		r[(2 * k) - 1] = mw.ustring.sub(s,
+			(lsc[k - 1][2] + 1),
+			(lsc[k][1] - 1))
+	end
+	return table.concat(r)
+end
+
+local function str_ls_tc(x)
+	local ok = true
+	if stype(x) ~= "list" then ok = false
+	else for k = 1, #x do if stype(x[k]) ~= "string" then ok = false end end
+	end
+	if ok then return ""
+	else return "list of strings"
+	end
+end
+
+local function getsublist_fn(ls)
+	local n1 = ls[2]
+	local n2 = ls[3]
+	local ls = ls[1]
+	local x = { type = "list" }
+	if n1 &lt; 1 then n1 = 1 end
+	if n2 == nil then n2 = #ls elseif n2 &gt; #ls then ns = #ls end
+	for k = n1, n2 do x[1 + #x] = ls[k] end
+	return x
+end
+
+local function setsublist_fn(ls)
+	local base = ls[1]
+	local n1 = ls[2] - 1
+	local n2 = ls[3] + 1
+	local seg = ls[4]
+	if n1 &lt; 0 then n1 = 0 end
+	if n2 &lt;= n1 then n2 = n1 + 1 end
+	local r = { type = "list" }
+	for k = 1, n1 do r[k] = base[k] end
+	for k = 1, #seg do r[1 + #r] = seg[k] end
+	for k = n2, #base do r[1 + #r] = base[k] end
+	return r
+end
+
+local function findprd_fn(ls, env, depth)
+	local x = ls[1]
+	local p = ls[2].comb
+	local x2 = { type = "list" }
+	for k = 1, #x do
+		local q = combine( p, { type="list", x[k] }, env, depth )
+		if stype(q) == "error" then return q end
+		if stype(q) ~= "boolean" then
+			return seterr(
+				"bad predicate result type to [op: find]: got %s",
+				stype(q))
+		end
+		if q then x2[1 + #x2] = k end
+	end
+	return x2
+end
+
+local function findstr_fn(ls)
+	local s = ls[1]
+	local p = ls[2]
+	local x2 = { type = "list" }
+	if #p == 0 then return x2 end
+	local k = 1
+	repeat
+		local x3 = { mw.ustring.find( s, p, k, true ) }
+		if #x3 == 0 then return x2 end
+		x2[1 + #x2] = { type = "list", x3[1], x3[2] }
+		k = 1 + x3[2]
+	until false
+end
+
+local function findpat_fn(ls)
+	local s = ls[1]
+	local p = ls[2].pat
+	local x2 = { type = "list" }
+	local k = 1
+	repeat
+		local x3 = { mw.ustring.find( s, p, k ) }
+		if #x3 == 0 then return x2 end
+		x2[1 + #x2] = { type = "list", x3[1], x3[2] }
+		k = 1 + x3[2]
+	until false
+end
+
+local function any_tc(x) return "" end
+local function none_tc(x) return "no operand here" end
+
+local function member_fn(ls) -- 1 or 2 operands, second must be a list
+	local t = write_sexpr(ls[1])
+	if ls[2] ~= nil then
+		ls = ls[2]
+		for k = 1, #ls do
+			if write_sexpr(ls[k]) == t then return true end
+		end
+		return false
+	else
+		return wrap(nary_op(typed_op({ "list" }, make_op(function(ls)
+			ls = ls[1]
+			for k = 1, #ls do
+				if write_sexpr(ls[k]) == t then return true end
+			end
+			return false
+		end, nil, true)), 1))
+	end
+end
+
+local lang = mw.language.getContentLanguage()
+
+local function let_tc(x)
+	if (stype(x) == "list") and (#x == 2) and (stype(x[1]) == "symbol")
+	then return ""
+	else return "symbol-value binding"
+	end
+end
+
+local function sorp_tc(x)
+	if (stype(x) == "string") or (stype(x) == "pattern")
+	then return ""
+	else return "string or pattern"
+	end
+end
+
+local function split_tc(x)
+	if (stype(x) == "list") and (#x &gt;= 1) and (sorp_tc(x[1]) == "") and
+		((#x == 1) or
+		 ((#x == 2) and ((sorp_tc(x[2]) == "") or (split_tc(x[2]) == ""))) or
+		 ((#x == 3) and (sorp_tc(x[2]) == "") and (split_tc(x[3]) == "")))
+	then
+		return ""
+	else
+		return "valid string-split descriptor"
+	end
+end
+
+local function strnest_tc(x)
+	if stype(x) == "string" then return ""
+	elseif stype(x) == "list" then
+		for k = 1, #x do
+			local msg = strnest_tc(x[k])
+			if msg ~= "" then return msg end
+		end
+		return ""
+	end
+	return "string or tree of strings"
+end
+
+local function splitsep_fn(s, p)
+	local x
+	if (stype(p) == "string")
+	then x = mw.text.split( s, p, true )
+	else x = mw.text.split( s, p.pat )
+	end
+	x.type = "list"
+	return x
+end
+
+local function splitdelim_fn(s, lt, rt)
+	local lp = (stype(lt) == "string")
+	local rp = (stype(rt) == "string")
+	if not lp then lt = lt.pat end
+	if not rp then rt = rt.pat end
+	local snarf -- find next unmatched right-delimiter
+	snarf = function (k)
+		repeat
+			local xl = { mw.ustring.find( s, lt, k, lp ) }
+			local xr = { mw.ustring.find( s, rt, k, rp ) }
+			if #xr == 0 then return xr end
+			if #xl == 0 then return xr end
+			if xr[1] &lt;= xl[1] then return xr end
+			xr = snarf(xl[2] + 1)
+			if #xr == 0 then return xr end
+			k = (xr[2] + 1)
+		until false
+	end
+	local results = { type = "list" }
+	local k = 1 -- leftmost character of interest
+	repeat
+		local xl = { mw.ustring.find( s, lt, k, lp ) }
+		if #xl == 0 then return results end
+		k = xl[2] + 1
+		local xr = snarf(k)
+		if #xr &gt; 0 then
+			results[1 + #results] = mw.ustring.sub( s, k, (xr[1] - 1) )
+			k = xr[2] + 1
+		end
+	until false
+end
+
+local function splitrec_fn(s, rc)
+	local ls
+	if (#rc &gt; 1) and (stype(rc[2]) ~= "list") then
+		ls = splitdelim_fn(s, rc[1], rc[2])
+	else
+		ls = splitsep_fn(s, rc[1])
+	end
+	ls.type = "list"
+	rc = rc[#rc]
+	if (stype(rc) == "list") then
+		for k = 1, #ls do
+			ls[k] = splitrec_fn(ls[k], rc)
+		end
+	end
+	return ls
+end
+
+local function splitnest_fn(s, rc)
+	if stype(s) == "string" then return splitrec_fn(s, rc) end
+	local result = { type="list" }
+	for k = 1, #s do
+		result[k] = splitnest_fn(s[k], rc)
+		if stype(result[k]) == "error" then return result[k] end
+	end
+	return result
+end
+
+local function split_fn(ls)
+	local rc = { type = "list" }
+	for k = 2, #ls do rc[k - 1] = ls[k] end
+	return splitnest_fn(ls[1], rc)
+end
+
+local function join_tc(x)
+	if (stype(x) == "list") and (#x &gt;= 1) and (stype(x[1]) == "string") and
+		((#x == 1) or
+		 ((#x == 2) and ((stype(x[2]) == "string") or (join_tc(x[2]) == ""))) or
+		 ((#x == 3) and (stype(x[2]) == "string") and (join_tc(x[3]) == "")))
+	then
+		return ""
+	else
+		return "valid string-join descriptor"
+	end
+end
+
+local function neststr_tc(x)
+	if stype(x) == "list" then
+		for k = 1, #x do
+			if stype(x[k]) ~= "string" then
+				local msg = neststr_tc(x[k])
+				if msg ~= "" then return msg end
+			end
+		end
+		return ""
+	end
+	return "tree of strings"
+end
+
+local function joinsep_fn(t, s)
+	if #t == 0 then return "" end
+	if stype(t[1]) == "string" then
+		for k = 2, #t do if stype(t[k]) ~= "string" then
+			return seterr("bad target for [op: join]: uneven tree depth")
+		end end
+		return table.concat( t, s )
+	end
+	for k = 2, #t do if stype(t[k]) == "string" then
+		return seterr("bad target for [op: join]: uneven tree depth")
+	end end
+	local result = { type = "list" }
+	for k = 1, #t do
+		result[k] = joinsep_fn(t[k], s)
+		if stype(result[k]) == "error" then return result[k] end
+	end
+	return result
+end
+
+local function joindelim_fn(t, lf, rg)
+	if #t == 0 then return "" end
+	if stype(t[1]) == "string" then
+		for k = 2, #t do if stype(t[k]) ~= "string" then
+			return seterr("bad target for [op: join]: uneven tree depth")
+		end end
+		return lf .. table.concat( t, (rg .. lf) ) .. rg
+	end
+	for k = 2, #t do if stype(t[k]) == "string" then
+		return seterr("bad target for [op: join]: uneven tree depth")
+	end end
+	local result = { type = "list" }
+	for k = 1, #t do
+		result[k] = joindelim_fn(t[k], lf, rg)
+		if stype(result[k]) == "error" then return result[k] end
+	end
+	return result
+end
+
+local function joinnest_fn(t, rc)
+	if stype(t) == "error" then return t end
+	if stype(t) == "string" then
+		return seterr("bad target for [op: join]: tree not deep enough")
+	end
+	if #rc == 1 then
+		return joinsep_fn(t, rc[1])
+	elseif #rc == 3 then
+		return joinnest_fn(joindelim_fn(t, rc[1], rc[2]), rc[3])
+	elseif stype(rc[2]) == "string" then
+		return joindelim_fn(t, rc[1], rc[2])
+	else
+		return joinnest_fn(joinsep_fn(t, rc[1]), rc[2])
+	end
+end
+
+local function join_fn(ls)
+	local rc = { type = "list" }
+	for k = 2, #ls do rc[k - 1] = ls[k] end
+	return joinnest_fn(ls[1], rc)
+end
+
+local function xformer_fn(pred, basis, succ, n)
+	return wrap(nary_op(typed_op({ "fn", "fn", any_tc },
+		make_op(function (ls, denv, depth)
+			local leaf = ls[1]
+			local parent = ls[2]
+			local data = ls[3]
+			local function xform(basis, data)
+				local recurse = false
+				if stype(data) == "list" then
+					if stype(pred) ~= "fn" then
+						recurse = true
+					else
+						recurse = combine( pred.comb, { type="list", data }, env, depth )
+						if stype(recurse) ~= "boolean" then
+							if stype(recurse) == "error" then return recurse end
+							return seterr(
+								"bad predicate result type to [op transform]: %s",
+								stype(recurse))
+						end
+					end
+				end
+				local comb
+				if recurse then
+					local b2
+					if stype(succ) == "fn"
+					then b2 = combine( succ.comb, { type="list", basis }, env, depth )
+					else b2 = basis
+					end
+					local d2 = { type="list" }
+					for k = 1, #data do
+						if k &lt;= n then
+							d2[k] = data[k]
+						else
+							d2[k] = xform(b2, data[k])
+							if stype(d2[k]) == "error" then return d2[k] end
+						end
+					end
+					data = d2
+					comb = parent.comb
+				else
+					comb = leaf.comb
+				end
+				if stype(succ) == "fn"
+				then data = { type="list", basis, data }
+				else data = { type="list",        data }
+				end
+				return combine( comb, data, env, depth )
+			end
+			return xform(basis, data)
+		end, "transform", true)), 3))
+end
+
+--[[ standard environment ]]
+
+local ground_env = {
+	list = wrap(make_op(function (ls) return ls end, "list", true)),
+	["+"] = wrap(typed_op(
+		{ "number" }, make_op(function (ls)
+			local sum = 0
+			for k = 1, #ls do sum = sum + ls[k] end
+			return sum
+		end, "add", true),
+		{ "string" }, function (ls)
+			local s = {}
+			for k = 1, #ls do s[k] = ls[k] end
+			return table.concat(s)
+		end,
+		{ "boolean" }, function (ls)
+			local sum = true
+			for k = 1, #ls do sum = sum and ls[k] end
+			return sum
+		end,
+		{ "list" }, function (ls)
+			local x = { type = "list" }
+			for j = 1, #ls do
+				for k = 1, #ls[j] do
+					x[1 + #x] = ls[j][k]
+				end
+			end
+			return x
+		end)),
+	["*"] = wrap(typed_op({ "number" }, make_op(function (ls)
+			local product = 1
+			for k = 1, #ls do product = product * ls[k] end
+			return product
+		end, "multiply", true))),
+	["-"] = wrap(nary_op(typed_op({ "number" }, make_op(function (ls)
+			local result = ls[1]
+			for k = 2, #ls do result = result - ls[k] end
+			return result
+		end, "subtract", true)), -2)),
+	["/"] = wrap(nary_op(typed_op({ "number" }, make_op(function (ls)
+			local result = ls[1]
+			for k = 2, #ls do result = result / ls[k] end
+			return result
+		end, "divide", true)), -2)),
+	["^"] = wrap(nary_op(typed_op({ "number" }, make_op(function  (ls)
+			return ls[1] ^ ls[2]
+		end, "exponentiation", true)), 2)),
+	["\\"] = nary_op(make_op(lambda_fn, "\\", true), -1),
+	abs = wrap(nary_op(typed_op({ "number" }, make_op(function (ls)
+			return math.abs(ls[1])
+		end, "abs", true)), 1)),
+	anchorencode = wrap(nary_op(typed_op(
+		{ "string" }, make_op(function (ls)
+			return mw.uri.anchorEncode( ls[1] )
+		end, "anchorencode", true)), 1)),
+	["and?"] = make_op(and_fn, "and?", true),
+	apply = wrap(nary_op(typed_op(
+		{ "fn", "list" }, make_op(function (ls, env, depth)
+			return combine(ls[1].comb, ls[2], env, depth)
+		end, "apply", true)), 2)),
+	["boolean?"] = wrap(unary_pred(function (x)
+			return stype(x) == "boolean"
+		end, "boolean?")),
+	["call?"] = wrap(unary_pred(function (x)
+			return (stype(x) == "list") and (#x &gt; 0) and
+				(stype(x[1]) == "string") and (x[1] == "call")
+		end, "call?")),
+	canonicalurl = wrap(nary_op(typed_op(
+		{ "string" }, make_op(function (ls)
+			if #ls == 1
+			then return tostring( mw.uri.canonicalUrl( ls[1] ) )
+			else return tostring( mw.uri.canonicalUrl( ls[1], ls[2] ) )
+			end
+		end, "canonicalurl", true)), 1, 2)),
+	ceil = wrap(nary_op(typed_op({ "number" }, make_op(function (ls)
+			return math.ceil(ls[1])
+		end, "ceil", true)), 1)),
+	curry = wrap(nary_op(typed_op(
+		{ "fn", any_tc }, make_op(function (ls1, env, depth)
+			return wrap(make_op(function (ls2, env, depth)
+					local ls3 = { type = "list" }
+					for k = 2, #ls1 do ls3[k - 1] = ls1[k] end
+					for k = 1, #ls2 do ls3[k + #ls1 - 1] = ls2[k] end
+					return combine(ls1[1].comb, ls3, env, depth)
+				end, nil, true))
+		end, "curry", true)), -2)),
+	define = nary_op(make_op(function (ls, env, depth)
+			if stype(ls[1]) ~= "symbol" then
+				return seterr(
+					"bad definiend to [op: define]: expected symbol, got %s",
+					write_sexpr(ls[1]))
+			end
+			local x = eval(ls[2], env, depth)
+			if stype(x) == "error" then return x end
+			env[ls[1].name] = x
+			while stype(x) == "fn" do x = x.comb end
+			if stype(x) == "op" and x.name == nil then x.name = ls[1].name end
+			return { type = "list" }
+		end, "define", true), 2),
+	["equal?"] = wrap(make_op(function (ls)
+			if #ls &gt;= 2 then
+				local t = write_sexpr(ls[1])
+				for k = 2, #ls do
+					if write_sexpr(ls[k]) ~= t then
+						return false
+					end
+				end
+			end
+			return true
+		end, "equal?", true)),
+	filter = wrap(nary_op(typed_op({ "list", "fn" }, make_op(filter_fn,
+		"filter", true)), -1)),
+	find = wrap(nary_op(typed_op(
+		{ "list", "fn" }, make_op(findprd_fn, "find", true),
+		{ "string", "string" }, findstr_fn,
+		{ "string", "pattern" }, findpat_fn
+		), 2)),
+	floor = wrap(nary_op(typed_op({ "number" }, make_op(function (ls)
+			return math.floor(ls[1])
+		end, "floor", true)), 1)),
+	["fn?"] = wrap(unary_pred(function (x)
+			return stype(x) == "fn"
+		end, "fn?")),
+	fullurl = wrap(nary_op(typed_op(
+		{ "string" }, make_op(function (ls)
+			if #ls == 1
+			then return tostring( mw.uri.fullUrl( ls[1] ) )
+			else return tostring( mw.uri.fullUrl( ls[1], ls[2] ) )
+			end
+		end, "fullurl", true)), 1, 2)),
+	["ge?"] = wrap(typed_op(
+		{ "number" }, binary_pred(function (x1, x2) return x1 &gt;= x2 end, "ge?"),
+		{ "string" }, binary_pred(function (x1, x2) return x1 &gt;= x2 end))),
+	['get-arg'] = wrap(nary_op(typed_op(
+		{ "number" }, make_op(getarg_fn, "get-arg", true),
+		{ "string" }, getarg_fn), 1)),
+	['get-arg-expr'] = wrap(nary_op(typed_op(
+		{ "number" }, make_op(getargexpr_fn, "get-arg-expr", true),
+		{ "string" }, getargexpr_fn), 1)),
+	['get-args'] = nary_op(make_op(function ()
+			local ls = { type = "list" }
+			for v, k in pairs( relevantFrame.args ) do
+				ls[1 + #ls] = v
+			end
+			return ls
+		end, "get-args"), 0),
+	['get-coords'] = wrap(nary_op(typed_op({ cd_tc },make_op(function (ls)
+			ls = ls[1]
+			if stype(ls[1]) == "string" then ls = ls[2] end
+			return { type="list", ls[1], ls[2] }
+		end, "get-coords", true)), 1)),
+	["get-items"] = wrap(nary_op(typed_op({ part_tc }, make_op(function (ls)
+			ls = ls[1]
+			local ls2 = { type="list" }
+			for k = 3, #ls do ls2[k - 2] = ls[k] end
+			return ls2
+		end, "get-items", true)), 1)),
+	["get-parts"] = wrap(nary_op(typed_op({ item_tc }, make_op(function (ls)
+			ls = ls[1]
+			local ls2 = { type="list" }
+			for k = 3, #ls do ls2[k - 2] = ls[k] end
+			return ls2
+		end, "get-parts", true)), 1)),
+	["get-sublist"] = wrap(nary_op(typed_op(
+		{ "list", int_tc },
+		make_op(getsublist_fn, "get-sublist", true)), 2, 3)),
+	["get-substring"] = wrap(typed_op(
+		{ "string", int_tc },
+		nary_op(make_op(getsubstr_int_fn, "get-substring", true), 2, 3),
+		{ "string", cd_tc },
+		nary_op(make_op(getsubstr_cd_fn, "get-substring", true), 2),
+		{ "string", cd_ls_tc },
+		nary_op(make_op(getsubstr_ls_fn, "get-substring", true), 2))),
+	["gt?"] = wrap(typed_op(
+		{ "number" }, binary_pred(function (x1, x2) return x1 &gt; x2 end, "gt?"),
+		{ "string" }, binary_pred(function (x1, x2) return x1 &gt; x2 end))),
+	["if"] = nary_op(make_op(function (ls, env, depth)
+			local test = eval(ls[1], env, depth)
+			if stype(test) == "error" then return test end
+			if stype(test) ~= "boolean" then
+				return seterr(
+					"bad test-result in [op: if]: %s",
+					write_sexpr(test))
+			elseif test then
+				return eval(ls[2], env, depth)
+			else
+				return eval(ls[3], env, depth)
+			end
+		end, "if", true), 3),
+	join = wrap(typed_op(
+		{ neststr_tc, "string", join_tc },
+		nary_op(make_op(join_fn, "join", true), 2, 3),
+		{ neststr_tc, "string", "string", join_tc },
+		nary_op(make_op(join_fn, "split", true), 3, 4))),
+	lc = wrap(nary_op(typed_op(
+		{ "string" }, make_op(function (ls)
+			return lang:lc(ls[1])
+		end, "lc", true),
+		{ str_ls_tc }, function (ls)
+			ls = ls[1]
+			local r = { type = "list" }
+			for k = 1, #ls do r[k] = lang:lc(ls[k]) end
+			return r
+		end), 1)),
+	lcfirst = wrap(nary_op(typed_op(
+		{ "string" }, make_op(function (ls)
+			return lang:lcfirst(ls[1])
+		end, "lcfirst", true),
+		{ str_ls_tc }, function (ls)
+			ls = ls[1]
+			local r = { type = "list" }
+			for k = 1, #ls do r[k] = lang:lcfirst(ls[k]) end
+			return r
+		end), 1)),
+	["le?"] = wrap(typed_op(
+		{ "number" }, binary_pred(function (x1, x2) return x1 &lt;= x2 end, "le?"),
+		{ "string" }, binary_pred(function (x1, x2) return x1 &lt;= x2 end))),
+	length = wrap(nary_op(typed_op(
+		{ "list" }, make_op(function (ls)
+			return #ls[1]
+		end, "length", true),
+		{ "string" }, function (ls)
+			return mw.ustring.len( ls[1] )
+		end), 1)),
+	let = nary_op(typed_op({ let_tc, any_tc }, make_op(function (ls, env, depth)
+			local p = ls[1][1]
+			local v = eval( ls[1][2], env, depth )
+			if stype(v) == "error" then return v end
+			local body = { type = "list" }
+			for k = 2, #ls do body[k - 1] = ls[k] end
+			local e = {}
+			e[p.name] = v
+			setmetatable(e, { __index = env})
+			return eval_seq(body, e, depth)
+		end, "let", true)), -1),
+	["link?"] = wrap(unary_pred(function (x)
+			return (stype(x) == "list") and (#x &gt; 0) and
+				(stype(x[1]) == "string") and (x[1] == "link")
+		end, "link?")),
+	["list?"] = wrap(unary_pred(function (x)
+			return stype(x) == "list"
+		end, "list?")),
+	["lt?"] = wrap(typed_op(
+		{ "number" }, binary_pred(function (x1, x2) return x1 &lt; x2 end, "lt?"),
+		{ "string" }, binary_pred(function (x1, x2) return x1 &lt; x2 end))),
+	map = wrap(nary_op(typed_op({ "fn", "list" }, make_op(
+		function (ls, env, depth)
+			local n = #ls[2]
+			for k = 3, #ls do if #ls[k] &lt; n then n = #ls[k] end end
+			local x = { type = "list" }
+			for j = 1, n do
+				local x2 = { type = "list" }
+				for k = 2, #ls do x2[k - 1] = ls[k][j] end
+				x[j] = combine( ls[1].comb, x2, env, depth )
+				if stype(x[j]) == "error" then return x[j] end
+			end
+			return x
+		end, "map", true)), -2)),
+	["member?"] = wrap(nary_op(typed_op(
+		{ any_tc, "list" }, make_op(member_fn, "member?", true)), 1, 2)),
+	merge = wrap(nary_op(typed_op({ "fn", "list" }, make_op(
+		function (ls, env, depth)
+			local ks = {}
+			for k = 2, #ls do ks[k] = 1 end
+			local result = { type = "list" }
+			while true do
+				local j = nil
+				for k = 2, #ls do
+					if ks[k] &lt;= #ls[k] then
+						if j == nil then j = k else
+							local x = combine( ls[1].comb,
+								{ ls[k][ks[k]], ls[j][ks[j]] }, env, depth )
+							if stype(x) == "error" then return x end
+							if x then j = k end
+						end
+					end
+				end
+				if j == nil then return result else
+					result[#result + 1] = ls[j][ks[j]]
+					ks[j] = ks[j] + 1
+				end
+			end
+		end, "merge", true)), -2)),
+	["not?"] = wrap(nary_op(typed_op({ "boolean" }, make_op(function (ls)
+			return not ls[1]
+		end, "not?", true)), 1)),
+	nth = wrap(nary_op(typed_op({ "list", posint_tc }, make_op(function (ls)
+			local x = ls[1]
+			for k = 2, #ls do
+				local n = ls[k]
+				if #x &lt; n then
+					return seterr(
+						"bad index to [op: nth]: asked for %i, list length is %i",
+						n, #x)
+				end
+				x = x[n]
+				if (k &lt; #ls) and (stype(x) ~= "list") then
+					return seterr("bad multi-index to [op: nth]: tree too shallow")
+				end
+			end
+			return x
+		end, "nth", true)), -2)),
+	["number?"] = wrap(unary_pred(function (x)
+			return stype(x) == "number"
+		end, "number?")),
+	["op?"] = wrap(unary_pred(function (x)
+			return stype(x) == "op"
+		end, "op?")),
+	["or?"] = make_op(or_fn, "or?", true),
+	["param?"] = wrap(unary_pred(function (x)
+			return (stype(x) == "list") and (#x &gt; 0) and
+				(stype(x[1]) == "string") and (x[1] == "param")
+		end, "param?")),
+	parse = wrap(nary_op(typed_op({ "string" }, make_op(parse_wiki,
+		"parse", true)), 1)),
+	pattern = wrap(nary_op(typed_op({ "string" }, make_op(function (ls)
+			local p = ls[1]
+			if #p == 0 then p = "[^%z%Z]" end -- disable null pattern
+			return { type="pattern", pat=p }
+		end, "pattern", true)), 1)),
+	sequence = make_op(function (ls, env, depth)
+			return eval_seq(ls, env, depth)
+		end, "sequence", true),
+	["set-sublist"] = wrap(nary_op(typed_op(
+		{ "list", int_tc, int_tc, "list" },
+		make_op(setsublist_fn, "set-sublist", true)), 4)),
+	["set-substring"] = wrap(typed_op(
+		{ "string", int_tc, int_tc, "string" },
+		nary_op(make_op(function (ls)
+				return setsubstr_ls(ls[1], { { ls[2], ls[3] } }, { ls[4] })
+			end, "set-substring", true), 4),
+		{ "string", cd_tc, "string" },
+		nary_op(make_op(function (ls)
+				return setsubstr_ls(ls[1], { cd_norm(ls[2]) }, { ls[3] })
+			end, "set-substring", true), 3),
+		{ "string", cd_ls_tc, str_ls_tc },
+		nary_op(make_op(function (ls)
+				local lsc = {}
+				for k = 1, #ls[2] do lsc[k] = cd_norm(ls[2][k]) end
+				return setsubstr_ls(ls[1], lsc, ls[3])
+			end, "set-substring", true), 3)
+		)),
+	split = wrap(typed_op(
+		{ strnest_tc, sorp_tc, split_tc },
+		nary_op(make_op(split_fn, "split", true), 2, 3),
+		{ strnest_tc, sorp_tc, sorp_tc, split_tc },
+		nary_op(make_op(split_fn, "split", true), 3, 4))),
+	["string?"] = wrap(unary_pred(function (x)
+			return stype(x) == "string"
+		end, "string?")),
+	["symbol?"] = wrap(unary_pred(function (x)
+			return stype(x) == "symbol"
+		end, "symbol?")),
+	["to-entity"] = wrap(nary_op(typed_op(
+		{ "string" }, make_op(function (ls)
+			local s = ls[1]
+			if #s == 0 then return s end
+			return "&amp;#" .. mw.ustring.codepoint(s, 1) .. ";"
+		end, "to-entity", true),
+		{ str_ls_tc }, function (ls)
+			ls = ls[1]
+			local r = { type = "list" }
+			for k = 1, #ls do
+				local s = ls[k]
+				if #s == 0 then r[k] = s
+				else r[k] = "&amp;#" .. mw.ustring.codepoint(s, 1) .. ";"
+				end
+			end
+			return r
+		end), 1)),
+	["to-number"] = wrap(nary_op(typed_op(
+		{ "string" }, make_op(function (ls)
+			local n = tonumber(ls[1])
+			if n == nil then return { type="list" } else return n end
+		end, "to-number", true)), 1)),
+	["to-string"] = wrap(nary_op(typed_op(
+		{ "number" }, make_op(function (ls)
+			return write_sexpr(ls[1])
+		end, "to-string", true)),1)),
+	transformer = wrap(typed_op(
+		{ none_tc },
+		make_op(function (ls, env, depth)
+				return xformer_fn(    0,     0,     0,     0)
+			end, "transformer", true),
+		{ "fn", none_tc },
+		make_op(function (ls, env, depth)
+				return xformer_fn(ls[1],     0,     0,     0)
+			end, "transformer", true),
+		{ posint_tc, none_tc },
+		make_op(function (ls, env, depth)
+				return xformer_fn(    0,     0,     0, ls[1])
+			end, "transformer", true),
+		{ any_tc, "fn", none_tc },
+		nary_op(make_op(function (ls, env, depth)
+				return xformer_fn(    0, ls[1], ls[2],     0)
+			end, "transformer", true), -2),
+		{ "fn", posint_tc, none_tc },
+		make_op(function (ls, env, depth)
+				return xformer_fn(ls[1],     0,     0, ls[2])
+			end, "transformer", true),
+		{ "fn", any_tc, "fn", none_tc },
+		nary_op(make_op(function (ls, env, depth)
+				return xformer_fn(ls[1], ls[2], ls[3],     0)
+			end, "transformer", true), -3),
+		{ any_tc, "fn", posint_tc, none_tc },
+		make_op(function (ls, env, depth)
+				return xformer_fn(    0, ls[1], ls[2], ls[3])
+			end, "transformer", true),
+		{ "fn", any_tc, "fn", posint_tc, none_tc },
+		make_op(function (ls, env, depth)
+				return xformer_fn(ls[1], ls[2], ls[3], ls[4])
+			end, "transformer", true)
+		)),
+	trim = wrap(nary_op(typed_op(
+		{ "string" }, make_op(function (ls)
+			return mw.text.trim(ls[1])
+		end, "trim", true),
+		{ str_ls_tc }, function (ls)
+			ls = ls[1]
+			local r = { type = "list" }
+			for k = 1, #ls do r[k] = mw.text.trim(ls[k]) end
+			return r
+		end), 1)),
+	uc = wrap(nary_op(typed_op(
+		{ "string" }, make_op(function (ls)
+			return lang:uc(ls[1])
+		end, "uc", true),
+		{ str_ls_tc }, function (ls)
+			ls = ls[1]
+			local r = { type = "list" }
+			for k = 1, #ls do r[k] = lang:uc(ls[k]) end
+			return r
+		end), 1)),
+	ucfirst = wrap(nary_op(typed_op(
+		{ "string" }, make_op(function (ls)
+			return lang:ucfirst(ls[1])
+		end, "ucfirst", true),
+		{ str_ls_tc }, function (ls)
+			ls = ls[1]
+			local r = { type = "list" }
+			for k = 1, #ls do r[k] = lang:ucfirst(ls[k]) end
+			return r
+		end), 1)),
+	urlencode = wrap(nary_op(typed_op(
+		{ "string" }, make_op(function (ls)
+			if #ls == 1 then ls[2] = 'QUERY' end
+			return mw.uri.encode( ls[1], ls[2] )
+		end, "urlencode", true)), 1, 2)),
+	["wikilisp-version"] = wrap(nary_op(make_op(function (ls)
+			return wikilispversion
+		end, "wikilisp-version", true), 0)),
+	write = wrap(nary_op(make_op(function (ls)
+			return write_sexpr(ls[1])
+		end, "write", true), 1))
+}
+
+local function make_standard_env()
+	local standard_env = {}
+	setmetatable(standard_env, { __index = ground_env})
+	return standard_env
+end
+
+--[[ read-eval-print]]
+
+function export.rep( frame )
+	local t = frame.args[1]
+	if t == nil then t = "" end
+	return display_sexpr(
+		eval_seq(
+			text_to_sexpr(t),
+			make_standard_env(),
+			maxdepth))
+end
+
+function export.trep( frame )
+	relevantFrame = frame:getParent()
+	return export.rep(frame)
+end
+
+return export</text>
+      <sha1>12jjajxcyn4sdpgtc7h7i02ar29wpjl</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Template:BOOKNAME</title>
+    <ns>10</ns>
+    <id>200630</id>
+    <revision>
+      <id>3688500</id>
+      <parentid>3365699</parentid>
+      <timestamp>2020-05-10T02:29:17Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <comment>safesubst:</comment>
+      <origin>3688500</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="295" sha1="tcwdet1ezrhbqgnnco7aq925j6xsq8u" xml:space="preserve">&lt;includeonly&gt;{{safesubst:&lt;noinclude/&gt;BOOKNAME/core|namespace={{safesubst:&lt;noinclude/&gt;ARTICLESPACE:{{{1|{{safesubst:&lt;noinclude/&gt;FULLPAGENAME}}}}}}}|pagename={{safesubst:&lt;noinclude/&gt;PAGENAME:{{{1|{{safesubst:&lt;noinclude/&gt;FULLPAGENAME}}}}}}}}}&lt;/includeonly&gt;&lt;noinclude&gt;
+{{Documentation}}
+&lt;/noinclude&gt;</text>
+      <sha1>tcwdet1ezrhbqgnnco7aq925j6xsq8u</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Template:BOOKNAME/core</title>
+    <ns>10</ns>
+    <id>377904</id>
+    <revision>
+      <id>3688502</id>
+      <parentid>3365708</parentid>
+      <timestamp>2020-05-10T02:33:17Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <comment>safesubst:</comment>
+      <origin>3688502</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="324" sha1="0zkyysw3ogeh3p2h7pzhj90wvopoh7a" xml:space="preserve">{{safesubst:&lt;noinclude/&gt;#switch:{{{namespace}}}
+|Template={{safesubst:&lt;noinclude/&gt;#invoke:TScope|override|BOOKNAME/refactor}}
+|Category={{safesubst:&lt;noinclude/&gt;#invoke:TScope|override|BOOKNAME/category}}
+|#default={{safesubst:&lt;noinclude/&gt;#invoke:TScope|override|BOOKNAME/inbook}}
+}}&lt;noinclude&gt;
+{{documentation}}
+&lt;/noinclude&gt;</text>
+      <sha1>0zkyysw3ogeh3p2h7pzhj90wvopoh7a</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Template:BOOKNAME/inbook</title>
+    <ns>10</ns>
+    <id>379921</id>
+    <revision>
+      <id>3688504</id>
+      <parentid>3415335</parentid>
+      <timestamp>2020-05-10T02:37:53Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <comment>safesubst:</comment>
+      <origin>3688504</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="677" sha1="sy8r4g4tcxgq6fd7zkdq8m4tci82ju9" xml:space="preserve">{{safesubst:&lt;noinclude/&gt;#switch:{{{namespace}}}
+|={{safesubst:&lt;noinclude/&gt;#if:{{safesubst:&lt;noinclude/&gt;evalx|
+          (let (x (get-arg 2))
+            (if (equal? (get-substring x 1 11) "Department:")
+                "x"
+                (if (equal? (get-substring x 1 6) "Shelf:")
+                    "x"
+                    "")))
+          |{{safesubst:&lt;noinclude/&gt;ucfirst:{{{pagename}}}}}}}
+    |Wikibooks Stacks
+    |{{safesubst:&lt;noinclude/&gt;#titleparts:{{{pagename}}}|1}}}}
+|User    ={{safesubst:&lt;noinclude/&gt;#invoke:TScope|override|BOOKNAME/user}}
+|#default={{{namespace}}}:{{safesubst:&lt;noinclude/&gt;#titleparts:{{{pagename}}}|1}}
+}}&lt;noinclude&gt;
+{{documentation}}
+&lt;/noinclude&gt;</text>
+      <sha1>sy8r4g4tcxgq6fd7zkdq8m4tci82ju9</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Template:Shelf:Page</title>
+    <ns>10</ns>
+    <id>397355</id>
+    <revision>
+      <id>3417487</id>
+      <parentid>3417476</parentid>
+      <timestamp>2018-05-01T00:32:20Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <comment>default</comment>
+      <origin>3417487</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="397" sha1="3g81gh4kq78wt78hhtejd2lpbq5l7ie" xml:space="preserve">&lt;includeonly&gt;{{#switch: {{#if:{{{1|}}}|{{{1}}}|{{evalx|(if (equal? (get-substring (get-arg 2) 1 6) "Shelf:") "" "parents")|{{PAGENAME}}}}}}
+| ping = Shelf:Page
+| = {{#invoke:TScope|override|Shelf:Page/display|shelf={{evalx|(get-substring (get-arg 2) 7)|{{PAGENAME}}}}}}
+| #default = ("{{{parent}}}" {{#if:{{{parent2|}}}|"{{{parent2}}}"}})
+}}&lt;/includeonly&gt;&lt;noinclude&gt;
+{{documentation}}
+&lt;/noinclude&gt;</text>
+      <sha1>3g81gh4kq78wt78hhtejd2lpbq5l7ie</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Template:Department:Page?</title>
+    <ns>10</ns>
+    <id>397500</id>
+    <revision>
+      <id>3420399</id>
+      <parentid>3417886</parentid>
+      <timestamp>2018-05-07T14:32:06Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <comment>x</comment>
+      <origin>3420399</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="99" sha1="7oqlq0r7eryzqrlwihaj5bcxt0ghj00" xml:space="preserve">{{#ifeq:{{:Department:{{{1}}}|ping}}|Department:Page|x|}}&lt;noinclude&gt;
+{{Documentation}}
+&lt;/noinclude&gt;</text>
+      <sha1>7oqlq0r7eryzqrlwihaj5bcxt0ghj00</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Template:Shelf:Page?</title>
+    <ns>10</ns>
+    <id>397497</id>
+    <revision>
+      <id>3420395</id>
+      <parentid>3420393</parentid>
+      <timestamp>2018-05-07T14:29:18Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <comment>x</comment>
+      <origin>3420395</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="89" sha1="eln4wg1dtt0bpkok6yq0ne7sdbma1at" xml:space="preserve">{{#ifeq:{{:Shelf:{{{1}}}|ping}}|Shelf:Page|x|}}&lt;noinclude&gt;
+{{Documentation}}
+&lt;/noinclude&gt;</text>
+      <sha1>eln4wg1dtt0bpkok6yq0ne7sdbma1at</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Template:Shelf:Ancestry</title>
+    <ns>10</ns>
+    <id>397878</id>
+    <revision>
+      <id>3423639</id>
+      <parentid>3423551</parentid>
+      <timestamp>2018-05-12T14:19:47Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <comment>x</comment>
+      <origin>3423639</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="474" sha1="cf4wikz4j1ksk0wc929f1ywabzdypdq" xml:space="preserve">&lt;includeonly&gt;{{#switch: 1
+| {{#ifeq:{{{1|}}}|ping|1|0}} = Shelf:Ancestry
+| {{#if:{{{1|}}}|1|0}}
+| {{#if:{{NAMESPACE}}|1|0}}
+| {{evalx|(if (equal? (get-substring (get-arg 2) 1 6) "Shelf:") "0" "1")|{{PAGENAME}}}}
+| {{#ifeq:{{#titleparts:{{PAGENAME}}||2}}|ancestry|0|1}} = {{{ancestors}}}
+| #default = {{Shelf:Ancestry/display|shelf={{evalx|(get-substring (get-arg 2) 7)|{{ROOTPAGENAME}}}}|ancestors={{{ancestors}}}}}
+}}&lt;/includeonly&gt;&lt;noinclude&gt;
+{{documentation}}
+&lt;/noinclude&gt;</text>
+      <sha1>cf4wikz4j1ksk0wc929f1ywabzdypdq</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Template:Shelf:Nonempty list?</title>
+    <ns>10</ns>
+    <id>397899</id>
+    <revision>
+      <id>3423649</id>
+      <parentid>3423648</parentid>
+      <timestamp>2018-05-12T15:27:27Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <minor/>
+      <comment>Protected "[[Template:Shelf:Nonempty list?]]": High-impact page ([Edit=Allow only administrators] (indefinite) [Move=Allow only administrators] (indefinite))</comment>
+      <origin>3423649</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="175" sha1="rvqicck9nh1rmh69muuqthgjoa1bx5r" xml:space="preserve">&lt;includeonly&gt;{{evalx|
+  (if ((and? list? (\x (not? (equal? x ()))))
+       (get-arg-expr 2))
+    "x"
+    "")
+|{{{1}}}}}&lt;/includeonly&gt;&lt;noinclude&gt;
+{{Documentation}}
+&lt;/noinclude&gt;</text>
+      <sha1>rvqicck9nh1rmh69muuqthgjoa1bx5r</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Template:Shelf:Map</title>
+    <ns>10</ns>
+    <id>397657</id>
+    <revision>
+      <id>3423885</id>
+      <parentid>3423884</parentid>
+      <timestamp>2018-05-13T12:07:54Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <comment>pfft</comment>
+      <origin>3423885</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="11771" sha1="80z3vvh3lozd493kzv8bcklfajmy9g3" xml:space="preserve">&lt;includeonly&gt;{{#switch:{{evalx| 
+  (let (parents (get-arg-expr 2))
+     (if (not? (list? parents))
+         0
+         (length parents))) |{{{2}}}}}
+|1={{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 1) |{{{2}}}}}}}
+|2={{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 1) |{{{2}}}}}}}&lt;!--
+--&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 2) |{{{2}}}}}}}
+|3={{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 1) |{{{2}}}}}}}&lt;!--
+--&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 2) |{{{2}}}}}}}&lt;!--
+--&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 3) |{{{2}}}}}}}
+|4={{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 1) |{{{2}}}}}}}&lt;!--
+--&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 2) |{{{2}}}}}}}&lt;!--
+--&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 3) |{{{2}}}}}}}&lt;!--
+--&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 4) |{{{2}}}}}}}
+|5={{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 1) |{{{2}}}}}}}&lt;!--
+--&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 2) |{{{2}}}}}}}&lt;!--
+--&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 3) |{{{2}}}}}}}&lt;!--
+--&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 4) |{{{2}}}}}}}&lt;!--
+--&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 5) |{{{2}}}}}}}
+|6={{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 1) |{{{2}}}}}}}&lt;!--
+--&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 2) |{{{2}}}}}}}&lt;!--
+--&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 3) |{{{2}}}}}}}&lt;!--
+--&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 4) |{{{2}}}}}}}&lt;!--
+--&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 5) |{{{2}}}}}}}&lt;!--
+--&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 6) |{{{2}}}}}}}
+|7={{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 1) |{{{2}}}}}}}&lt;!--
+--&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 2) |{{{2}}}}}}}&lt;!--
+--&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 3) |{{{2}}}}}}}&lt;!--
+--&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 4) |{{{2}}}}}}}&lt;!--
+--&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 5) |{{{2}}}}}}}&lt;!--
+--&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 6) |{{{2}}}}}}}&lt;!--
+--&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 7) |{{{2}}}}}}}
+|8={{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 1) |{{{2}}}}}}}&lt;!--
+--&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 2) |{{{2}}}}}}}&lt;!--
+--&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 3) |{{{2}}}}}}}&lt;!--
+--&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 4) |{{{2}}}}}}}&lt;!--
+--&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 5) |{{{2}}}}}}}&lt;!--
+--&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 6) |{{{2}}}}}}}&lt;!--
+--&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 7) |{{{2}}}}}}}&lt;!--
+--&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 8) |{{{2}}}}}}}
+|9={{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 1) |{{{2}}}}}}}&lt;!--
+--&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 2) |{{{2}}}}}}}&lt;!--
+--&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 3) |{{{2}}}}}}}&lt;!--
+--&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 4) |{{{2}}}}}}}&lt;!--
+--&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 5) |{{{2}}}}}}}&lt;!--
+--&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 6) |{{{2}}}}}}}&lt;!--
+--&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 7) |{{{2}}}}}}}&lt;!--
+--&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 8) |{{{2}}}}}}}&lt;!--
+--&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 9) |{{{2}}}}}}}
+|10={{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 1) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 2) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 3) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 4) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 5) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 6) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 7) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 8) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 9) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 10)|{{{2}}}}}}}
+|11={{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 1) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 2) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 3) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 4) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 5) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 6) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 7) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 8) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 9) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 10)|{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 11)|{{{2}}}}}}}
+|12={{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 1) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 2) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 3) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 4) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 5) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 6) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 7) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 8) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 9) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 10)|{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 11)|{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 12)|{{{2}}}}}}}
+|13={{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 1) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 2) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 3) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 4) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 5) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 6) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 7) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 8) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 9) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 10)|{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 11)|{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 12)|{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 13)|{{{2}}}}}}}
+|14={{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 1) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 2) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 3) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 4) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 5) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 6) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 7) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 8) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 9) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 10)|{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 11)|{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 12)|{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 13)|{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 14)|{{{2}}}}}}}
+|15={{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 1) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 2) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 3) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 4) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 5) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 6) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 7) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 8) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 9) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 10)|{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 11)|{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 12)|{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 13)|{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 14)|{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 15)|{{{2}}}}}}}
+|16={{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 1) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 2) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 3) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 4) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 5) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 6) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 7) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 8) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 9) |{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 10)|{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 11)|{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 12)|{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 13)|{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 14)|{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 15)|{{{2}}}}}}}&lt;!--
+ --&gt;{{#invoke:TScope|drop|{{{1}}}|{{evalx| (nth (get-arg-expr 2) 16)|{{{2}}}}}}}
+|#default={{#if:{{{diagnose}}}|{{Shelf:Check page|shelf={{{shelf}}}}}}}
+}}&lt;/includeonly&gt;&lt;noinclude&gt;
+{{Documentation}}
+{{hidden use|Template:Shelf:Check page}}
+&lt;/noinclude&gt;</text>
+      <sha1>80z3vvh3lozd493kzv8bcklfajmy9g3</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Template:BOOKPAGENAME</title>
+    <ns>10</ns>
+    <id>379865</id>
+    <revision>
+      <id>3166151</id>
+      <parentid>3166150</parentid>
+      <timestamp>2016-12-12T03:18:49Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <minor/>
+      <comment>Protected "[[Template:BOOKPAGENAME]]": High-impact page ([Edit=Allow only administrators] (indefinite) [Move=Allow only administrators] (indefinite))</comment>
+      <origin>3166151</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="189" sha1="stdbkao4mee1xu8fxunq5dxhz59x63a" xml:space="preserve">&lt;includeonly&gt;{{BOOKPAGENAME/core|namespace={{ARTICLESPACE:{{{1|{{FULLPAGENAME}}}}}}}|pagename={{PAGENAME:{{{1|{{FULLPAGENAME}}}}}}}}}&lt;/includeonly&gt;&lt;noinclude&gt;
+{{Documentation}}
+&lt;/noinclude&gt;</text>
+      <sha1>stdbkao4mee1xu8fxunq5dxhz59x63a</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Template:BOOKPAGENAME/core</title>
+    <ns>10</ns>
+    <id>379867</id>
+    <revision>
+      <id>3415718</id>
+      <parentid>3167400</parentid>
+      <timestamp>2018-04-24T02:51:26Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <comment>turn inside-out ; department, shelf</comment>
+      <origin>3415718</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="417" sha1="qodhtnyqpvpqi56enjg0lvyxy0vne6i" xml:space="preserve">{{#invoke:TScope|override|BOOKPAGENAME/{{#switch:{{{namespace}}}
+|Template=refactor
+|Category=category
+|={{evalx|
+    (let (x (get-arg 2))
+      (if (equal? (get-substring x 1 11) "Department:")
+          "department"
+          (if (equal? (get-substring x 1 6) "Shelf:")
+              "shelf"
+              "inbook")))
+    |{{ucfirst:{{{pagename}}}}}}}
+|#default=inbook
+}}}}&lt;noinclude&gt;
+{{documentation}}
+&lt;/noinclude&gt;</text>
+      <sha1>qodhtnyqpvpqi56enjg0lvyxy0vne6i</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Template:Subject page</title>
+    <ns>10</ns>
+    <id>260231</id>
+    <revision>
+      <id>3204903</id>
+      <parentid>3204852</parentid>
+      <timestamp>2017-04-16T13:24:07Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <comment>mode, with override</comment>
+      <origin>3204903</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="362" sha1="mjd1iwaiytxb92d5m0kzn16gup9zlt0" xml:space="preserve">{{#switch:{{NAMESPACE}}
+|Subject
+|Template={{#invoke:TScope|override|Subject page/core|subject={{PAGENAME}}}}
+|#default={{#switch:{{{1}}}
+|mode={{{2|header}}}
+|description={{{description}}}
+|header={{#invoke:TScope|override|Subject page/core|subject={{PAGENAME:{{PAGENAME}}}}}}
+|#default=/{{{parent}}}/{{{parent2|}}}
+}}}}&lt;noinclude&gt;
+{{documentation}}&lt;/noinclude&gt;</text>
+      <sha1>mjd1iwaiytxb92d5m0kzn16gup9zlt0</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Template:Parsable</title>
+    <ns>10</ns>
+    <id>260285</id>
+    <revision>
+      <id>2214279</id>
+      <parentid>2213495</parentid>
+      <timestamp>2011-11-19T18:54:56Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <minor/>
+      <comment>Protected "[[Template:Parsable]]": High-impact page ([edit=autoconfirmed] (indefinite) [move=autoconfirmed] (indefinite))</comment>
+      <origin>2214279</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="91" sha1="efml1sfdi3zeozl2qj4f82jkav6ufto" xml:space="preserve">{{#ifeq:{{{1}}}|{{#titleparts:{{{1}}}|1|2}}||yes}}&lt;noinclude&gt;
+{{Documentation}}&lt;/noinclude&gt;</text>
+      <sha1>efml1sfdi3zeozl2qj4f82jkav6ufto</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Template:Subjects/name next</title>
+    <ns>10</ns>
+    <id>260755</id>
+    <revision>
+      <id>2217461</id>
+      <parentid>2217399</parentid>
+      <timestamp>2011-11-24T20:51:52Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <comment>rm "subjects/" prefix, so non-error case returns an integer</comment>
+      <origin>2217461</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="131" sha1="iuf75kbt1bbz7fr2pgof6n5t4a3lnl8" xml:space="preserve">{{#ifeq:{{Subjects/{{#expr:{{{1}}} + 1}}|ping=1}}|ping|{{#expr:{{{1}}} + 1}}|upper bound}}&lt;noinclude&gt;
+{{Documentation}}&lt;/noinclude&gt;</text>
+      <sha1>iuf75kbt1bbz7fr2pgof6n5t4a3lnl8</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Template:Subjects/1</title>
+    <ns>10</ns>
+    <id>260977</id>
+    <revision>
+      <id>2220286</id>
+      <parentid>2220285</parentid>
+      <timestamp>2011-11-26T02:27:48Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <minor/>
+      <comment>Protected "[[Template:Subjects/1]]": High-impact page ([edit=sysop] (indefinite) [move=sysop] (indefinite))</comment>
+      <origin>2220286</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="892" sha1="2sbkwhbat5lnyb2nrj79t625f6u06d7" xml:space="preserve">&lt;includeonly&gt;{{#if:{{{ping|}}}|ping|
+{{Subjects/allbooks|subject={{{subject}}}|origin={{{origin}}}|diagnose={{{diagnose|}}}}}
+{{#if:{{parsable|{{Subject:{{{subject}}}}}}}
+|
+{{#if:{{#titleparts:{{Subject:{{{subject}}}}}|1|2}}
+  |{{subjects/{{subjects/name next|{{{n}}}}}
+     |subject={{#titleparts:{{Subject:{{{subject}}}}}|1|2}}
+     |origin={{{subject}}}
+     |n={{#expr:{{{n}}} + 1}}
+     |diagnose={{{diagnose|}}}}}}}
+{{#if:{{#titleparts:{{Subject:{{{subject}}}}}|1|3}}
+  |{{subjects/{{subjects/name next|{{{n}}}}}
+     |subject={{#titleparts:{{Subject:{{{subject}}}}}|1|3}}
+     |origin={{{subject}}}
+     |n={{#expr:{{{n}}} + 1}}
+     |diagnose={{{diagnose|}}}}}}}
+|
+[[Category:Attention needed (allbooks)]]
+{{#if:{{{diagnose|}}}|{{Subjects/diagnose subject|subject={{{subject}}}|origin={{{origin}}}}}}}}}}}&lt;/includeonly&gt;&lt;noinclude&gt;
+{{Documentation|Template:Subjects/0/doc}}&lt;/noinclude&gt;</text>
+      <sha1>2sbkwhbat5lnyb2nrj79t625f6u06d7</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Template:Allbooks category</title>
+    <ns>10</ns>
+    <id>260378</id>
+    <revision>
+      <id>3138909</id>
+      <parentid>3138761</parentid>
+      <timestamp>2016-10-28T04:25:34Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <comment>Undid revision 3138761 by [[Special:Contributions/Pi zero|Pi zero]] ([[User talk:Pi zero|discuss]])</comment>
+      <origin>3138909</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="239" sha1="f5sh5de10dsvp7tk553363a6ohufaao" xml:space="preserve">&lt;includeonly&gt;{{#ifeq:{{NAMESPACE}}|Category|{{allbooks category/core|subject={{#titleparts:{{#ifeq:{{NAMESPACE:{{PAGENAME}}}}|Subject|{{PAGENAME:{{PAGENAME}}}}|{{PAGENAME}}}}|1}}}}|/}}&lt;/includeonly&gt;&lt;noinclude&gt;
+{{Documentation}}&lt;/noinclude&gt;</text>
+      <sha1>f5sh5de10dsvp7tk553363a6ohufaao</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Template:Subjects/2</title>
+    <ns>10</ns>
+    <id>260979</id>
+    <revision>
+      <id>2220290</id>
+      <parentid>2220289</parentid>
+      <timestamp>2011-11-26T02:32:04Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <minor/>
+      <comment>Protected "[[Template:Subjects/2]]": High-impact page ([edit=sysop] (indefinite) [move=sysop] (indefinite))</comment>
+      <origin>2220290</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="892" sha1="2sbkwhbat5lnyb2nrj79t625f6u06d7" xml:space="preserve">&lt;includeonly&gt;{{#if:{{{ping|}}}|ping|
+{{Subjects/allbooks|subject={{{subject}}}|origin={{{origin}}}|diagnose={{{diagnose|}}}}}
+{{#if:{{parsable|{{Subject:{{{subject}}}}}}}
+|
+{{#if:{{#titleparts:{{Subject:{{{subject}}}}}|1|2}}
+  |{{subjects/{{subjects/name next|{{{n}}}}}
+     |subject={{#titleparts:{{Subject:{{{subject}}}}}|1|2}}
+     |origin={{{subject}}}
+     |n={{#expr:{{{n}}} + 1}}
+     |diagnose={{{diagnose|}}}}}}}
+{{#if:{{#titleparts:{{Subject:{{{subject}}}}}|1|3}}
+  |{{subjects/{{subjects/name next|{{{n}}}}}
+     |subject={{#titleparts:{{Subject:{{{subject}}}}}|1|3}}
+     |origin={{{subject}}}
+     |n={{#expr:{{{n}}} + 1}}
+     |diagnose={{{diagnose|}}}}}}}
+|
+[[Category:Attention needed (allbooks)]]
+{{#if:{{{diagnose|}}}|{{Subjects/diagnose subject|subject={{{subject}}}|origin={{{origin}}}}}}}}}}}&lt;/includeonly&gt;&lt;noinclude&gt;
+{{Documentation|Template:Subjects/0/doc}}&lt;/noinclude&gt;</text>
+      <sha1>2sbkwhbat5lnyb2nrj79t625f6u06d7</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Template:Subjects/3</title>
+    <ns>10</ns>
+    <id>260992</id>
+    <revision>
+      <id>2220350</id>
+      <parentid>2220349</parentid>
+      <timestamp>2011-11-26T04:34:02Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <minor/>
+      <comment>Protected "[[Template:Subjects/3]]": High-impact page ([edit=sysop] (indefinite) [move=sysop] (indefinite))</comment>
+      <origin>2220350</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="892" sha1="2sbkwhbat5lnyb2nrj79t625f6u06d7" xml:space="preserve">&lt;includeonly&gt;{{#if:{{{ping|}}}|ping|
+{{Subjects/allbooks|subject={{{subject}}}|origin={{{origin}}}|diagnose={{{diagnose|}}}}}
+{{#if:{{parsable|{{Subject:{{{subject}}}}}}}
+|
+{{#if:{{#titleparts:{{Subject:{{{subject}}}}}|1|2}}
+  |{{subjects/{{subjects/name next|{{{n}}}}}
+     |subject={{#titleparts:{{Subject:{{{subject}}}}}|1|2}}
+     |origin={{{subject}}}
+     |n={{#expr:{{{n}}} + 1}}
+     |diagnose={{{diagnose|}}}}}}}
+{{#if:{{#titleparts:{{Subject:{{{subject}}}}}|1|3}}
+  |{{subjects/{{subjects/name next|{{{n}}}}}
+     |subject={{#titleparts:{{Subject:{{{subject}}}}}|1|3}}
+     |origin={{{subject}}}
+     |n={{#expr:{{{n}}} + 1}}
+     |diagnose={{{diagnose|}}}}}}}
+|
+[[Category:Attention needed (allbooks)]]
+{{#if:{{{diagnose|}}}|{{Subjects/diagnose subject|subject={{{subject}}}|origin={{{origin}}}}}}}}}}}&lt;/includeonly&gt;&lt;noinclude&gt;
+{{Documentation|Template:Subjects/0/doc}}&lt;/noinclude&gt;</text>
+      <sha1>2sbkwhbat5lnyb2nrj79t625f6u06d7</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Category:Subject:Books by subject/all books</title>
+    <ns>14</ns>
+    <id>377027</id>
+    <revision>
+      <id>3861795</id>
+      <parentid>3861791</parentid>
+      <timestamp>2021-07-01T00:31:59Z</timestamp>
+      <contributor>
+        <username>Mtarch11</username>
+        <id>3300312</id>
+      </contributor>
+      <minor/>
+      <comment>[[WB:REVERT|Reverted]] edits by [[Special:Contributions/109.118.119.195|109.118.119.195]] ([[User talk:109.118.119.195|talk]]) to last version by Pi zero</comment>
+      <origin>3138806</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="21" sha1="hatfujjshuei60smc4rhf4ogttkovg4" xml:space="preserve">{{Allbooks category}}</text>
+      <sha1>hatfujjshuei60smc4rhf4ogttkovg4</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Subject:Books by subject</title>
+    <ns>112</ns>
+    <id>205589</id>
+    <revision>
+      <id>3170801</id>
+      <parentid>3140031</parentid>
+      <timestamp>2016-12-21T16:18:52Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <comment>list the other two children of Books by subject (perhaps this table should be formatted in rows as well as columns, but that's a separate issue)</comment>
+      <origin>3170801</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="3249" sha1="tk502s586dfbpck9n8gx6aanv7ji5da" xml:space="preserve">&lt;noinclude&gt;{| border="0" cellspacing="0" cellpadding="0" style="padding:0px; margin:0px; width:100%" |
+ |-
+ | colspan="3" |
+{{Robox|theme=15|title=Books by subject|icon=Wikibooks-logo.svg|iconwidth=70px}}
+These are the top-level subjects for classifying books by type.  Second-level subjects are shown below under each major subject.  Some of them also have subdivisions below that.  Feel free to explore!
+{{Robox/Close}}
+ |-
+&lt;!-- ------------------------------------------ --&gt; | style="width:33%; vertical-align:top;" |
+{{Robox|theme=3|title=[[Subject:Computing|Computing]]|icon=Gnome-computer.svg}}
+&lt;div style="height:17em; overflow:auto;"&gt;{{CategoryList|Subject:Computing|namespace=Subject}}&lt;/div&gt;
+{{Robox/Close}}
+{{Robox|theme=3|title=[[Subject:Mathematics|Mathematics]]|icon=Arithmetic symbols.svg}}
+&lt;div style="height:22em; overflow:auto;"&gt;{{CategoryList|Subject:Mathematics|namespace=Subject}}&lt;/div&gt;
+{{Robox/Close}}
+{{Robox|theme=3|title=[[Subject:Engineering|Engineering]]|icon=Icon tools and star.svg}}
+&lt;div style="height:19em; overflow:auto;"&gt;{{CategoryList|Subject:Engineering|namespace=Subject}}&lt;/div&gt;
+{{Robox/Close}}
+{{Robox|theme=3|title=[[Subject:Wikijunior|Wikijunior]]|icon=Wikibooks-logo.svg}}
+&lt;div style="height:12em; overflow:auto;"&gt;{{CategoryList|Subject:Wikijunior|namespace=Subject}}&lt;/div&gt;
+{{Robox/Close}}
+&lt;!-- ------------------------------------------ --&gt; | style="width:33%; vertical-align:top;" |
+{{Robox|theme=3|title=[[Subject:Humanities|Humanities]]|icon=System-users.svg}}
+&lt;div style="height:17em; overflow:auto;"&gt;{{CategoryList|Subject:Humanities|namespace=Subject}}&lt;/div&gt;
+{{Robox/Close}}
+{{Robox|theme=3|title=[[Subject:Social sciences|Social sciences]]|icon=Social sciences.svg}}
+&lt;div style="height:22em; overflow:auto;"&gt;{{CategoryList|Subject:Social sciences|namespace=Subject}}&lt;/div&gt;
+{{Robox/Close}}
+{{Robox|theme=3|title=[[Subject:Standard curricula|Standard curricula]]|icon=Nuvola apps edu miscellaneous (no words).svg}}
+&lt;div style="height:19em; overflow:auto;"&gt;{{CategoryList|Subject:Standard curricula|namespace=Subject}}&lt;/div&gt;
+{{Robox/Close}}
+{{Robox|theme=3|title=[[Subject:Help|Help]]|icon=Wikibooks-logo.svg}}
+&lt;div style="height:12em; overflow:auto;"&gt;{{CategoryList|Subject:Help|namespace=Subject}}&lt;/div&gt;
+{{Robox/Close}}
+&lt;!-- ------------------------------------------ --&gt; | style="width:33%; vertical-align:top;" |
+{{Robox|theme=3|title=[[Subject:Science|Science]]|icon=Nuvola apps kalzium.svg}}
+&lt;div style="height:17em; overflow:auto;"&gt;{{CategoryList|Subject:Science|namespace=Subject}}&lt;/div&gt;
+{{Robox/Close}}
+{{Robox|theme=3|title=[[Subject:Languages|Languages]]|icon=Nuvola apps edu languages.svg}}
+&lt;div style="height:22em; overflow:auto;"&gt;{{CategoryList|Subject:Languages|namespace=Subject}}&lt;/div&gt;
+{{Robox/Close}}
+{{Robox|theme=3|title=[[Subject:Miscellaneous|Miscellaneous]]|icon=P star.svg}}
+&lt;div style="height:19em; overflow:auto;"&gt;{{CategoryList|Subject:Miscellaneous|namespace=Subject}}&lt;/div&gt;
+{{Robox/Close}}
+|}
+&lt;!-- CATEGORIES AND INTERWIKIS HERE --&gt;
+
+[[Category:Subject]]
+
+[[ja:Wikibooks:蔵書一覧]]
+[[ko:위키책:주제별 위키책]]
+[[vi:Chủ đề:Sách theo chủ đề]]
+[[ta:பாடம்:அனைத்து பாடங்கள்]]
+&lt;/noinclude&gt;&lt;includeonly&gt;//&lt;/includeonly&gt;</text>
+      <sha1>tk502s586dfbpck9n8gx6aanv7ji5da</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Template:Shelves</title>
+    <ns>10</ns>
+    <id>397858</id>
+    <revision>
+      <id>3435770</id>
+      <parentid>3434597</parentid>
+      <timestamp>2018-06-13T01:06:49Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <comment>x</comment>
+      <origin>3435770</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="460" sha1="9npbxub4zefi7tzrkoiqe8p0u5ho0tc" xml:space="preserve">&lt;includeonly&gt;{{#invoke:TScope|override|Subjects}}&lt;!--
+
+--&gt;{{#ifeq:{{BOOKNAME}}|{{FULLPAGENAME}}|{{#switch:{{NAMESPACE}}|Wikijunior|=
+[[{{BOOKCATEGORY}}| ]]
+[[{{BOOKCATEGORY|Shelf:}}/Books{{#if:{{{1|}}}||/Unshelved}}|{{FULLPAGENAME}}]]
+}}
+|&lt;!--{{color|red|'''&amp;lt;call {{tl|Shelves}} only from a book main page&amp;gt;'''}}
+--&gt;}}&lt;!--
+
+--&gt;{{#ifeq:{{BOOKPAGENAME}}||{{#invoke:TScope|map|Shelves/leaf}}}}&lt;!--
+
+--&gt;&lt;/includeonly&gt;&lt;noinclude&gt;
+{{documentation}}
+&lt;/noinclude&gt;</text>
+      <sha1>9npbxub4zefi7tzrkoiqe8p0u5ho0tc</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Template:Subjects</title>
+    <ns>10</ns>
+    <id>132460</id>
+    <revision>
+      <id>3365867</id>
+      <parentid>3364981</parentid>
+      <timestamp>2018-01-24T03:10:03Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <comment>BOOKNAME (new-style)</comment>
+      <origin>3365867</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="2276" sha1="lo8bi8w1rneibppi628apgfav5gbm2l" xml:space="preserve">&lt;includeonly&gt;{{#ifeq:{{BOOKPAGENAME}}||&lt;!-- this isn't a subpage --&gt;
+{{#switch:{{NAMESPACE}}|Wikijunior|=[[{{BOOKCATEGORY|book={{{bookcategory|{{NAIVEBOOKNAME}}}}}}}| ]]}}
+{{#if:{{{1|}}}|{{Subjects/leaf|{{{1}}}|bookcategory={{{bookcategory|{{NAIVEBOOKNAME}}}}}|diagnose={{{diagnose|}}}}}|[[Category:Uncategorized books|{{BOOKSORTKEY}}]]}}
+{{#if:{{{2|}}}|{{Subjects/leaf|{{{2}}}|bookcategory={{{bookcategory|{{NAIVEBOOKNAME}}}}}|diagnose={{{diagnose|}}}}}}}
+{{#if:{{{3|}}}|{{Subjects/leaf|{{{3}}}|bookcategory={{{bookcategory|{{NAIVEBOOKNAME}}}}}|diagnose={{{diagnose|}}}}}}}
+{{#if:{{{4|}}}|{{Subjects/leaf|{{{4}}}|bookcategory={{{bookcategory|{{NAIVEBOOKNAME}}}}}|diagnose={{{diagnose|}}}}}}}
+{{#if:{{{5|}}}|{{Subjects/leaf|{{{5}}}|bookcategory={{{bookcategory|{{NAIVEBOOKNAME}}}}}|diagnose={{{diagnose|}}}}}}}
+{{#if:{{{6|}}}|{{Subjects/leaf|{{{6}}}|bookcategory={{{bookcategory|{{NAIVEBOOKNAME}}}}}|diagnose={{{diagnose|}}}}}}}
+{{#if:{{{7|}}}|{{Subjects/leaf|{{{7}}}|bookcategory={{{bookcategory|{{NAIVEBOOKNAME}}}}}|diagnose={{{diagnose|}}}}}}}
+{{#if:{{{8|}}}|{{Subjects/leaf|{{{8}}}|bookcategory={{{bookcategory|{{NAIVEBOOKNAME}}}}}|diagnose={{{diagnose|}}}}}}}
+{{#if:{{{9|}}}|{{Subjects/leaf|{{{9}}}|bookcategory={{{bookcategory|{{NAIVEBOOKNAME}}}}}|diagnose={{{diagnose|}}}}}}}
+{{#if:{{{10|}}}|{{Subjects/leaf|{{{10}}}|bookcategory={{{bookcategory|{{NAIVEBOOKNAME}}}}}|diagnose={{{diagnose|}}}}}}}|&lt;!-- this is a subpage --&gt;
+{{#switch:{{NAMESPACE}}|Wikijunior|=[[{{BOOKCATEGORY|{{{bookcategory|{{BOOKNAME}}}}}}}|{{BOOKSORTKEY}}]]|#default=
+{{#if:{{{1|}}}|[[Category:{{{1}}}|{{BOOKSORTKEY}}]]|[[Category:Uncategorized books|{{BOOKSORTKEY}}]]}}
+{{#if:{{{2|}}}|[[Category:{{{2}}}|{{BOOKSORTKEY}}]]}}
+{{#if:{{{3|}}}|[[Category:{{{3}}}|{{BOOKSORTKEY}}]]}}
+{{#if:{{{4|}}}|[[Category:{{{4}}}|{{BOOKSORTKEY}}]]}}
+{{#if:{{{5|}}}|[[Category:{{{5}}}|{{BOOKSORTKEY}}]]}}
+{{#if:{{{6|}}}|[[Category:{{{6}}}|{{BOOKSORTKEY}}]]}}
+{{#if:{{{7|}}}|[[Category:{{{7}}}|{{BOOKSORTKEY}}]]}}
+{{#if:{{{8|}}}|[[Category:{{{8}}}|{{BOOKSORTKEY}}]]}}
+{{#if:{{{9|}}}|[[Category:{{{9}}}|{{BOOKSORTKEY}}]]}}
+{{#if:{{{10|}}}|[[Category:{{{10}}}|{{BOOKSORTKEY}}]]}}}}}}
+{{#if:{{{bookcategory|}}}|[[Category:Books that specify subjects bookcategory]]}}
+&lt;/includeonly&gt;&lt;noinclude&gt;{{documentation}}&lt;/noinclude&gt;</text>
+      <sha1>lo8bi8w1rneibppi628apgfav5gbm2l</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Template:BOOKPAGENAME/inbook</title>
+    <ns>10</ns>
+    <id>379928</id>
+    <revision>
+      <id>3167387</id>
+      <parentid>3167386</parentid>
+      <timestamp>2016-12-13T20:02:48Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <minor/>
+      <comment>Protected "[[Template:BOOKPAGENAME/inbook]]": High-impact page: Matching protection on parent ([Edit=Allow only administrators] (indefinite) [Move=Allow only administrators] (indefinite))</comment>
+      <origin>3167387</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="170" sha1="aacktly8sjw57na8q6sbtvibf8bzzkk" xml:space="preserve">{{#switch:{{{namespace}}}
+|User    ={{#invoke:TScope|override|BOOKPAGENAME/user}}
+|#default={{#titleparts:{{{pagename}}}||2}}
+}}&lt;noinclude&gt;
+{{documentation}}
+&lt;/noinclude&gt;</text>
+      <sha1>aacktly8sjw57na8q6sbtvibf8bzzkk</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Template:Subjects/leaf</title>
+    <ns>10</ns>
+    <id>260499</id>
+    <revision>
+      <id>3364230</id>
+      <parentid>3313524</parentid>
+      <timestamp>2018-01-19T23:09:54Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <comment>ROOTPAGENAME</comment>
+      <origin>3364230</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="352" sha1="apj9rvj7ln7nrwwq6cb97z04vocgqac" xml:space="preserve">&lt;includeonly&gt;[[Category:Subject:{{ucfirst:{{{1}}}}}|{{ROOTPAGENAME}}]]
+{{#switch:{{NAMESPACE}}|Wikijunior|=
+{{#ifeq:{{ucfirst:{{{1}}}}}|{{ucfirst:{{{bookcategory}}}}}|[[Category:Books with book name as subject]]|
+}}{{Subjects/0|subject={{ucfirst:{{{1}}}}}|origin=|n=0|diagnose={{{diagnose|}}}}}
+}}
+&lt;/includeonly&gt;&lt;noinclude&gt;{{Documentation}}&lt;/noinclude&gt;</text>
+      <sha1>apj9rvj7ln7nrwwq6cb97z04vocgqac</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Template:Subjects/0</title>
+    <ns>10</ns>
+    <id>260790</id>
+    <revision>
+      <id>2217934</id>
+      <parentid>2217911</parentid>
+      <timestamp>2011-11-25T20:42:49Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <comment>only getting to get more complicated, and needed in multiple places</comment>
+      <origin>2217934</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="892" sha1="2sbkwhbat5lnyb2nrj79t625f6u06d7" xml:space="preserve">&lt;includeonly&gt;{{#if:{{{ping|}}}|ping|
+{{Subjects/allbooks|subject={{{subject}}}|origin={{{origin}}}|diagnose={{{diagnose|}}}}}
+{{#if:{{parsable|{{Subject:{{{subject}}}}}}}
+|
+{{#if:{{#titleparts:{{Subject:{{{subject}}}}}|1|2}}
+  |{{subjects/{{subjects/name next|{{{n}}}}}
+     |subject={{#titleparts:{{Subject:{{{subject}}}}}|1|2}}
+     |origin={{{subject}}}
+     |n={{#expr:{{{n}}} + 1}}
+     |diagnose={{{diagnose|}}}}}}}
+{{#if:{{#titleparts:{{Subject:{{{subject}}}}}|1|3}}
+  |{{subjects/{{subjects/name next|{{{n}}}}}
+     |subject={{#titleparts:{{Subject:{{{subject}}}}}|1|3}}
+     |origin={{{subject}}}
+     |n={{#expr:{{{n}}} + 1}}
+     |diagnose={{{diagnose|}}}}}}}
+|
+[[Category:Attention needed (allbooks)]]
+{{#if:{{{diagnose|}}}|{{Subjects/diagnose subject|subject={{{subject}}}|origin={{{origin}}}}}}}}}}}&lt;/includeonly&gt;&lt;noinclude&gt;
+{{Documentation|Template:Subjects/0/doc}}&lt;/noinclude&gt;</text>
+      <sha1>2sbkwhbat5lnyb2nrj79t625f6u06d7</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Template:Subjects/allbooks</title>
+    <ns>10</ns>
+    <id>260951</id>
+    <revision>
+      <id>3140085</id>
+      <parentid>3139641</parentid>
+      <timestamp>2016-10-30T17:39:01Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <comment>-old cat ; fix apparent typo</comment>
+      <origin>3140085</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="1935" sha1="0me8a3jbwyycb2r4s04ccv190i95pmi" xml:space="preserve">&lt;includeonly&gt;&lt;!-&lt;noinclude&gt;&lt;/noinclude&gt;- {{((}}Subjects/allbooks{{!}}subject={{{subject}}}{{!}}{{{origin}}}{{!}}diagnose={{{diagnose}}}{{))}} -&lt;noinclude&gt;&lt;/noinclude&gt;-&gt;{{#if:{{parsable|{{Category:Subject:{{{subject}}}/all books}}}}|[[Category:Subject:{{{subject}}}/all books]]|
+[[Category:Attention needed (allbooks)]]
+{{#ifexist:Category:Subject:{{{subject}}}/all books|
+[[Category:Subject:{{{subject}}}/all books]]
+{{#if:{{{diagnose}}}|{{Allbooks category/error|Format problem on page {{nowrap|&lt;code&gt;Category:Subject:{{{subject}}}/all books&lt;/code&gt;}}.  Please check that everything there, except the call to {{nowrap|{{tl|Allbooks category}}}}, is &amp;lt;noinclude&amp;gt;d. {{Allbooks category/button|1=Category:Subject:{{{subject}}}/all_books|2=action=edit&amp;editintro=Template:Subjects/editintro_format&amp;summary=noinclude|3=edit category}}}}}}
+|
+{{#if:{{{diagnose}}}|{{Allbooks category/error|Can't find expected page {{nowrap|&lt;code&gt;Category:Subject:{{{subject}}}/all books&lt;/code&gt;}}.  That name ({{nowrap|{{{subject}}}}}) is specified by &lt;!--
+--&gt;{{#if:{{{origin}}}
+  |page {{nowrap|&lt;code&gt;Subject:{{{origin}}}&lt;/code&gt;}}
+  |a parameter to template {{tl|subjects}} on this page
+}}, so if the expected name is incorrect, adjust it &lt;!--
+--&gt;{{#if:{{{origin}}}
+   |there (&amp;nbsp;{{Allbooks category/button|1=Subject:{{{origin}}}|2=action=edit&amp;editintro=Template:Allbooks_category/editintro_parent&amp;summary=parentage|3=edit}})
+   |here (&amp;nbsp;{{Allbooks category/button|1={{FULLPAGENAME}}|2=action=edit&amp;editintro=Template:Subjects/editintro_book&amp;summary=subjects|3=edit}})
+}}.  If the expected page name is correct, please create the expected page (&amp;nbsp;{{Allbooks category/button|1=Category:Subject:{{{subject}}}/all_books|2=action=edit&amp;editintro=Template:Allbooks_category/editintro_allbooks&amp;preload=Template:Allbooks_category/preload_allbooks&amp;summary=create|3=create allbooks page}}).}}}}}}}}
+&lt;/includeonly&gt;&lt;noinclude&gt;
+{{Documentation}}&lt;/noinclude&gt;</text>
+      <sha1>0me8a3jbwyycb2r4s04ccv190i95pmi</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Template:((</title>
+    <ns>10</ns>
+    <id>224770</id>
+    <revision>
+      <id>1766912</id>
+      <parentid>1766911</parentid>
+      <timestamp>2010-04-21T14:03:44Z</timestamp>
+      <contributor>
+        <username>Adrignola</username>
+        <id>169232</id>
+      </contributor>
+      <minor/>
+      <comment>Protected "[[Template:((]]": no need to change ([edit=sysop] (indefinite) [move=sysop] (indefinite))</comment>
+      <origin>1766912</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="42" sha1="j9yvjf3gtxezngnbethw5gkqaa7a3je" xml:space="preserve">{{&lt;noinclude&gt;{{documentation}}&lt;/noinclude&gt;</text>
+      <sha1>j9yvjf3gtxezngnbethw5gkqaa7a3je</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Template:))</title>
+    <ns>10</ns>
+    <id>224772</id>
+    <revision>
+      <id>1766928</id>
+      <parentid>1766927</parentid>
+      <timestamp>2010-04-21T14:05:26Z</timestamp>
+      <contributor>
+        <username>Adrignola</username>
+        <id>169232</id>
+      </contributor>
+      <minor/>
+      <comment>Protected "[[Template:))]]": no need to change ([edit=sysop] (indefinite) [move=sysop] (indefinite))</comment>
+      <origin>1766928</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="42" sha1="gv3zktjw2zjk6kmjic8c3sis3hf0v3j" xml:space="preserve">}}&lt;noinclude&gt;{{documentation}}&lt;/noinclude&gt;</text>
+      <sha1>gv3zktjw2zjk6kmjic8c3sis3hf0v3j</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Template:Shelves/leaf</title>
+    <ns>10</ns>
+    <id>398264</id>
+    <revision>
+      <id>3425331</id>
+      <parentid>3425328</parentid>
+      <timestamp>2018-05-16T19:22:32Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <comment>ucfirst</comment>
+      <origin>3425331</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="130" sha1="rfvhtdzazf8l47tcmjb0fg05qc6nelw" xml:space="preserve">&lt;includeonly&gt;{{#invoke:TScope|override|Shelves/leaf2|{{ucfirst:{{{1}}}}}}}&lt;/includeonly&gt;&lt;noinclude&gt;
+{{documentation}}
+&lt;/noinclude&gt;</text>
+      <sha1>rfvhtdzazf8l47tcmjb0fg05qc6nelw</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Template:Shelves/leaf2</title>
+    <ns>10</ns>
+    <id>397926</id>
+    <revision>
+      <id>3425327</id>
+      <parentid>3424429</parentid>
+      <timestamp>2018-05-16T19:15:52Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <minor/>
+      <comment>Pi zero moved page [[Template:Shelves/leaf]] to [[Template:Shelves/leaf2]]: prepare to insert pre-phase</comment>
+      <origin>3425327</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="969" sha1="iddu5qsscehnjm6qxe3nswyqwtlepy7" xml:space="preserve">&lt;includeonly&gt;{{#switch: 1
+| {{#if:{{Shelf:Page?|{{{1}}}}}|0|1}} = {{color|red|'''&amp;lt;{{#ifexist:Shelf:{{{1}}}
+    |Shelf "[[Shelf:{{{1}}}|{{{1}}}]]" is apparently not set up correctly, interfering with shelving this book.
+    |{{#ifexist:Department:{{{1}}}|Can't file a book directly in ''department'' "{{{1}}}"; please choose a shelf within the department. |Shelf "{{{1}}}" not found.}} [[{{BOOKCATEGORY|Shelf:}}/Attention needed]]
+    }}&amp;gt;'''}}
+| {{#if:{{Shelf:Ancestry?|{{{1}}}}}|0|1}}
+| {{#if:{{Shelf:Nonempty list?|{{:Shelf:{{{1}}}/ancestry|list}}}}|0|1}} = [[Category:Shelf:{{{1}}}]] [[Category:Shelf:{{{1}}}/all books]] {{color|red|'''&amp;lt;Shelf "{{{1}}}" appears to need some attention to its ancestry list; you can check on it [[Shelf:{{{1}}}|here]].&amp;gt;'''}}
+| #default = [[Category:Shelf:{{{1}}}]] [[Category:Shelf:{{{1}}}/all books]] {{Shelf:Map|Shelves/ancestor|{{:Shelf:{{{1}}}/ancestry|list}}}}
+}}&lt;/includeonly&gt;&lt;noinclude&gt;
+{{documentation}}
+&lt;/noinclude&gt;</text>
+      <sha1>iddu5qsscehnjm6qxe3nswyqwtlepy7</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Template:Shelf:Ancestry?</title>
+    <ns>10</ns>
+    <id>397884</id>
+    <revision>
+      <id>3423809</id>
+      <parentid>3423547</parentid>
+      <timestamp>2018-05-13T04:13:25Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <comment>x</comment>
+      <origin>3423809</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="102" sha1="qiy0u8tzur4c3mwo08ecbqv36x103vm" xml:space="preserve">{{#ifeq:{{:Shelf:{{{1}}}/ancestry|ping}}|Shelf:Ancestry|x|}}&lt;noinclude&gt;
+{{documentation}}
+&lt;/noinclude&gt;</text>
+      <sha1>qiy0u8tzur4c3mwo08ecbqv36x103vm</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Template:Shelves/ancestor</title>
+    <ns>10</ns>
+    <id>397930</id>
+    <revision>
+      <id>3426032</id>
+      <parentid>3426020</parentid>
+      <timestamp>2018-05-19T05:39:42Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <comment>x</comment>
+      <origin>3426032</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="333" sha1="hhuwdk6xpdrsi9cjgzpnsifjazrdj6h" xml:space="preserve">&lt;includeonly&gt;{{#if:{{Department:Page?|{{{1}}}}}|
+[[Category:Department:{{{1}}}/all books|{{{1}}}]]
+{{#ifeq:{{ROOTPAGENAME}}|Shelf:{{{1}}}||{{#if:{{Department:Reserved|{{{1}}}}}||[[Category:Shelf:{{{1}}}/all books|{{{1}}}]]}}}}
+|
+[[Category:Shelf:{{{1}}}/all books|{{{1}}}]]
+}}
+&lt;/includeonly&gt;&lt;noinclude&gt;
+{{documentation}}
+&lt;/noinclude&gt;</text>
+      <sha1>hhuwdk6xpdrsi9cjgzpnsifjazrdj6h</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Template:Department:Page</title>
+    <ns>10</ns>
+    <id>397749</id>
+    <revision>
+      <id>3426138</id>
+      <parentid>3426122</parentid>
+      <timestamp>2018-05-19T15:08:18Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <comment>x</comment>
+      <origin>3426138</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="427" sha1="ml5l4tm6par5kjq4oyyyu8yhvxvc4p8" xml:space="preserve">&lt;includeonly&gt;{{#switch: 1
+| {{#ifeq:{{{1}}}|reserved|1|0}} = {{{reserved|{{Department:Reserved/default}}}}}
+| {{#if:{{{1|}}}{{evalx|(if (equal? (get-substring (get-arg 2) 1 11) "Department:") "" "x")|{{PAGENAME}}}}|1|0}} = Department:Page
+| #default = {{#invoke:TScope|override|Department:Page/display|department={{evalx|(get-substring (get-arg 2) 12)|{{PAGENAME}}}}}}
+}}&lt;/includeonly&gt;&lt;noinclude&gt;
+{{documentation}}
+&lt;/noinclude&gt;</text>
+      <sha1>ml5l4tm6par5kjq4oyyyu8yhvxvc4p8</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Template:Department:Reserved</title>
+    <ns>10</ns>
+    <id>398350</id>
+    <revision>
+      <id>3426142</id>
+      <parentid>3426135</parentid>
+      <timestamp>2018-05-19T15:16:39Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <comment>Undid revision 3426135 by [[Special:Contributions/Pi zero|Pi zero]] ([[User talk:Pi zero|discuss]])</comment>
+      <origin>3426142</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="320" sha1="kwsfzvrxk30t27nr1c9zks71khy02bx" xml:space="preserve">&lt;includeonly&gt;{{#switch: 1
+| {{#ifeq:{{{reserved|default}}}|default|0|1}} = {{{reserved}}}
+| {{#ifeq:{{{1|default}}}|default|1|0}}
+| {{#ifeq:{{FULLPAGENAME}}|Department:{{{1}}}|1|0}} = {{Department:Reserved/default}}
+| #default = {{:Department:{{{1}}}|reserved}}
+}}&lt;/includeonly&gt;&lt;noinclude&gt;
+{{Documentation}}
+&lt;/noinclude&gt;</text>
+      <sha1>kwsfzvrxk30t27nr1c9zks71khy02bx</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Template:Department:Reserved/default</title>
+    <ns>10</ns>
+    <id>398354</id>
+    <revision>
+      <id>4422658</id>
+      <parentid>4422510</parentid>
+      <timestamp>2024-07-16T14:44:12Z</timestamp>
+      <contributor>
+        <username>Leaderboard</username>
+        <id>1176064</id>
+      </contributor>
+      <minor/>
+      <comment>Protected "[[Template:Department:Reserved/default]]": High-impact page: https://en.wikibooks.org/wiki/Wikibooks:Reading_room/Administrative_Assistance#Protection_for_highly_visible_templates ([Edit=Allow only autoconfirmed users] (indefinite) [Move=Allow only autoconfirmed users] (indefinite))</comment>
+      <origin>4422510</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="60" sha1="tnq93e3kenzv3lkawfts5d9r75rtd3f" xml:space="preserve">general references&lt;noinclude&gt;
+{{documentation}}
+&lt;/noinclude&gt;</text>
+      <sha1>tnq93e3kenzv3lkawfts5d9r75rtd3f</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Template:Alphabetical</title>
+    <ns>10</ns>
+    <id>125771</id>
+    <revision>
+      <id>3364228</id>
+      <parentid>2365636</parentid>
+      <timestamp>2018-01-19T23:04:30Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <comment>ROOTPAGENAME</comment>
+      <origin>3364228</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="360" sha1="1vzy0ervczqggm3j3md22w91fl10h52" xml:space="preserve">&lt;includeonly&gt;{{#switch:{{#titleparts:{{FULLPAGENAME}}}}|Wikijunior:{{ROOTPAGENAME}}|{{ROOTPAGENAME}}=[[Category:Alphabetical/{{padleft:|1|{{ucfirst:{{#if:{{{1|}}}|{{{1}}}|{{PAGENAME}}}}}}}}]]|#default = &lt;br /&gt;&lt;span style="color:red;"&gt;'''Please add {{tlx|alphabetical}} only to book title pages.'''&lt;/span&gt;}}&lt;/includeonly&gt;&lt;noinclude&gt;{{documentation}}&lt;/noinclude&gt;</text>
+      <sha1>1vzy0ervczqggm3j3md22w91fl10h52</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Template:Status</title>
+    <ns>10</ns>
+    <id>224345</id>
+    <revision>
+      <id>4534057</id>
+      <parentid>3716799</parentid>
+      <timestamp>2025-08-27T17:09:16Z</timestamp>
+      <contributor>
+        <username>Codename Noreste</username>
+        <id>3441010</id>
+      </contributor>
+      <comment>Replacing the indicator tag, see [[phab:T348722]].</comment>
+      <origin>4534057</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="1000" sha1="kz9ztc1gaj6ze1ipuysf2ckr77bvug1" xml:space="preserve">&lt;includeonly&gt;{{#switch:{{#titleparts:{{FULLPAGENAME}}}}|Wikijunior:{{ROOTPAGENAME}}|{{ROOTPAGENAME}}=[[Category:{{#switch: {{{1|}}}
+ |0|00|0%|00% = Freshly started books
+ |25|25% = Partly developed books
+ |50|50% = Half-finished books
+ |75|75% = Books nearing completion
+ |100|100% = Completed books
+ |#default = Freshly started books
+}}]][[Category:Books by completion status/all books]]|#default = }}{{#if:{{{2|}}}||{{#tag:indicator|[[File:{{#switch: {{{1|}}}
+ |0|00|0%|00% = 00
+ |25|25% = 25
+ |50|50% = 50
+ |75|75% = 75
+ |100|100% = 100
+ |#default = 00
+}} percents.svg|24px|{{#switch: {{{1|}}}
+ |0|00|0%|00% = 0%
+ |25|25% = 25%
+ |50|50% = 50%
+ |75|75% = 75%
+ |100|100% = 100%
+ |#default = 0%
+}} developed|link=Help:Development stages]]|name=status}}}}{{#switch: {{{1|}}}
+ |0|00|0%|00%|25|25%|50|50%|75|75%|100|100% = 
+ |#default = &lt;br /&gt;&lt;span style="color:red; font-weight:bold;"&gt;Completion status must be 0%, 25%, 50%, 75%, or 100%!&lt;/span&gt;
+}}&lt;/includeonly&gt;&lt;noinclude&gt;{{documentation}}&lt;/noinclude&gt;</text>
+      <sha1>kz9ztc1gaj6ze1ipuysf2ckr77bvug1</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Template:Subjects/4</title>
+    <ns>10</ns>
+    <id>260993</id>
+    <revision>
+      <id>2220352</id>
+      <parentid>2220351</parentid>
+      <timestamp>2011-11-26T04:35:19Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <minor/>
+      <comment>Protected "[[Template:Subjects/4]]": High-impact page ([edit=sysop] (indefinite) [move=sysop] (indefinite))</comment>
+      <origin>2220352</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="892" sha1="2sbkwhbat5lnyb2nrj79t625f6u06d7" xml:space="preserve">&lt;includeonly&gt;{{#if:{{{ping|}}}|ping|
+{{Subjects/allbooks|subject={{{subject}}}|origin={{{origin}}}|diagnose={{{diagnose|}}}}}
+{{#if:{{parsable|{{Subject:{{{subject}}}}}}}
+|
+{{#if:{{#titleparts:{{Subject:{{{subject}}}}}|1|2}}
+  |{{subjects/{{subjects/name next|{{{n}}}}}
+     |subject={{#titleparts:{{Subject:{{{subject}}}}}|1|2}}
+     |origin={{{subject}}}
+     |n={{#expr:{{{n}}} + 1}}
+     |diagnose={{{diagnose|}}}}}}}
+{{#if:{{#titleparts:{{Subject:{{{subject}}}}}|1|3}}
+  |{{subjects/{{subjects/name next|{{{n}}}}}
+     |subject={{#titleparts:{{Subject:{{{subject}}}}}|1|3}}
+     |origin={{{subject}}}
+     |n={{#expr:{{{n}}} + 1}}
+     |diagnose={{{diagnose|}}}}}}}
+|
+[[Category:Attention needed (allbooks)]]
+{{#if:{{{diagnose|}}}|{{Subjects/diagnose subject|subject={{{subject}}}|origin={{{origin}}}}}}}}}}}&lt;/includeonly&gt;&lt;noinclude&gt;
+{{Documentation|Template:Subjects/0/doc}}&lt;/noinclude&gt;</text>
+      <sha1>2sbkwhbat5lnyb2nrj79t625f6u06d7</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Template:Subjects/5</title>
+    <ns>10</ns>
+    <id>261015</id>
+    <revision>
+      <id>2220451</id>
+      <parentid>2220450</parentid>
+      <timestamp>2011-11-26T06:27:05Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <minor/>
+      <comment>Protected "[[Template:Subjects/5]]": High-impact page ([edit=sysop] (indefinite) [move=sysop] (indefinite))</comment>
+      <origin>2220451</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="892" sha1="2sbkwhbat5lnyb2nrj79t625f6u06d7" xml:space="preserve">&lt;includeonly&gt;{{#if:{{{ping|}}}|ping|
+{{Subjects/allbooks|subject={{{subject}}}|origin={{{origin}}}|diagnose={{{diagnose|}}}}}
+{{#if:{{parsable|{{Subject:{{{subject}}}}}}}
+|
+{{#if:{{#titleparts:{{Subject:{{{subject}}}}}|1|2}}
+  |{{subjects/{{subjects/name next|{{{n}}}}}
+     |subject={{#titleparts:{{Subject:{{{subject}}}}}|1|2}}
+     |origin={{{subject}}}
+     |n={{#expr:{{{n}}} + 1}}
+     |diagnose={{{diagnose|}}}}}}}
+{{#if:{{#titleparts:{{Subject:{{{subject}}}}}|1|3}}
+  |{{subjects/{{subjects/name next|{{{n}}}}}
+     |subject={{#titleparts:{{Subject:{{{subject}}}}}|1|3}}
+     |origin={{{subject}}}
+     |n={{#expr:{{{n}}} + 1}}
+     |diagnose={{{diagnose|}}}}}}}
+|
+[[Category:Attention needed (allbooks)]]
+{{#if:{{{diagnose|}}}|{{Subjects/diagnose subject|subject={{{subject}}}|origin={{{origin}}}}}}}}}}}&lt;/includeonly&gt;&lt;noinclude&gt;
+{{Documentation|Template:Subjects/0/doc}}&lt;/noinclude&gt;</text>
+      <sha1>2sbkwhbat5lnyb2nrj79t625f6u06d7</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Category:Subject:Computing/all books</title>
+    <ns>14</ns>
+    <id>261006</id>
+    <revision>
+      <id>3170347</id>
+      <parentid>2220384</parentid>
+      <timestamp>2016-12-19T22:44:32Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <minor/>
+      <comment>Pi zero moved page [[Category:Computing/all books]] to [[Category:Subject:Computing/all books]] without leaving a redirect: new nomenclature</comment>
+      <origin>3170347</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="21" sha1="hatfujjshuei60smc4rhf4ogttkovg4" xml:space="preserve">{{Allbooks category}}</text>
+      <sha1>hatfujjshuei60smc4rhf4ogttkovg4</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Category:Subject:Computer programming/all books</title>
+    <ns>14</ns>
+    <id>261012</id>
+    <revision>
+      <id>3169515</id>
+      <parentid>2220446</parentid>
+      <timestamp>2016-12-18T21:17:50Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <minor/>
+      <comment>Pi zero moved page [[Category:Computer programming/all books]] to [[Category:Subject:Computer programming/all books]] without leaving a redirect: new nomenclature</comment>
+      <origin>3169515</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="21" sha1="hatfujjshuei60smc4rhf4ogttkovg4" xml:space="preserve">{{Allbooks category}}</text>
+      <sha1>hatfujjshuei60smc4rhf4ogttkovg4</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Category:Subject:Computer science/all books</title>
+    <ns>14</ns>
+    <id>261005</id>
+    <revision>
+      <id>3861799</id>
+      <parentid>3861792</parentid>
+      <timestamp>2021-07-01T00:32:21Z</timestamp>
+      <contributor>
+        <username>Mtarch11</username>
+        <id>3300312</id>
+      </contributor>
+      <minor/>
+      <comment>[[WB:REVERT|Reverted]] edits by [[Special:Contributions/109.118.119.195|109.118.119.195]] ([[User talk:109.118.119.195|talk]]) to last version by Pi zero</comment>
+      <origin>3169682</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="21" sha1="hatfujjshuei60smc4rhf4ogttkovg4" xml:space="preserve">{{Allbooks category}}</text>
+      <sha1>hatfujjshuei60smc4rhf4ogttkovg4</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Subject:Computing</title>
+    <ns>112</ns>
+    <id>133105</id>
+    <revision>
+      <id>3205765</id>
+      <parentid>3176551</parentid>
+      <timestamp>2017-04-18T04:11:12Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <comment>pass through</comment>
+      <origin>3205765</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="386" sha1="ciek0cbouiffs5tqgr9glcz55vbfry8" xml:space="preserve">{{subject page
+ |parent=Books by subject
+ |description=These books deal with '''[[w:Computing|computing]]''': usually defined as the activity of using and developing computer technology, computer hardware, and software.
+ |maxcount=1000
+ |icon=Gnome-computer.svg
+ |show all staged=no
+ |show all featured=yes
+ |1={{{1}}}
+}}&lt;noinclude&gt;
+&lt;!-- CATEGORIES AND INTERWIKIS HERE --&gt;
+
+&lt;/noinclude&gt;</text>
+      <sha1>ciek0cbouiffs5tqgr9glcz55vbfry8</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Subject:Computer programming</title>
+    <ns>112</ns>
+    <id>133101</id>
+    <revision>
+      <id>3992496</id>
+      <parentid>3205770</parentid>
+      <timestamp>2021-09-30T18:13:16Z</timestamp>
+      <contributor>
+        <username>Mbrickn</username>
+        <id>3181019</id>
+      </contributor>
+      <origin>3992496</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="717" sha1="9hewgbqs6wfckg0x6ufqwq8hscb6gz6" xml:space="preserve">{{subject page
+ |parent=Computer science
+ |parent2=Computing
+ |description=These books deal with '''[[w:Computer programming|Computer programming]]''': the process of writing, testing, debugging/troubleshooting, and maintaining the source code of computer programs. A program's source code is written in a programming language.
+ |icon=File:Programming icon flat circle.svg
+ |maxcount=400
+ |1={{{1}}}
+}}&lt;noinclude&gt;
+&lt;!-- CATEGORIES AND INTERWIKIS HERE --&gt;
+[[de:Regal:Programmierung]]
+[[es:Fundamentos de programación]]
+[[fr:Programmation]]
+[[gl:Introdución á programación]]
+[[it:Programmazione e Sviluppo]]
+[[ja:プログラミング]]
+[[pt:Introdução à programação/Prefácio]]
+[[zh:程序设计]]
+&lt;/noinclude&gt;</text>
+      <sha1>9hewgbqs6wfckg0x6ufqwq8hscb6gz6</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Subject:Computer science</title>
+    <ns>112</ns>
+    <id>133102</id>
+    <revision>
+      <id>3958499</id>
+      <parentid>3205767</parentid>
+      <timestamp>2021-08-11T23:31:47Z</timestamp>
+      <contributor>
+        <username>Mbrickn</username>
+        <id>3181019</id>
+      </contributor>
+      <origin>3958499</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="732" sha1="atnghpu77ksnsgeoplxd6msci92bfsu" xml:space="preserve">{{subject page
+ |parent=Computing
+ |description=Books in this subject area deal with '''[[w:computer science|computer science]]''': the study of the theoretical foundations of information and computation, and of practical techniques for their implementation and application in computer systems.  It is frequently described as the systematic study of algorithmic processes that describe and transform information to answer the fundamental questions underlying computer science: which tasks can be automated, and for tasks that can, how efficiently can they be performed?
+ |maxcount=600
+ |1={{{1}}}
+ |icon=File:P Computer-science.svg
+}}&lt;noinclude&gt;
+&lt;!-- CATEGORIES AND INTERWIKIS HERE --&gt;
+[[ko:위키책:컴퓨터 과학]]
+&lt;/noinclude&gt;</text>
+      <sha1>atnghpu77ksnsgeoplxd6msci92bfsu</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Category:Subject:Recreational activities/all books</title>
+    <ns>14</ns>
+    <id>261028</id>
+    <revision>
+      <id>3169569</id>
+      <parentid>2220476</parentid>
+      <timestamp>2016-12-19T00:42:00Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <minor/>
+      <comment>Pi zero moved page [[Category:Recreational activities/all books]] to [[Category:Subject:Recreational activities/all books]] without leaving a redirect: new nomenclature</comment>
+      <origin>3169569</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="21" sha1="hatfujjshuei60smc4rhf4ogttkovg4" xml:space="preserve">{{Allbooks category}}</text>
+      <sha1>hatfujjshuei60smc4rhf4ogttkovg4</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Category:Subject:Miscellaneous/all books</title>
+    <ns>14</ns>
+    <id>261029</id>
+    <revision>
+      <id>3169645</id>
+      <parentid>2220478</parentid>
+      <timestamp>2016-12-19T03:59:10Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <minor/>
+      <comment>Pi zero moved page [[Category:Miscellaneous/all books]] to [[Category:Subject:Miscellaneous/all books]] without leaving a redirect: new nomenclature</comment>
+      <origin>3169645</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="21" sha1="hatfujjshuei60smc4rhf4ogttkovg4" xml:space="preserve">{{Allbooks category}}</text>
+      <sha1>hatfujjshuei60smc4rhf4ogttkovg4</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Subject:Recreational activities</title>
+    <ns>112</ns>
+    <id>178647</id>
+    <revision>
+      <id>3205468</id>
+      <parentid>2221973</parentid>
+      <timestamp>2017-04-17T21:50:19Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <comment>pass through</comment>
+      <origin>3205468</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="312" sha1="akppfqnpfk2uwk9iopj1hwuhsxaxbfy" xml:space="preserve">{{subject page
+ |parent=Miscellaneous
+ |description=Books in this subject area deal with '''[[w:Recreation|recreational activities]]''': the expenditure of time in a manner designed for therapeutic refreshment of one's body or mind.
+ |1={{{1}}}
+}}&lt;noinclude&gt;
+&lt;!-- CATEGORIES AND INTERWIKIS HERE --&gt;
+
+&lt;/noinclude&gt;</text>
+      <sha1>akppfqnpfk2uwk9iopj1hwuhsxaxbfy</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Subject:Miscellaneous</title>
+    <ns>112</ns>
+    <id>133391</id>
+    <revision>
+      <id>3991088</id>
+      <parentid>3205583</parentid>
+      <timestamp>2021-09-26T14:27:29Z</timestamp>
+      <contributor>
+        <username>Mbrickn</username>
+        <id>3181019</id>
+      </contributor>
+      <origin>3991088</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="326" sha1="i73p56klxcvyls35r473ih3n5jfmfkl" xml:space="preserve">{{subject page
+ |parent=Books by subject
+ |description=These books deal with topics not covered by any of the other subject pages.
+ |maxcount=800
+ |icon=P star.svg
+ |1={{{1}}}
+}}&lt;noinclude&gt;
+&lt;!-- CATEGORIES AND INTERWIKIS HERE --&gt;
+
+[[ja:その他の本]]
+[[ml:വിഷയം:പലവക]]
+[[ko:위키책:기타]]
+&lt;/noinclude&gt;</text>
+      <sha1>i73p56klxcvyls35r473ih3n5jfmfkl</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Department:Recreational activities</title>
+    <ns>0</ns>
+    <id>424213</id>
+    <revision>
+      <id>4036279</id>
+      <parentid>4019637</parentid>
+      <timestamp>2022-02-23T00:00:05Z</timestamp>
+      <contributor>
+        <username>Mrjulesd</username>
+        <id>1779740</id>
+      </contributor>
+      <minor/>
+      <comment>Protected "[[Department:Recreational activities]]": High-impact page: usual protection for shelves/departments ([Edit=Allow only autoconfirmed users] (indefinite) [Move=Allow only autoconfirmed users] (indefinite))</comment>
+      <origin>4019637</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="352" sha1="lzjinnxejfqqjaarawwvszuj1i7g9l8" xml:space="preserve">{{Department:Page
+ |description=Books in this department deal with '''[[w:Recreation|recreational activities]]''': the expenditure of time in a manner designed for therapeutic refreshment of one's body or mind.
+ |icon=Noto Emoji Pie 1f47e.svg
+ |reserved=general references
+ |1={{{1|}}}
+}}&lt;noinclude&gt;
+&lt;!-- CATEGORIES AND INTERWIKIS HERE --&gt;
+&lt;/noinclude&gt;</text>
+      <sha1>lzjinnxejfqqjaarawwvszuj1i7g9l8</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Department:Miscellaneous</title>
+    <ns>0</ns>
+    <id>397954</id>
+    <revision>
+      <id>3824730</id>
+      <parentid>3461831</parentid>
+      <timestamp>2021-04-05T09:26:53Z</timestamp>
+      <contributor>
+        <username>Mrjulesd</username>
+        <id>1779740</id>
+      </contributor>
+      <comment>general references</comment>
+      <origin>3824730</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="317" sha1="coabnio8772tt9q76ue5guq7cve9bdp" xml:space="preserve">{{Department:Page
+ |description=These books deal with topics not covered by any of the other departments.
+ |icon=P star.svg
+ |reserved=general references
+ |1={{{1|}}}
+}}&lt;noinclude&gt;
+&lt;!-- CATEGORIES AND INTERWIKIS HERE --&gt;
+
+[[ja:その他の本]]
+[[ml:വിഷയം:പലവക]]
+[[ko:위키책:기타]]
+&lt;/noinclude&gt;</text>
+      <sha1>coabnio8772tt9q76ue5guq7cve9bdp</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Department:Computing</title>
+    <ns>0</ns>
+    <id>397935</id>
+    <revision>
+      <id>3423986</id>
+      <parentid>3423945</parentid>
+      <timestamp>2018-05-13T17:27:07Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <comment>.</comment>
+      <origin>3423986</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="303" sha1="jtv0a66v3jax0jgdsdap0cmn1iidmpx" xml:space="preserve">{{Department:Page
+ |description=These books deal with '''[[w:Computing|computing]]''': usually defined as the activity of using and developing computer technology, computer hardware, and software.
+ |icon=Gnome-computer.svg
+ |1={{{1|}}}
+}}&lt;noinclude&gt;
+&lt;!-- CATEGORIES AND INTERWIKIS HERE --&gt;
+
+&lt;/noinclude&gt;</text>
+      <sha1>jtv0a66v3jax0jgdsdap0cmn1iidmpx</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Category:Subject:Computer programming languages/all books</title>
+    <ns>14</ns>
+    <id>261014</id>
+    <revision>
+      <id>3169101</id>
+      <parentid>2220449</parentid>
+      <timestamp>2016-12-17T20:02:40Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <minor/>
+      <comment>Pi zero moved page [[Category:Computer programming languages/all books]] to [[Category:Subject:Computer programming languages/all books]] without leaving a redirect: new nomenclature</comment>
+      <origin>3169101</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="21" sha1="hatfujjshuei60smc4rhf4ogttkovg4" xml:space="preserve">{{Allbooks category}}</text>
+      <sha1>hatfujjshuei60smc4rhf4ogttkovg4</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Subject:Computer programming languages</title>
+    <ns>112</ns>
+    <id>178689</id>
+    <revision>
+      <id>3992495</id>
+      <parentid>3205768</parentid>
+      <timestamp>2021-09-30T18:12:22Z</timestamp>
+      <contributor>
+        <username>Mbrickn</username>
+        <id>3181019</id>
+      </contributor>
+      <origin>3992495</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="589" sha1="l615pdu575ito1a0cmu8yyjniak817h" xml:space="preserve">{{subject page
+ |parent=Computer programming
+ |description=These books deal with '''[[w:Programming language|computer programming languages]]''': machine-readable artificial languages designed to express computations that can be performed by a machine, particularly a computer. Computer programming languages can be used to create programs that specify the behavior of a machine, to express algorithms precisely, or as a mode of human communication.
+ |icon=File:Programming icon flat circle.svg
+ |maxcount=300
+ |1={{{1}}}
+}}&lt;noinclude&gt;
+&lt;!-- CATEGORIES AND INTERWIKIS HERE --&gt;
+
+&lt;/noinclude&gt;</text>
+      <sha1>l615pdu575ito1a0cmu8yyjniak817h</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Category:Subject:Games/all books</title>
+    <ns>14</ns>
+    <id>261027</id>
+    <revision>
+      <id>3169526</id>
+      <parentid>2220475</parentid>
+      <timestamp>2016-12-18T21:32:12Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <minor/>
+      <comment>Pi zero moved page [[Category:Games/all books]] to [[Category:Subject:Games/all books]] without leaving a redirect: new nomenclature</comment>
+      <origin>3169526</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="21" sha1="hatfujjshuei60smc4rhf4ogttkovg4" xml:space="preserve">{{Allbooks category}}</text>
+      <sha1>hatfujjshuei60smc4rhf4ogttkovg4</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Subject:Games</title>
+    <ns>112</ns>
+    <id>157982</id>
+    <revision>
+      <id>3956662</id>
+      <parentid>3956661</parentid>
+      <timestamp>2021-08-05T21:35:04Z</timestamp>
+      <contributor>
+        <username>Mbrickn</username>
+        <id>3181019</id>
+      </contributor>
+      <comment>Updated description to match Shelf Games</comment>
+      <origin>3956662</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="422" sha1="9bodib42onsc5wvo8749kmhxxbsxksm" xml:space="preserve">{{subject page
+ |parent=Recreational activities
+ |description='''[[w:Game|Game]]s''' refers to activities done for fun, entertainment, or to learn something. Books on this shelf include guides to the rules of a game, the cultural significance of a game, and the application of games as learning tools.
+ |icon=File:P Games.svg
+ |1={{{1}}}
+}}&lt;noinclude&gt;
+&lt;!-- CATEGORIES AND INTERWIKIS HERE --&gt;
+
+[[ja:ゲーム]]
+&lt;/noinclude&gt;</text>
+      <sha1>9bodib42onsc5wvo8749kmhxxbsxksm</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Template:Subjects/6</title>
+    <ns>10</ns>
+    <id>261921</id>
+    <revision>
+      <id>2223686</id>
+      <parentid>2223685</parentid>
+      <timestamp>2011-11-29T19:26:57Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <minor/>
+      <comment>Protected "[[Template:Subjects/6]]": High-impact page ([edit=sysop] (indefinite) [move=sysop] (indefinite))</comment>
+      <origin>2223686</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="892" sha1="2sbkwhbat5lnyb2nrj79t625f6u06d7" xml:space="preserve">&lt;includeonly&gt;{{#if:{{{ping|}}}|ping|
+{{Subjects/allbooks|subject={{{subject}}}|origin={{{origin}}}|diagnose={{{diagnose|}}}}}
+{{#if:{{parsable|{{Subject:{{{subject}}}}}}}
+|
+{{#if:{{#titleparts:{{Subject:{{{subject}}}}}|1|2}}
+  |{{subjects/{{subjects/name next|{{{n}}}}}
+     |subject={{#titleparts:{{Subject:{{{subject}}}}}|1|2}}
+     |origin={{{subject}}}
+     |n={{#expr:{{{n}}} + 1}}
+     |diagnose={{{diagnose|}}}}}}}
+{{#if:{{#titleparts:{{Subject:{{{subject}}}}}|1|3}}
+  |{{subjects/{{subjects/name next|{{{n}}}}}
+     |subject={{#titleparts:{{Subject:{{{subject}}}}}|1|3}}
+     |origin={{{subject}}}
+     |n={{#expr:{{{n}}} + 1}}
+     |diagnose={{{diagnose|}}}}}}}
+|
+[[Category:Attention needed (allbooks)]]
+{{#if:{{{diagnose|}}}|{{Subjects/diagnose subject|subject={{{subject}}}|origin={{{origin}}}}}}}}}}}&lt;/includeonly&gt;&lt;noinclude&gt;
+{{Documentation|Template:Subjects/0/doc}}&lt;/noinclude&gt;</text>
+      <sha1>2sbkwhbat5lnyb2nrj79t625f6u06d7</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Category:Subject:Assembly languages/all books</title>
+    <ns>14</ns>
+    <id>261020</id>
+    <revision>
+      <id>3164620</id>
+      <parentid>2220461</parentid>
+      <timestamp>2016-12-10T12:10:31Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <minor/>
+      <comment>Pi zero moved page [[Category:Assembly languages/all books]] to [[Category:Subject:Assembly languages/all books]] without leaving a redirect: new nomenclature</comment>
+      <origin>3164620</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="21" sha1="hatfujjshuei60smc4rhf4ogttkovg4" xml:space="preserve">{{Allbooks category}}</text>
+      <sha1>hatfujjshuei60smc4rhf4ogttkovg4</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Shelf:Assembly languages</title>
+    <ns>0</ns>
+    <id>398039</id>
+    <revision>
+      <id>3434406</id>
+      <parentid>3424298</parentid>
+      <timestamp>2018-06-08T12:23:19Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <minor/>
+      <comment>Protected "[[Shelf:Assembly languages]]": High-impact page: usual for shelves ([Edit=Allow only autoconfirmed users] (indefinite) [Move=Allow only autoconfirmed users] (indefinite))</comment>
+      <origin>3434406</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="619" sha1="oe2ilasw2c81yshm5lti2yb31enf4up" xml:space="preserve">{{Shelf:Page
+ |parent=Computer programming languages
+ |description=This shelf contains books on '''[[w:assembly language|assembly language]]s''': the lowest-level human-readable method for programming a particular computer. Assembly languages are platform specific, and therefore there is a different assembly language necessary for programming every different type of computer. Assembly languages generally has a one-to-one correspondence with the underlying machine language, which is not human readable.
+ |1={{{1|}}}
+}}&lt;noinclude&gt;
+&lt;!-- CATEGORIES AND INTERWIKIS HERE --&gt;
+
+[[fr:Programmation Assembleur]]
+&lt;/noinclude&gt;</text>
+      <sha1>oe2ilasw2c81yshm5lti2yb31enf4up</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Shelf:Assembly languages/ancestry</title>
+    <ns>0</ns>
+    <id>398042</id>
+    <revision>
+      <id>3424301</id>
+      <timestamp>2018-05-14T13:50:25Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <comment>create</comment>
+      <origin>3424301</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="195" sha1="dn5y2rc7ndxszbpighye495i4l1j9x2" xml:space="preserve">{{Shelf:Ancestry|{{{1|}}}
+|ancestors=( "Computer programming" "Computer programming languages" "Computer science" "Computing" )
+}}&lt;noinclude&gt;
+&lt;!-- CATEGORIES AND INTERWIKIS HERE --&gt;
+
+&lt;/noinclude&gt;</text>
+      <sha1>dn5y2rc7ndxszbpighye495i4l1j9x2</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Subject:Assembly languages</title>
+    <ns>112</ns>
+    <id>2183</id>
+    <revision>
+      <id>3205806</id>
+      <parentid>2675400</parentid>
+      <timestamp>2017-04-18T04:34:49Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <comment>pass through</comment>
+      <origin>3205806</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="622" sha1="f3chshvbskfic492admw6yh4irkixmi" xml:space="preserve">{{subject page
+ |parent=Computer programming languages
+ |description=This category contains books on '''[[w:assembly language|assembly language]]s''': the lowest-level human-readable method for programming a particular computer. Assembly languages are platform specific, and therefore there is a different assembly language necessary for programming every different type of computer. Assembly languages generally has a one-to-one correspondence with the underlying machine language, which is not human readable.
+ |1={{{1}}}
+}}&lt;noinclude&gt;
+&lt;!-- CATEGORIES AND INTERWIKIS HERE --&gt;
+[[fr:Programmation Assembleur]]
+&lt;/noinclude&gt;</text>
+      <sha1>f3chshvbskfic492admw6yh4irkixmi</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Category:Subject:Electronic games/all books</title>
+    <ns>14</ns>
+    <id>261339</id>
+    <revision>
+      <id>3169176</id>
+      <parentid>2221425</parentid>
+      <timestamp>2016-12-17T22:35:23Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <minor/>
+      <comment>Pi zero moved page [[Category:Electronic games/all books]] to [[Category:Subject:Electronic games/all books]] without leaving a redirect: new nomenclature</comment>
+      <origin>3169176</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="21" sha1="hatfujjshuei60smc4rhf4ogttkovg4" xml:space="preserve">{{Allbooks category}}</text>
+      <sha1>hatfujjshuei60smc4rhf4ogttkovg4</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Category:Subject:Trades/all books</title>
+    <ns>14</ns>
+    <id>377778</id>
+    <revision>
+      <id>3149338</id>
+      <parentid>3149336</parentid>
+      <timestamp>2016-11-18T17:10:59Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <minor/>
+      <comment>Pi zero moved page [[Category:Trades/all books]] to [[Category:Subject:Trades/all books]] over a redirect without leaving a redirect: finished history merge</comment>
+      <origin>3149338</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="21" sha1="hatfujjshuei60smc4rhf4ogttkovg4" xml:space="preserve">{{Allbooks category}}</text>
+      <sha1>hatfujjshuei60smc4rhf4ogttkovg4</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Category:Subject:Video game development/all books</title>
+    <ns>14</ns>
+    <id>437435</id>
+    <revision>
+      <id>3990017</id>
+      <timestamp>2021-09-23T10:29:02Z</timestamp>
+      <contributor>
+        <username>Mbrickn</username>
+        <id>3181019</id>
+      </contributor>
+      <comment>create</comment>
+      <origin>3990017</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="21" sha1="hatfujjshuei60smc4rhf4ogttkovg4" xml:space="preserve">{{Allbooks category}}</text>
+      <sha1>hatfujjshuei60smc4rhf4ogttkovg4</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Subject:Electronic games</title>
+    <ns>112</ns>
+    <id>194307</id>
+    <revision>
+      <id>4002043</id>
+      <parentid>3989835</parentid>
+      <timestamp>2021-11-07T08:07:59Z</timestamp>
+      <contributor>
+        <username>Mbrickn</username>
+        <id>3181019</id>
+      </contributor>
+      <origin>4002043</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="677" sha1="hmp4y66hmfgm62v4g8rhbbk4ej29uq5" xml:space="preserve">{{subject page
+ |parent=Games
+ |description=Books in this subject area deal with '''electronic games''': games that employ electronics to create an interactive system with which a player can play, including [[Wikibooks:Strategy guides|strategy guides]]. Video games are the most common form of electronic game today, and for this reason the terms are often mistakenly used synonymously. Books include information on the cultural significance of specific electronic games, and application of electronic games as learning and education tools.
+ |icon=File:Nuvola apps package games.png
+ |maxcount=600
+ |1={{{1}}}
+}}&lt;noinclude&gt;
+&lt;!-- CATEGORIES AND INTERWIKIS HERE --&gt;
+
+&lt;/noinclude&gt;</text>
+      <sha1>hmp4y66hmfgm62v4g8rhbbk4ej29uq5</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Subject:Trades</title>
+    <ns>112</ns>
+    <id>181337</id>
+    <revision>
+      <id>3999088</id>
+      <parentid>3205402</parentid>
+      <timestamp>2021-10-27T19:10:11Z</timestamp>
+      <contributor>
+        <username>Mbrickn</username>
+        <id>3181019</id>
+      </contributor>
+      <origin>3999088</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="351" sha1="gef26oesdc2esk67pgijlu8d887vyr8" xml:space="preserve">{{subject page
+ |parent=Miscellaneous
+ |description=Books in this subject area deal specifically with '''[[w:Tradesman|trades]]''', where work is performed by skilled manual workers with both practical and theoretical knowledge of their field.
+ |icon=File:Red toolbox.svg
+ |1={{{1}}}
+}}&lt;noinclude&gt;
+&lt;!-- CATEGORIES AND INTERWIKIS HERE --&gt;
+
+&lt;/noinclude&gt;</text>
+      <sha1>gef26oesdc2esk67pgijlu8d887vyr8</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Subject:Video game development</title>
+    <ns>112</ns>
+    <id>437434</id>
+    <revision>
+      <id>3997236</id>
+      <parentid>3990050</parentid>
+      <timestamp>2021-10-19T22:08:52Z</timestamp>
+      <contributor>
+        <username>Mbrickn</username>
+        <id>3181019</id>
+      </contributor>
+      <origin>3997236</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="345" sha1="cz48hwnv3rozjpq1einu8k1vgqw4ahq" xml:space="preserve">{{subject page
+ |parent=Electronic games
+ |parent2=Trades
+ |description=Books in this subject area deal with '''[[w:video game development|video game development]]'''.
+
+For books specific to the design of games, see [[Subject:Game design]].
+ |icon=File:Game dev.png
+ |1={{{1}}}
+}}&lt;noinclude&gt;
+&lt;!-- CATEGORIES AND INTERWIKIS HERE --&gt;
+
+&lt;/noinclude&gt;</text>
+      <sha1>cz48hwnv3rozjpq1einu8k1vgqw4ahq</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Shelf:Console game programming</title>
+    <ns>0</ns>
+    <id>400193</id>
+    <revision>
+      <id>3990031</id>
+      <parentid>3990025</parentid>
+      <timestamp>2021-09-23T10:40:45Z</timestamp>
+      <contributor>
+        <username>Mbrickn</username>
+        <id>3181019</id>
+      </contributor>
+      <origin>3990031</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="307" sha1="07oddufmz8spf829xom2a06fplkaczo" xml:space="preserve">{{Shelf:Page
+ |parent=Computer programming
+ |parent2=Video game development
+ |description=Books on this shelf deal with '''[[w:Console game|console game programming]]'''.
+ |icon=File:Handheld game console.svg
+ |iconwidth=100px
+ |1={{{1|}}}
+}}&lt;noinclude&gt;
+&lt;!-- CATEGORIES AND INTERWIKIS HERE --&gt;
+
+&lt;/noinclude&gt;</text>
+      <sha1>07oddufmz8spf829xom2a06fplkaczo</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Shelf:Console game programming/ancestry</title>
+    <ns>0</ns>
+    <id>400196</id>
+    <revision>
+      <id>3997235</id>
+      <parentid>3990032</parentid>
+      <timestamp>2021-10-19T22:08:19Z</timestamp>
+      <contributor>
+        <username>Mbrickn</username>
+        <id>3181019</id>
+      </contributor>
+      <comment>update</comment>
+      <origin>3997235</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="265" sha1="6iacs9st37u4euzye3q5etuvltmm76g" xml:space="preserve">{{Shelf:Ancestry|{{{1|}}}
+|ancestors=( "Computer programming" "Computer science" "Computing" "Electronic games" "Games" "Miscellaneous" "Recreational activities" "Trades" "Video game development" )
+}}&lt;noinclude&gt;
+&lt;!-- CATEGORIES AND INTERWIKIS HERE --&gt;
+
+&lt;/noinclude&gt;</text>
+      <sha1>6iacs9st37u4euzye3q5etuvltmm76g</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Category:Subject:Console game programming/all books</title>
+    <ns>14</ns>
+    <id>261338</id>
+    <revision>
+      <id>3170087</id>
+      <parentid>2221423</parentid>
+      <timestamp>2016-12-19T18:04:33Z</timestamp>
+      <contributor>
+        <username>Pi zero</username>
+        <id>75960</id>
+      </contributor>
+      <minor/>
+      <comment>Pi zero moved page [[Category:Console game programming/all books]] to [[Category:Subject:Console game programming/all books]] without leaving a redirect: new nomenclature</comment>
+      <origin>3170087</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="21" sha1="hatfujjshuei60smc4rhf4ogttkovg4" xml:space="preserve">{{Allbooks category}}</text>
+      <sha1>hatfujjshuei60smc4rhf4ogttkovg4</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>Subject:Console game programming</title>
+    <ns>112</ns>
+    <id>194301</id>
+    <revision>
+      <id>3990030</id>
+      <parentid>3990029</parentid>
+      <timestamp>2021-09-23T10:40:22Z</timestamp>
+      <contributor>
+        <username>Mbrickn</username>
+        <id>3181019</id>
+      </contributor>
+      <origin>3990030</origin>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text bytes="315" sha1="ms40zbm566kbdntg071ywljgd09gc87" xml:space="preserve">{{subject page
+ |parent=Computer programming
+ |parent2=Video game development
+ |description=Books in this subject area deal with '''[[w:Console game|console game programming]]'''.
+ |icon=File:Handheld game console.svg
+ |iconwidth=100px
+ |1={{{1}}}
+}}&lt;noinclude&gt;
+&lt;!-- CATEGORIES AND INTERWIKIS HERE --&gt;
+
+&lt;/noinclude&gt;</text>
+      <sha1>ms40zbm566kbdntg071ywljgd09gc87</sha1>
+    </revision>
+  </page>
+</mediawiki>

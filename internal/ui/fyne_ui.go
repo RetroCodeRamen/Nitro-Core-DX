@@ -62,6 +62,7 @@ type FyneUI struct {
 	// Panel update functions
 	updateRegisters func()
 	updateMemory    func()
+	updateTiles     func()
 }
 
 // NewFyneUI creates a new Fyne-based UI
@@ -109,6 +110,9 @@ func NewFyneUI(emu *emulator.Emulator, scale int) (*FyneUI, error) {
 	memoryPanel, updateMemoryFunc := panels.MemoryViewer(emu)
 	memoryPanel.Hide()
 
+	tilesPanel, updateTilesFunc := panels.TileViewer(emu)
+	tilesPanel.Hide()
+
 	// Create UI instance first (needed for menu callbacks)
 	ui := &FyneUI{
 		app:             fyneApp,
@@ -129,14 +133,17 @@ func NewFyneUI(emu *emulator.Emulator, scale int) (*FyneUI, error) {
 		stepBtn:         stepBtn,
 		registersPanel:  registersPanel,
 		memoryPanel:     memoryPanel,
+		tilesPanel:      tilesPanel,
 		updateRegisters: updateRegistersFunc,
 		updateMemory:    updateMemoryFunc,
+		updateTiles:     updateTilesFunc,
 	}
 
 	// Create right-side panel container (vertical stack for multiple panels)
 	rightPanels := container.NewVBox(
 		registersPanel,
 		memoryPanel,
+		tilesPanel,
 	)
 
 	// Create main content with side panel for debug tools
@@ -289,7 +296,13 @@ func createMenus(window fyne.Window, emu *emulator.Emulator, ui *FyneUI) {
 		}),
 		fyne.NewMenuItem("Tile Viewer", func() {
 			ui.showTiles = !ui.showTiles
-			// TODO: Show/hide tile viewer panel
+			if ui.tilesPanel != nil {
+				if ui.showTiles {
+					ui.tilesPanel.Show()
+				} else {
+					ui.tilesPanel.Hide()
+				}
+			}
 		}),
 	)
 
@@ -317,20 +330,32 @@ func createMenus(window fyne.Window, emu *emulator.Emulator, ui *FyneUI) {
 		}),
 		fyne.NewMenuItem("Tile Viewer", func() {
 			ui.showTiles = !ui.showTiles
-			// TODO: Show/hide tile viewer panel
+			if ui.tilesPanel != nil {
+				if ui.showTiles {
+					ui.tilesPanel.Show()
+				} else {
+					ui.tilesPanel.Hide()
+				}
+			}
 		}),
 		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("Toggle Cycle Logging", func() {
 			if emu.CycleLogger != nil {
 				emu.CycleLogger.Toggle()
-				enabled, current, total, max := emu.CycleLogger.GetStatus()
-				if enabled {
-					fmt.Printf("Cycle logging ENABLED (logged: %d/%d cycles, total: %d)\n", current, max, total)
-				} else {
-					fmt.Printf("Cycle logging DISABLED (logged: %d/%d cycles, total: %d)\n", current, max, total)
+				// Only show cycle logging status if logging is enabled
+				if emu.Logger != nil && emu.Logger.IsComponentEnabled(debug.ComponentSystem) {
+					enabled, current, total, max := emu.CycleLogger.GetStatus()
+					if enabled {
+						fmt.Printf("Cycle logging ENABLED (logged: %d/%d cycles, total: %d)\n", current, max, total)
+					} else {
+						fmt.Printf("Cycle logging DISABLED (logged: %d/%d cycles, total: %d)\n", current, max, total)
+					}
 				}
 			} else {
-				fmt.Println("Cycle logging not initialized (use -cyclelog flag to enable)")
+				// Only show message if logging is enabled
+				if emu.Logger != nil && emu.Logger.IsComponentEnabled(debug.ComponentSystem) {
+					fmt.Println("Cycle logging not initialized (use -cyclelog flag to enable)")
+				}
 			}
 		}),
 	)
@@ -431,7 +456,7 @@ func (ui *FyneUI) updateLoop() {
 		}
 
 		// Render emulator screen
-		// Note: RunFrame() completes a full PPU frame (79,200 cycles), so buffer is ready
+		// Note: RunFrame() completes a full PPU frame (127,820 cycles), so buffer is ready
 		// FrameComplete flag ensures we don't read mid-frame, but RunFrame() guarantees completion
 		img, err := ui.renderEmulatorScreen()
 		if err == nil {
@@ -459,6 +484,10 @@ func (ui *FyneUI) updateLoop() {
 			// Update memory viewer if visible
 			if ui.showMemory && ui.updateMemory != nil {
 				ui.updateMemory()
+			}
+			// Update tile viewer if visible
+			if ui.showTiles && ui.updateTiles != nil {
+				ui.updateTiles()
 			}
 		})
 	}
