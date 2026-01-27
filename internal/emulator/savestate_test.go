@@ -29,8 +29,8 @@ func TestSaveLoadState(t *testing.T) {
 	emu.CPU.State.R1 = 0x5678
 	emu.CPU.State.PCBank = 2
 	emu.CPU.State.PCOffset = 0x9000
-	emu.Memory.WRAM[0x1000] = 0xAB
-	emu.Memory.WRAM[0x1001] = 0xCD
+	emu.Bus.WRAM[0x1000] = 0xAB
+	emu.Bus.WRAM[0x1001] = 0xCD
 	emu.PPU.VRAM[0x2000] = 0xEF
 	emu.PPU.CGRAM[0] = 0x12
 	emu.PPU.FrameCounter = 42
@@ -52,7 +52,7 @@ func TestSaveLoadState(t *testing.T) {
 	// Modify state to verify it changes
 	emu.CPU.State.R0 = 0x9999
 	emu.CPU.State.R1 = 0x8888
-	emu.Memory.WRAM[0x1000] = 0xFF
+	emu.Bus.WRAM[0x1000] = 0xFF
 	emu.PPU.VRAM[0x2000] = 0x00
 	emu.PPU.FrameCounter = 999
 	emu.APU.MasterVolume = 255
@@ -76,11 +76,11 @@ func TestSaveLoadState(t *testing.T) {
 	if emu.CPU.State.PCOffset != 0x9000 {
 		t.Errorf("PCOffset not restored: expected 0x9000, got 0x%04X", emu.CPU.State.PCOffset)
 	}
-	if emu.Memory.WRAM[0x1000] != 0xAB {
-		t.Errorf("WRAM[0x1000] not restored: expected 0xAB, got 0x%02X", emu.Memory.WRAM[0x1000])
+	if emu.Bus.WRAM[0x1000] != 0xAB {
+		t.Errorf("WRAM[0x1000] not restored: expected 0xAB, got 0x%02X", emu.Bus.WRAM[0x1000])
 	}
-	if emu.Memory.WRAM[0x1001] != 0xCD {
-		t.Errorf("WRAM[0x1001] not restored: expected 0xCD, got 0x%02X", emu.Memory.WRAM[0x1001])
+	if emu.Bus.WRAM[0x1001] != 0xCD {
+		t.Errorf("WRAM[0x1001] not restored: expected 0xCD, got 0x%02X", emu.Bus.WRAM[0x1001])
 	}
 	if emu.PPU.VRAM[0x2000] != 0xEF {
 		t.Errorf("VRAM[0x2000] not restored: expected 0xEF, got 0x%02X", emu.PPU.VRAM[0x2000])

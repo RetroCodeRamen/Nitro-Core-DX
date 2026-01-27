@@ -55,8 +55,13 @@ type AudioChannel struct {
 	InitialDuration uint16 // Initial duration value (for loop mode - stored when channel enabled)
 
 	// Phase accumulator for waveform generation
-	Phase          float64 // Current phase (0 to 2π)
-	PhaseIncrement float64 // Phase increment per sample
+	// Fixed-point: 32-bit unsigned integer (0-2^32 represents 0-2π)
+	PhaseFixed          uint32 // Current phase (fixed-point)
+	PhaseIncrementFixed uint32 // Phase increment per sample (fixed-point)
+
+	// Legacy floating-point fields (deprecated, kept for compatibility during transition)
+	Phase          float64 // Current phase (0 to 2π) - DEPRECATED: use PhaseFixed
+	PhaseIncrement float64 // Phase increment per sample - DEPRECATED: use PhaseIncrementFixed
 
 	// Noise generator state
 	NoiseLFSR uint16 // LFSR state for noise waveform
@@ -206,7 +211,9 @@ func (a *APU) Write8(offset uint16, value uint8) {
 		ch.lastCompleteFrequency = newFreq
 		ch.frequencyUpdatePending = false
 
-		// Update phase increment with new frequency
+		// Update phase increment with new frequency (fixed-point)
+		a.updatePhaseIncrementFixed(channel)
+		// Also update legacy floating-point for compatibility
 		a.updatePhaseIncrement(channel)
 		// fmt.Printf("[APU] Channel %d: Frequency updated to %d Hz (0x%04X), PhaseIncrement=%f\n",
 		// 	channel, newFreq, newFreq, ch.PhaseIncrement)
@@ -217,7 +224,8 @@ func (a *APU) Write8(offset uint16, value uint8) {
 		if newFreq != oldFreq && newFreq != 0 {
 			// Frequency changed - reset phase for clean note start
 			// This matches real hardware behavior and prevents phase discontinuities
-			ch.Phase = 0.0
+			ch.PhaseFixed = 0
+			ch.Phase = 0.0 // Legacy
 
 			// Debug logging
 			now := time.Now()
@@ -514,4 +522,15 @@ func (a *APU) GenerateSamples(count int) []float32 {
 	}
 	a.debugFrameCount++
 	return samples
+}
+
+// StepAPU steps the APU by a number of cycles (for clock-driven operation)
+// This is called by the clock scheduler
+// At 10 MHz CPU and 44,100 Hz sample rate, APU runs every ~227 cycles
+func (a *APU) StepAPU(cycles uint64) error {
+	// Generate one sample per APU step
+	// The clock scheduler calls this at the correct rate (44,100 Hz)
+	// For now, we'll generate samples on-demand
+	// In a full implementation, we'd buffer samples and output them
+	return nil
 }

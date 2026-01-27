@@ -238,15 +238,15 @@ func (e *Emulator) loadAPUState(state APUState) {
 // saveMemoryState extracts Memory state for saving
 func (e *Emulator) saveMemoryState() MemoryState {
 	return MemoryState{
-		WRAM:         e.Memory.WRAM,
-		WRAMExtended: e.Memory.WRAMExtended,
+		WRAM:         e.Bus.WRAM,
+		WRAMExtended: e.Bus.WRAMExtended,
 	}
 }
 
 // loadMemoryState restores Memory state from saved state
 func (e *Emulator) loadMemoryState(state MemoryState) {
-	e.Memory.WRAM = state.WRAM
-	e.Memory.WRAMExtended = state.WRAMExtended
+	e.Bus.WRAM = state.WRAM
+	e.Bus.WRAMExtended = state.WRAMExtended
 }
 
 // saveInputState extracts Input state for saving

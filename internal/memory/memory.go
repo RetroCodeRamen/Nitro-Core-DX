@@ -26,14 +26,6 @@ type MemorySystem struct {
 	InputHandler IOHandler
 }
 
-// IOHandler defines the interface for I/O register handlers
-type IOHandler interface {
-	Read8(offset uint16) uint8
-	Write8(offset uint16, value uint8)
-	Read16(offset uint16) uint16
-	Write16(offset uint16, value uint16)
-}
-
 // NewMemorySystem creates a new memory system
 func NewMemorySystem() *MemorySystem {
 	return &MemorySystem{

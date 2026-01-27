@@ -64,6 +64,13 @@ type PPU struct {
 
 	// Output buffer (320×200, RGB888)
 	OutputBuffer        [320 * 200]uint32
+
+	// Scanline/dot stepping state (for clock-driven operation)
+	currentScanline     int
+	currentDot          int
+	scanlineInitialized bool
+	frameStarted        bool
+	FrameComplete       bool // Set to true when frame rendering is complete (safe to read buffer)
 }
 
 // BackgroundLayer represents a background layer
@@ -327,8 +334,14 @@ func (p *PPU) Write16(offset uint16, value uint16) {
 	p.Write8(offset+1, uint8(value>>8))
 }
 
-// RenderFrame renders a complete frame
+// RenderFrame renders a complete frame (DEPRECATED - use StepPPU for clock-driven operation)
+// This function is kept for compatibility but is NOT used in clock-driven mode
+// Clock-driven mode uses StepPPU() which calls startFrame() and endFrame() automatically
 func (p *PPU) RenderFrame() {
+	// DEPRECATED: This is the old frame-based rendering function
+	// In clock-driven mode, PPU rendering happens via StepPPU() -> stepDot() -> renderDot()
+	// This function should not be called in clock-driven mode
+	
 	// Set VBlank flag at start of frame (hardware-accurate synchronization)
 	// This signal indicates the start of vertical blanking period
 	// ROMs can wait for this signal to synchronize with frame boundaries

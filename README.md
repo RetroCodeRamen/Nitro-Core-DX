@@ -1,6 +1,8 @@
-# Nitro-Core-DX - A Love Letter to 1990's Core Gaming
+# Nitro-Core-DX
 
 **A Fantasy Console Emulator Combining SNES Graphics with Genesis Power**
+
+A custom 16-bit fantasy console emulator inspired by classic 8/16-bit consoles, designed to combine the best features of the SNES and Sega Genesis into a single, powerful platform.
 
 > **⚠️ ARCHITECTURE IN DESIGN PHASE**: This system is currently in active development. The architecture is not yet finalized, and changes may break compatibility with existing ROMs. If you're using the current iteration, be aware that future changes may require ROM updates. See [System Manual](SYSTEM_MANUAL.md) for current implementation status and development plans.
 
@@ -39,9 +41,11 @@ For detailed status, see the [System Manual](SYSTEM_MANUAL.md).
 
 ---
 
-## The Vision: A Love Letter to 1990's Gaming
+## Project Vision & Approach
 
-Nitro-Core-DX is more than just an emulator—it's a **passion project**, a **love letter to the golden age of 16-bit gaming**. This project represents the "what if" scenario: what if we could combine the best features of the Super Nintendo Entertainment System (SNES) and the Sega Genesis (Mega Drive) into one ultimate fantasy console?
+Nitro-Core-DX is a passion project that represents a "what if" scenario: what if we could combine the best features of the Super Nintendo Entertainment System (SNES) and the Sega Genesis (Mega Drive) into one unified fantasy console?
+
+This project is about doing things right from the ground up. While the emulator is still in early development, the focus is on building a solid foundation: accurate emulation, proper architecture, comprehensive testing, and thorough documentation. Every component is being implemented with attention to detail, from cycle-accurate CPU emulation to hardware-accurate synchronization signals.
 
 **From SNES:**
 - Advanced graphics capabilities (4 background layers, windowing, per-scanline scroll)
@@ -55,83 +59,28 @@ Nitro-Core-DX is more than just an emulator—it's a **passion project**, a **lo
 - Fast DMA and high sprite throughput
 - Arcade-friendly performance characteristics
 
-**The Result:**
-A fantasy console that delivers **SNES-quality graphics** with **Genesis-level performance**, enabling smooth 60 FPS gameplay with complex graphics, advanced parallax scrolling, and stunning Matrix Mode effects for 3D landscapes and racing games.
+**The Goal:**
+A fantasy console that delivers SNES-quality graphics with Genesis-level performance, enabling smooth 60 FPS gameplay with complex graphics, advanced parallax scrolling, and Matrix Mode effects for 3D landscapes and racing games.
 
-This isn't just about nostalgia—it's about **respect**. Respect for the original hardware, respect for the games that will run on it, and respect for the developers who will use this emulator to create amazing games.
+**Current Focus:**
+The project is currently in active development, with core systems implemented and working toward full functionality. The approach emphasizes correctness over speed, proper error handling, comprehensive testing, and maintaining clean, maintainable code. This is a long-term project where doing it right matters more than doing it fast.
 
 ---
 
-## Project Evolution: The Journey to Go
+## Technology Stack
 
-The path to building Nitro-Core-DX has been a journey of discovery, learning, and finding the right tool for the job. Each language choice taught us valuable lessons about what we needed.
+The project is built in Go, chosen after evaluating multiple languages for the right balance of performance and developer experience.
 
-### Basic (QB64): The Anachronistic Start
+### Why Go?
 
-We started with **QB64**—an anachronistic choice for a modern emulator, but one that could run everywhere. The idea was simple: use something that could compile to native code on any platform, with minimal dependencies.
-
-**What we learned:**
-- QB64 could indeed run everywhere
-- But compilation problems were frequent and difficult to troubleshoot
-- Error messages were cryptic and unhelpful
-- The development experience was frustrating
-- We needed better tooling, better error messages, better debugging
-
-**The realization:** We needed a language with modern tooling and clear error messages.
-
-### Python: Developer Experience First
-
-We switched to **Python** for the developer experience. Python offered:
-- Clear, readable error messages
-- Easy debugging with excellent tooling
-- Cross-platform compatibility
-- Collaborative development made simple
-- A rich ecosystem of libraries
-
-**What we learned:**
-- Python's developer experience was exactly what we needed
-- Development was fast and enjoyable
-- But performance became the bottleneck
-- We couldn't reach 60 FPS consistently
-- CPU emulation was too slow
-- PPU rendering couldn't keep up
-- The emulator struggled with complex graphics
-
-**The realization:** We needed Python's developer experience, but with C-like performance.
-
-### Cython: The Speed Compromise
-
-We attempted to speed up Python with **Cython**—compiling critical paths to C for near-native speed. The idea was to keep Python's flexibility while getting the performance we needed.
-
-**What we learned:**
-- Cython could indeed speed up critical paths
-- But complexity grew exponentially
-- Python's limitations were still present
-- The hybrid approach was difficult to maintain
-- We needed something that was fast from the ground up
-
-**The realization:** We needed a language that was fast by design, not fast through compilation tricks.
-
-### Go: The Right Tool for the Job
-
-**Go** is where this project belongs. Go combines Python's developer experience with C-like performance:
+Go provides the optimal balance of performance and developer experience:
 
 - **Performance**: Near-native speed, perfect for 60 FPS emulation
 - **Developer Experience**: Clean syntax, excellent tooling, great standard library
 - **Concurrency**: Built-in goroutines for audio/rendering threads
 - **Cross-Platform**: Single binary, runs everywhere
 - **Memory Safety**: Garbage collected but efficient
-- **Flexibility**: Easy to extend and maintain
-
-**Why Go?**
-- Go gives us the speed we need (that Python couldn't provide)
-- Go gives us the flexibility and maintainability that C/C++ lacks
-- Go's tooling is excellent (`go fmt`, `go test`, `go build`)
-- Go's error handling is explicit and clear
-- Go's standard library is comprehensive
-- Go's concurrency model is perfect for emulator architecture
-
-**This is where the project belongs.** Go gives us both speed AND maintainability. It makes development a joy while delivering the performance we need.
+- **Maintainability**: Easy to extend and maintain with clear error handling
 
 ---
 
@@ -169,9 +118,9 @@ We attempted to speed up Python with **Cython**—compiling critical paths to C 
   - Entry point handling
   - LoROM-style memory mapping
 
-### Performance: The 60 FPS Promise
+### Performance
 
-**This is critical.** The emulator **MUST** run at a steady 60 FPS. This is non-negotiable.
+The emulator targets a steady 60 FPS for accurate emulation and smooth gameplay.
 
 - **Frame Limiting**: Automatic 60 FPS frame limiting
   - High-resolution timers (nanosecond precision)
@@ -188,9 +137,9 @@ We attempted to speed up Python with **Cython**—compiling critical paths to C 
   - SIMD/vectorization for Matrix Mode and large world rendering
   - Zero-cost logging when disabled
 
-### Development Toolkit: A Complete Debugging Environment
+### Development Toolkit
 
-This emulator isn't just for playing games—it's for **developing** games. The development tools are as important as the emulation itself.
+The emulator includes a comprehensive debugging environment designed for game development and ROM creation.
 
 #### Logging System
 
@@ -434,7 +383,7 @@ nitro-core-dx/
 
 ### Contributing
 
-Contributions are welcome! This is a passion project, and we'd love to have you contribute.
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
@@ -472,23 +421,16 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-## The Passion Project Vision
+## Technical Highlights
 
-This isn't just an emulator—it's a **love letter to retro gaming**. Every pixel, every cycle, every sound wave matters. This is about preserving the magic of 16-bit gaming while making it accessible and debuggable for modern developers.
+- **Cycle-accurate CPU emulation** with custom 16-bit instruction set
+- **Hardware-accurate synchronization** with VBlank, frame counter, and completion status signals
+- **Complete save/load state** functionality for debugging and testing
+- **Comprehensive test suite** with automated verification
+- **FPGA-ready architecture** designed for potential hardware implementation
+- **Professional debugging tools** including logging, memory viewer, and register displays
 
-The development tools aren't an afterthought—they're **essential**. They're what will allow developers to create amazing games for this fantasy console. The logging system, the memory viewer, the register displays—these are the tools that will help developers understand, debug, and optimize their games.
-
-The 60 FPS requirement isn't just about performance—it's about **respect**. Respect for the original hardware, respect for the games that will run on it, and respect for the developers who will use this emulator.
-
-The video scaling isn't just about convenience—it's about **accessibility**. Making sure that even on a 4K monitor, the games look great and are playable.
-
-The future CRT shader support isn't just a feature—it's about **nostalgia**. Bringing back that warm, fuzzy feeling of playing on a CRT TV.
-
-**This is a passion project. Take pride in every line of code. Make it beautiful. Make it fast. Make it accurate. Make it the best fantasy console emulator it can possibly be.**
-
----
-
-**Let's build something amazing in Go.** 🎮✨
+Built with Go for performance and maintainability, featuring clean architecture, comprehensive error handling, and extensive documentation.
 
 
 

@@ -365,6 +365,13 @@ func (c *CPU) ExecuteCycles(targetCycles uint32) error {
 	return nil
 }
 
+// StepCPU steps the CPU by a number of cycles (for clock-driven operation)
+// This is called by the clock scheduler
+func (c *CPU) StepCPU(cycles uint64) error {
+	targetCycles := c.State.Cycles + uint32(cycles)
+	return c.ExecuteCycles(targetCycles)
+}
+
 // GetPC returns the current PC as a string (bank:offset)
 func (c *CPU) GetPC() string {
 	return fmt.Sprintf("%02X:%04X", c.State.PCBank, c.State.PCOffset)

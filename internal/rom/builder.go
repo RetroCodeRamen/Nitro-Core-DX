@@ -28,6 +28,11 @@ func (b *ROMBuilder) AddImmediate(value uint16) {
 	b.code = append(b.code, value)
 }
 
+// GetCodeLength returns the current code length in words
+func (b *ROMBuilder) GetCodeLength() int {
+	return len(b.code)
+}
+
 // BuildROM builds the ROM file
 func (b *ROMBuilder) BuildROM(entryBank uint8, entryOffset uint16, outputPath string) error {
 	// Calculate ROM size (in bytes)
@@ -106,6 +111,26 @@ func EncodeBEQ() uint16 {
 // EncodeBNE encodes a BNE instruction
 func EncodeBNE() uint16 {
 	return 0xC200
+}
+
+// EncodeBGT encodes a BGT instruction
+func EncodeBGT() uint16 {
+	return 0xC300
+}
+
+// EncodeBLT encodes a BLT instruction
+func EncodeBLT() uint16 {
+	return 0xC400
+}
+
+// EncodeBGE encodes a BGE instruction
+func EncodeBGE() uint16 {
+	return 0xC500
+}
+
+// EncodeBLE encodes a BLE instruction
+func EncodeBLE() uint16 {
+	return 0xC600
 }
 
 // EncodeJMP encodes a JMP instruction

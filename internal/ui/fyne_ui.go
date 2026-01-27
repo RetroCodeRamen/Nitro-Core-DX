@@ -216,12 +216,16 @@ func createMenus(window fyne.Window, emu *emulator.Emulator) {
 
 // renderEmulatorScreen renders the emulator screen and converts to scaled Fyne image
 func (ui *FyneUI) renderEmulatorScreen() (image.Image, error) {
-	// Get output buffer from emulator
+	// Get output buffer from emulator (make a copy to avoid race conditions)
 	buffer := ui.emulator.GetOutputBuffer()
 	
 	if len(buffer) != 320*200 {
 		return nil, fmt.Errorf("buffer size mismatch: expected %d, got %d", 320*200, len(buffer))
 	}
+	
+	// Make a copy of the buffer to avoid race conditions with PPU rendering
+	bufferCopy := make([]uint32, len(buffer))
+	copy(bufferCopy, buffer)
 	
 	// Create scaled RGBA image
 	scaledW := 320 * ui.scale
@@ -232,7 +236,7 @@ func (ui *FyneUI) renderEmulatorScreen() (image.Image, error) {
 	for y := 0; y < 200; y++ {
 		for x := 0; x < 320; x++ {
 			idx := y*320 + x
-			colorValue := buffer[idx]
+			colorValue := bufferCopy[idx]
 			
 			// Convert RGB888 to RGBA
 			r := uint8((colorValue >> 16) & 0xFF)
@@ -288,18 +292,24 @@ func (ui *FyneUI) updateLoop() {
 		}
 		
 		// Render emulator screen
+		// Note: RunFrame() completes a full PPU frame (79,200 cycles), so buffer is ready
+		// FrameComplete flag ensures we don't read mid-frame, but RunFrame() guarantees completion
 		img, err := ui.renderEmulatorScreen()
 		if err == nil {
-			// Update image (Fyne widgets are safe to update from goroutines)
-			ui.emulatorImage.Image = img
-			ui.emulatorImage.Refresh()
+			// Update image - must be done on main thread
+			fyne.Do(func() {
+				ui.emulatorImage.Image = img
+				ui.emulatorImage.Refresh()
+			})
 		}
 		
-		// Update status
+		// Update status - must be done on main thread
 		fps := ui.emulator.GetFPS()
 		cycles := ui.emulator.GetCPUCyclesPerFrame()
 		frameCount := ui.emulator.FrameCount
-		ui.statusLabel.SetText(fmt.Sprintf("FPS: %.1f | CPU: %d cycles/frame | Frame: %d", fps, cycles, frameCount))
+		fyne.Do(func() {
+			ui.statusLabel.SetText(fmt.Sprintf("FPS: %.1f | CPU: %d cycles/frame | Frame: %d", fps, cycles, frameCount))
+		})
 	}
 }
 
