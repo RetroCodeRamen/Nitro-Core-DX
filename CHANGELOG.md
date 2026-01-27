@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Console Mockup Images** - Added prototype design images to README
+  - Console isometric view
+  - Console top view
+  - Controller design
+  - Images showcase what the physical console will look like
 - **Test Suite** - Comprehensive test coverage for all new features
   - Sprite priority, blending, and mosaic effect tests
   - Matrix Mode outside-screen and direct color tests
