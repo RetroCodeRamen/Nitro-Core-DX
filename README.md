@@ -43,6 +43,7 @@ The project documentation is organized into four main documents:
 - **[SYSTEM_MANUAL.md](SYSTEM_MANUAL.md)**: Complete system architecture, FPGA compatibility, testing framework, and development tools
 - **[NITRO_CORE_DX_PROGRAMMING_MANUAL.md](NITRO_CORE_DX_PROGRAMMING_MANUAL.md)**: Complete programming guide for ROM developers
 - **[CHANGELOG.md](CHANGELOG.md)**: Version history and change log
+- **[END_OF_DAY_PROCEDURE.md](END_OF_DAY_PROCEDURE.md)**: End-of-day cleanup and documentation procedure
 
 ---
 
