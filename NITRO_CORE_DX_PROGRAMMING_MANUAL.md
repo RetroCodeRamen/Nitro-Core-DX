@@ -12,13 +12,14 @@
 1. [System Overview](#system-overview)
 2. [CPU Architecture](#cpu-architecture)
 3. [Instruction Set](#instruction-set)
-4. [Memory Map](#memory-map)
-5. [PPU (Graphics System)](#ppu-graphics-system)
-6. [APU (Audio System)](#apu-audio-system)
-7. [Input System](#input-system)
-8. [ROM Format](#rom-format)
-9. [Programming Examples](#programming-examples)
-10. [Reference Tables](#reference-tables)
+4. [Interrupt System](#interrupt-system)
+5. [Memory Map](#memory-map)
+6. [PPU (Graphics System)](#ppu-graphics-system)
+7. [APU (Audio System)](#apu-audio-system)
+8. [Input System](#input-system)
+9. [ROM Format](#rom-format)
+10. [Programming Examples](#programming-examples)
+11. [Reference Tables](#reference-tables)
 
 ---
 
@@ -29,7 +30,7 @@ The **Nitro-Core-DX** is a custom 16-bit fantasy console inspired by classic 8/1
 - **16-bit CPU** with banked 24-bit addressing
 - **320x200 pixel display** (portrait mode: 200x320)
 - **Tile-based graphics** with 4 background layers (BG0-BG3), sprites, windowing, and per-scanline scroll
-- **Matrix Mode (Mode 7-style)** with large world support and vertical sprites for pseudo-3D games
+- **Matrix Mode (Mode 7-style)** with per-layer transformations, HDMA updates, and large world support for pseudo-3D games
 - **4-channel audio synthesizer** (sine, square, saw, noise)
 - **SNES-like input** with 12 buttons
 - **60 FPS** target frame rate
@@ -43,7 +44,7 @@ The **Nitro-Core-DX** is a custom 16-bit fantasy console inspired by classic 8/1
 | Color Depth | 256 colors (8-bit indexed) |
 | Tile Size | 8x8 or 16x16 pixels |
 | Max Sprites | 128 (including vertical sprites for Matrix Mode) |
-| Matrix Mode | Mode 7-style effects with large world support |
+| Matrix Mode | Mode 7-style effects with per-layer transformations, HDMA updates, and large world support |
 | Audio Channels | 4 (sine, square, saw, noise) |
 | Audio Sample Rate | 44,100 Hz |
 | CPU Speed | 10 MHz (166,667 cycles/frame) |
@@ -296,6 +297,148 @@ Some instructions require an additional 16-bit immediate value.
 
 ---
 
+## Interrupt System
+
+> **✅ IMPLEMENTATION STATUS**: Interrupt system is fully implemented. VBlank interrupts (IRQ) are triggered automatically, and NMI support is available.
+
+The Nitro-Core-DX CPU supports hardware interrupts for event-driven programming. Interrupts allow the CPU to pause normal execution and jump to a handler routine when specific events occur.
+
+### Interrupt Types
+
+| Type | Value | Description | Maskable |
+|------|-------|-------------|----------|
+| INT_NONE | 0 | No interrupt | N/A |
+| INT_VBLANK | 1 | VBlank interrupt (IRQ) | Yes |
+| INT_TIMER | 2 | Timer interrupt (IRQ) - future | Yes |
+| INT_NMI | 3 | Non-maskable interrupt | No |
+
+### Interrupt Behavior
+
+**IRQ (Maskable Interrupts):**
+- Can be disabled by setting the I flag (interrupt mask)
+- If I flag is set, IRQ interrupts are ignored
+- VBlank automatically triggers INT_VBLANK (IRQ) at the start of VBlank period
+
+**NMI (Non-Maskable Interrupt):**
+- Cannot be disabled (always handled)
+- Higher priority than IRQ
+- Useful for critical events that must be handled immediately
+
+### Interrupt Vector Table
+
+Interrupt vectors are stored in bank 0 at fixed addresses:
+
+| Address | Vector | Size | Description |
+|---------|--------|------|-------------|
+| 0xFFE0 | IRQ Vector | 2 bytes | IRQ handler address (bank, offset_high) |
+| 0xFFE2 | NMI Vector | 2 bytes | NMI handler address (bank, offset_high) |
+| 0xFFE4 | Reset Vector | 2 bytes | Reset handler address (for future use) |
+
+**Vector Format:**
+- Byte 0: Bank (1-255, ROM banks)
+- Byte 1: Offset high byte (offset low byte is always 0x00, ROM starts at 0x8000+)
+
+**Example:** Vector at 0xFFE0 = `[0x01, 0x80]` means IRQ handler is at bank 1, offset 0x8000.
+
+### Interrupt Handling
+
+When an interrupt occurs:
+
+1. **Current instruction completes** (interrupts are checked at end of each instruction)
+2. **State is saved to stack:**
+   - PBR (Program Bank Register)
+   - PC (Program Counter)
+   - Flags register
+3. **I flag is set** (disables further interrupts)
+4. **CPU jumps to interrupt vector** (reads vector from memory)
+5. **Interrupt pending flag is cleared**
+
+**Interrupt Handler Requirements:**
+- Must end with `RET` (return from interrupt - same as normal return)
+- Should re-enable interrupts if needed (clear I flag - future instruction)
+- Should restore any registers it modifies
+
+### Setting Up Interrupts
+
+**1. Set Interrupt Vector:**
+
+```
+; Set IRQ vector to handler at bank 1, offset 0x9000
+MOV R1, #0xFFE0        ; IRQ vector address (low byte)
+MOV R2, #0x01          ; Bank 1
+MOV [R1], R2           ; Write bank
+MOV R1, #0xFFE1        ; IRQ vector address (high byte)
+MOV R2, #0x90          ; Offset high byte (0x9000)
+MOV [R1], R2           ; Write offset high
+```
+
+**2. Write Interrupt Handler:**
+
+```
+; IRQ handler (at bank 1, offset 0x9000)
+IRQ_HANDLER:
+    ; Save registers you'll use
+    PUSH R0
+    PUSH R1
+    
+    ; Handle interrupt (e.g., update sprites during VBlank)
+    ; ... your code here ...
+    
+    ; Restore registers
+    POP R1
+    POP R0
+    
+    ; Return from interrupt (restores PC, PBR, Flags)
+    RET
+```
+
+**3. Enable Interrupts:**
+
+```
+; Clear I flag to enable interrupts
+; (I flag is bit 4 of Flags register)
+; For now, interrupts are enabled by default after reset
+; Future: CLI instruction will clear I flag
+```
+
+### VBlank Interrupt
+
+VBlank interrupt (INT_VBLANK) is automatically triggered when the PPU enters the VBlank period (at the end of scanline 199). This is the perfect time to:
+
+- Update sprite positions (OAM writes)
+- Update scroll registers
+- Update palette (CGRAM writes)
+- Update HDMA tables
+- Perform frame-based game logic
+
+**VBlank Timing:**
+- VBlank flag is set at scanline 200 (start of VBlank)
+- VBlank interrupt is triggered at the same time
+- VBlank period lasts 20 scanlines (200-219)
+- Interrupt handler should complete before next frame starts
+
+### Interrupt Priority
+
+If multiple interrupts are pending:
+1. **NMI** is handled first (non-maskable)
+2. **IRQ** is handled if I flag is clear
+3. Interrupts are checked after each instruction completes
+
+### Disabling Interrupts
+
+To temporarily disable interrupts (e.g., during critical code sections):
+
+```
+; Set I flag to disable interrupts
+; (I flag is bit 4 of Flags register)
+; For now, you can manually set the flag
+; Future: SEI instruction will set I flag
+```
+
+**Important:** Always re-enable interrupts after critical sections to allow VBlank updates.
+
+---
+
 ## Memory Map
 
 ### Memory Layout
@@ -370,25 +513,68 @@ BEQ wait_vblank        ; Loop if flag is 0
 | 0x8028 | MATRIX_CENTER_X_H | 8-bit | Center point X (high byte) |
 | 0x8029 | MATRIX_CENTER_Y_L | 8-bit | Center point Y (low byte) |
 | 0x802A | MATRIX_CENTER_Y_H | 8-bit | Center point Y (high byte) |
-| 0x802B | WINDOW0_LEFT | 8-bit | Window 0 left edge (0-319) |
-| 0x802C | WINDOW0_RIGHT | 8-bit | Window 0 right edge (0-319) |
-| 0x802D | WINDOW0_TOP | 8-bit | Window 0 top edge (0-199) |
-| 0x802E | WINDOW0_BOTTOM | 8-bit | Window 0 bottom edge (0-199) |
-| 0x802F | WINDOW1_LEFT | 8-bit | Window 1 left edge (0-319) |
-| 0x8030 | WINDOW1_RIGHT | 8-bit | Window 1 right edge (0-319) |
-| 0x8031 | WINDOW1_TOP | 8-bit | Window 1 top edge (0-199) |
-| 0x8032 | WINDOW1_BOTTOM | 8-bit | Window 1 bottom edge (0-199) |
-| 0x8033 | WINDOW_CONTROL | 8-bit | Window control: bit 0=Window0 enable, bit 1=Window1 enable, bits 2-3=logic (0=OR, 1=AND, 2=XOR, 3=XNOR) |
-| 0x8034 | WINDOW_MAIN_ENABLE | 8-bit | Main window enable per layer: bit 0=BG0, 1=BG1, 2=BG2, 3=BG3, 4=sprites |
-| 0x8035 | WINDOW_SUB_ENABLE | 8-bit | Sub window enable (for color math, future use) |
-| 0x8036 | HDMA_CONTROL | 8-bit | HDMA control: bit 0=enable, bits 1-4=layer enable |
-| 0x8037 | HDMA_TABLE_BASE_L | 8-bit | HDMA table base address (low byte, in WRAM) |
-| 0x8038 | HDMA_TABLE_BASE_H | 8-bit | HDMA table base address (high byte) |
-| 0x8039 | HDMA_SCANLINE | 8-bit | Current scanline for HDMA write (0-199) |
-| 0x803A | HDMA_BG0_SCROLLX_L | 8-bit | HDMA: BG0 scroll X for current scanline (low byte) |
-| 0x803B | HDMA_BG0_SCROLLX_H | 8-bit | HDMA: BG0 scroll X (high byte) |
-| 0x803C | HDMA_BG0_SCROLLY_L | 8-bit | HDMA: BG0 scroll Y (low byte) |
-| 0x803D | HDMA_BG0_SCROLLY_H | 8-bit | HDMA: BG0 scroll Y (high byte) |
+| 0x802B | BG1_MATRIX_CONTROL | 8-bit | BG1 Matrix Mode control (bit 0=enable, bit 1=mirror_h, bit 2=mirror_v) |
+| 0x802C | BG1_MATRIX_A_L | 8-bit | BG1 Matrix A (low byte, 8.8 fixed point) |
+| 0x802D | BG1_MATRIX_A_H | 8-bit | BG1 Matrix A (high byte) |
+| 0x802E | BG1_MATRIX_B_L | 8-bit | BG1 Matrix B (low byte, 8.8 fixed point) |
+| 0x802F | BG1_MATRIX_B_H | 8-bit | BG1 Matrix B (high byte) |
+| 0x8030 | BG1_MATRIX_C_L | 8-bit | BG1 Matrix C (low byte, 8.8 fixed point) |
+| 0x8031 | BG1_MATRIX_C_H | 8-bit | BG1 Matrix C (high byte) |
+| 0x8032 | BG1_MATRIX_D_L | 8-bit | BG1 Matrix D (low byte, 8.8 fixed point) |
+| 0x8033 | BG1_MATRIX_D_H | 8-bit | BG1 Matrix D (high byte) |
+| 0x8034 | BG1_MATRIX_CENTER_X_L | 8-bit | BG1 Center X (low byte) |
+| 0x8035 | BG1_MATRIX_CENTER_X_H | 8-bit | BG1 Center X (high byte) |
+| 0x8036 | BG1_MATRIX_CENTER_Y_L | 8-bit | BG1 Center Y (low byte) |
+| 0x8037 | BG1_MATRIX_CENTER_Y_H | 8-bit | BG1 Center Y (high byte) |
+| 0x8038 | BG2_MATRIX_CONTROL | 8-bit | BG2 Matrix Mode control (bit 0=enable, bit 1=mirror_h, bit 2=mirror_v) |
+| 0x8039 | BG2_MATRIX_A_L | 8-bit | BG2 Matrix A (low byte, 8.8 fixed point) |
+| 0x803A | BG2_MATRIX_A_H | 8-bit | BG2 Matrix A (high byte) |
+| 0x803B | BG2_MATRIX_B_L | 8-bit | BG2 Matrix B (low byte, 8.8 fixed point) |
+| 0x803C | BG2_MATRIX_B_H | 8-bit | BG2 Matrix B (high byte) |
+| 0x803D | BG2_MATRIX_C_L | 8-bit | BG2 Matrix C (low byte, 8.8 fixed point) |
+| 0x803E | BG2_MATRIX_C_H | 8-bit | BG2 Matrix C (high byte) |
+| 0x803F | BG2_MATRIX_D_L | 8-bit | BG2 Matrix D (low byte, 8.8 fixed point) |
+| 0x8040 | BG2_MATRIX_D_H | 8-bit | BG2 Matrix D (high byte) |
+| 0x8041 | BG2_MATRIX_CENTER_X_L | 8-bit | BG2 Center X (low byte) |
+| 0x8042 | BG2_MATRIX_CENTER_X_H | 8-bit | BG2 Center X (high byte) |
+| 0x8043 | BG2_MATRIX_CENTER_Y_L | 8-bit | BG2 Center Y (low byte) |
+| 0x8044 | BG2_MATRIX_CENTER_Y_H | 8-bit | BG2 Center Y (high byte) |
+| 0x8045 | BG3_MATRIX_CONTROL | 8-bit | BG3 Matrix Mode control (bit 0=enable, bit 1=mirror_h, bit 2=mirror_v) |
+| 0x8046 | BG3_MATRIX_A_L | 8-bit | BG3 Matrix A (low byte, 8.8 fixed point) |
+| 0x8047 | BG3_MATRIX_A_H | 8-bit | BG3 Matrix A (high byte) |
+| 0x8048 | BG3_MATRIX_B_L | 8-bit | BG3 Matrix B (low byte, 8.8 fixed point) |
+| 0x8049 | BG3_MATRIX_B_H | 8-bit | BG3 Matrix B (high byte) |
+| 0x804A | BG3_MATRIX_C_L | 8-bit | BG3 Matrix C (low byte, 8.8 fixed point) |
+| 0x804B | BG3_MATRIX_C_H | 8-bit | BG3 Matrix C (high byte) |
+| 0x804C | BG3_MATRIX_D_L | 8-bit | BG3 Matrix D (low byte, 8.8 fixed point) |
+| 0x804D | BG3_MATRIX_D_H | 8-bit | BG3 Matrix D (high byte) |
+| 0x804E | BG3_MATRIX_CENTER_X_L | 8-bit | BG3 Center X (low byte) |
+| 0x804F | BG3_MATRIX_CENTER_X_H | 8-bit | BG3 Center X (high byte) |
+| 0x8050 | BG3_MATRIX_CENTER_Y_L | 8-bit | BG3 Center Y (low byte) |
+| 0x8051 | BG3_MATRIX_CENTER_Y_H | 8-bit | BG3 Center Y (high byte) |
+| 0x8052 | WINDOW0_LEFT | 8-bit | Window 0 left edge (0-319) |
+| 0x8053 | WINDOW0_RIGHT | 8-bit | Window 0 right edge (0-319) |
+| 0x8054 | WINDOW0_TOP | 8-bit | Window 0 top edge (0-199) |
+| 0x8055 | WINDOW0_BOTTOM | 8-bit | Window 0 bottom edge (0-199) |
+| 0x8056 | WINDOW1_LEFT | 8-bit | Window 1 left edge (0-319) |
+| 0x8057 | WINDOW1_RIGHT | 8-bit | Window 1 right edge (0-319) |
+| 0x8058 | WINDOW1_TOP | 8-bit | Window 1 top edge (0-199) |
+| 0x8059 | WINDOW1_BOTTOM | 8-bit | Window 1 bottom edge (0-199) |
+| 0x805A | WINDOW_CONTROL | 8-bit | Window control: bit 0=Window0 enable, bit 1=Window1 enable, bits 2-3=logic (0=OR, 1=AND, 2=XOR, 3=XNOR) |
+| 0x805B | WINDOW_MAIN_ENABLE | 8-bit | Main window enable per layer: bit 0=BG0, 1=BG1, 2=BG2, 3=BG3, 4=sprites |
+| 0x805C | WINDOW_SUB_ENABLE | 8-bit | Sub window enable (for color math, future use) |
+| 0x805D | HDMA_CONTROL | 8-bit | HDMA control: bit 0=enable, bits 1-4=layer enable (BG0-BG3) |
+| 0x805E | HDMA_TABLE_BASE_L | 8-bit | HDMA table base address (low byte, in WRAM) |
+| 0x805F | HDMA_TABLE_BASE_H | 8-bit | HDMA table base address (high byte) |
+| 0x8060 | DMA_CONTROL | 8-bit | DMA control: bit 0=enable/start, bit 1=mode (0=copy, 1=fill), bits [3:2]=dest type (0=VRAM, 1=CGRAM, 2=OAM) |
+| 0x8061 | DMA_SOURCE_BANK | 8-bit | DMA source bank (0-255) |
+| 0x8062 | DMA_SOURCE_OFFSET_L | 8-bit | DMA source offset (low byte) |
+| 0x8063 | DMA_SOURCE_OFFSET_H | 8-bit | DMA source offset (high byte) |
+| 0x8064 | DMA_DEST_ADDR_L | 8-bit | DMA destination address (low byte) |
+| 0x8065 | DMA_DEST_ADDR_H | 8-bit | DMA destination address (high byte) |
+| 0x8066 | DMA_LENGTH_L | 8-bit | DMA transfer length (low byte) |
+| 0x8067 | DMA_LENGTH_H | 8-bit | DMA transfer length (high byte) |
+| 0x8068 | DMA_STATUS | 8-bit | DMA status: bit 0=active (read-only) |
 | 0x803E | VBLANK_FLAG | 8-bit | VBlank flag (bit 0 = VBlank active, one-shot, cleared when read) - hardware-accurate frame synchronization |
 | 0x803F | FRAME_COUNTER_LOW | 8-bit | Frame counter low byte (increments once per frame, wraps at 65536) |
 | 0x8040 | FRAME_COUNTER_HIGH | 8-bit | Frame counter high byte |
@@ -475,15 +661,18 @@ Four tile-based background layers (BG0, BG1, BG2, BG3) for advanced parallax and
 
 ### Matrix Mode (Mode 7-Style Effects)
 
-> **⚠️ IMPLEMENTATION STATUS**: Matrix Mode is currently not fully implemented. The transformation matrix registers are available and can be written to, but the rendering pipeline does not yet apply the transformation. Currently, enabling Matrix Mode will render BG0 normally without transformation. This feature is planned for a future release.
+> **✅ IMPLEMENTATION STATUS**: Matrix Mode is fully implemented and supports per-layer transformations. Each background layer (BG0-BG3) can have its own independent matrix transformation, enabling multiple simultaneous 3D objects, buildings, roads, and complex pseudo-3D scenes.
 
-Matrix Mode enables advanced perspective and rotation effects on BG0, perfect for creating 3D-style landscapes, racing game tracks, and **pseudo-3D world maps**. This is the console's implementation of SNES Mode 7-style effects, enhanced for larger worlds.
+Matrix Mode enables advanced perspective and rotation effects on **any background layer** (BG0-BG3), perfect for creating 3D-style landscapes, racing game tracks, **pseudo-3D world maps**, and **multiple simultaneous 3D objects** (boxes, buildings, roads). This is the console's enhanced implementation of SNES Mode 7-style effects, with the key advantage that **all 4 layers can use Matrix Mode simultaneously**, enabling complex 3D scenes with multiple transformed objects.
 
 **Features:**
-- **Rotation**: Rotate the entire background
-- **Scaling**: Zoom in/out with perspective
+- **Per-Layer Matrix Mode**: Each layer (BG0-BG3) can have its own independent transformation
+- **Multiple Simultaneous Transformations**: Create multiple 3D objects at once (roads, buildings, boxes, etc.)
+- **Rotation**: Rotate any layer independently
+- **Scaling**: Zoom in/out with perspective per layer
 - **Perspective**: Create pseudo-3D "looking down a road" effects
-- **Mirroring**: Horizontal and vertical mirroring support
+- **Per-Scanline HDMA Updates**: Matrix parameters can change every scanline for advanced perspective effects
+- **Mirroring**: Horizontal and vertical mirroring support per layer
 - **Large World Maps**: Support for large tilemaps through tile stitching and extended VRAM
 - **Vertical Sprites**: Sprites rendered in 3D space (buildings, people, objects) that scale and position based on Matrix Mode transformation
 
@@ -501,12 +690,58 @@ Where:
 - `x', y'` are transformed tilemap coordinates
 
 **Matrix Mode Registers:**
-- `MATRIX_CONTROL` (0x8018): Enable Matrix Mode and set mirroring flags
+
+**Legacy BG0 Matrix Registers (0x8018-0x802A)** - Maps to BG0 for backward compatibility:
+- `MATRIX_CONTROL` (0x8018): Enable Matrix Mode and set mirroring flags for BG0
   - Bit 0: Enable Matrix Mode (1=enabled, 0=normal BG0)
   - Bit 1: Mirror horizontally
   - Bit 2: Mirror vertically
-- `MATRIX_A/B/C/D` (0x8019-0x8020): Transformation matrix coefficients (16-bit, 8.8 fixed point)
-- `MATRIX_CENTER_X/Y` (0x8027-0x802A): Center point for transformation (16-bit)
+- `MATRIX_A/B/C/D` (0x8019-0x8020): Transformation matrix coefficients for BG0 (16-bit, 8.8 fixed point)
+- `MATRIX_CENTER_X/Y` (0x8027-0x802A): Center point for BG0 transformation (16-bit)
+
+**Per-Layer Matrix Registers:**
+
+**BG1 Matrix Registers (0x802B-0x8037):**
+- `BG1_MATRIX_CONTROL` (0x802B): Enable Matrix Mode and mirroring for BG1
+- `BG1_MATRIX_A_L/H` (0x802C-0x802D): Matrix A for BG1
+- `BG1_MATRIX_B_L/H` (0x802E-0x802F): Matrix B for BG1
+- `BG1_MATRIX_C_L/H` (0x8030-0x8031): Matrix C for BG1
+- `BG1_MATRIX_D_L/H` (0x8032-0x8033): Matrix D for BG1
+- `BG1_MATRIX_CENTER_X_L/H` (0x8034-0x8035): Center X for BG1
+- `BG1_MATRIX_CENTER_Y_L/H` (0x8036-0x8037): Center Y for BG1
+
+**BG2 Matrix Registers (0x8038-0x8044):**
+- `BG2_MATRIX_CONTROL` (0x8038): Enable Matrix Mode and mirroring for BG2
+- `BG2_MATRIX_A_L/H` (0x8039-0x803A): Matrix A for BG2
+- `BG2_MATRIX_B_L/H` (0x803B-0x803C): Matrix B for BG2
+- `BG2_MATRIX_C_L/H` (0x803D-0x803E): Matrix C for BG2
+- `BG2_MATRIX_D_L/H` (0x803F-0x8040): Matrix D for BG2
+- `BG2_MATRIX_CENTER_X_L/H` (0x8041-0x8042): Center X for BG2
+- `BG2_MATRIX_CENTER_Y_L/H` (0x8043-0x8044): Center Y for BG2
+
+**BG3 Matrix Registers (0x8045-0x8051):**
+- `BG3_MATRIX_CONTROL` (0x8045): Enable Matrix Mode and mirroring for BG3
+- `BG3_MATRIX_A_L/H` (0x8046-0x8047): Matrix A for BG3
+- `BG3_MATRIX_B_L/H` (0x8048-0x8049): Matrix B for BG3
+- `BG3_MATRIX_C_L/H` (0x804A-0x804B): Matrix C for BG3
+- `BG3_MATRIX_D_L/H` (0x804C-0x804D): Matrix D for BG3
+- `BG3_MATRIX_CENTER_X_L/H` (0x804E-0x804F): Center X for BG3
+- `BG3_MATRIX_CENTER_Y_L/H` (0x8050-0x8051): Center Y for BG3
+
+**Mosaic Registers (Per-Layer):**
+Mosaic effect is configured per background layer via layer control registers (future expansion). For now, mosaic can be enabled via background layer attributes.
+
+**DMA Registers (0x8060-0x8068):**
+- `DMA_CONTROL` (0x8060): DMA control and start
+  - Bit 0: Enable/Start DMA (1=start transfer, 0=disable)
+  - Bit 1: Mode (0=copy from source, 1=fill with source byte)
+  - Bits [3:2]: Destination type (0=VRAM, 1=CGRAM, 2=OAM)
+- `DMA_SOURCE_BANK` (0x8061): Source memory bank (0-255)
+- `DMA_SOURCE_OFFSET_L/H` (0x8062-0x8063): Source memory offset (16-bit)
+- `DMA_DEST_ADDR_L/H` (0x8064-0x8065): Destination address (16-bit, VRAM/CGRAM/OAM)
+- `DMA_LENGTH_L/H` (0x8066-0x8067): Transfer length in bytes (16-bit, max 65535)
+- `DMA_STATUS` (0x8068): DMA status (read-only)
+  - Bit 0: DMA active (1=transferring, 0=idle)
 
 **8.8 Fixed Point Format:**
 Values are stored as 16-bit signed integers where:
@@ -580,11 +815,60 @@ Vertical sprites are sprites that exist in world space and are rendered with 3D 
    MOV [R1], R2
    ```
 
+**HDMA Matrix Updates (Per-Scanline Perspective):**
+
+HDMA can update matrix parameters every scanline, enabling advanced perspective effects like roads, buildings, and 3D landscapes. The HDMA table format supports both scroll and matrix updates:
+
+**HDMA Table Format (per scanline):**
+- Each scanline entry: 64 bytes (4 layers × 16 bytes per layer)
+- Per layer (16 bytes):
+  - Bytes 0-3: ScrollX (L/H), ScrollY (L/H)
+  - Bytes 4-15: Matrix parameters (if layer has Matrix Mode enabled)
+    - Bytes 4-5: MatrixA (L/H)
+    - Bytes 6-7: MatrixB (L/H)
+    - Bytes 8-9: MatrixC (L/H)
+    - Bytes 10-11: MatrixD (L/H)
+    - Bytes 12-13: CenterX (L/H)
+    - Bytes 14-15: CenterY (L/H)
+
+**HDMA Control Register (0x805D):**
+- Bit 0: HDMA enable
+- Bits 1-4: Layer enable for HDMA (BG0-BG3)
+  - Bit 1: BG0 HDMA enable
+  - Bit 2: BG1 HDMA enable
+  - Bit 3: BG2 HDMA enable
+  - Bit 4: BG3 HDMA enable
+
+**Setting Up HDMA Matrix Updates:**
+
+1. **Enable HDMA and configure layers:**
+   ```
+   MOV R1, #0x805D        ; HDMA_CONTROL
+   MOV R2, #0x0F          ; Enable HDMA + all 4 layers (bits 0-4)
+   MOV [R1], R2
+   ```
+
+2. **Set HDMA table base address:**
+   ```
+   MOV R1, #0x805E        ; HDMA_TABLE_BASE_L
+   MOV R2, #0x00          ; Table base low byte
+   MOV [R1], R2
+   MOV R1, #0x805F        ; HDMA_TABLE_BASE_H
+   MOV R2, #0x80          ; Table base high byte (in WRAM)
+   MOV [R1], R2
+   ```
+
+3. **Build HDMA table in WRAM:**
+   - For each scanline (0-199), write 64 bytes
+   - For each layer, write 16 bytes (scroll + matrix if enabled)
+   - Matrix parameters are updated automatically every scanline
+
 **Creating Perspective Effects:**
-For a "looking down a road" effect, vary the matrix values per scanline:
-- Top of screen: Scale down (smaller values)
-- Bottom of screen: Scale up (larger values)
-- This creates the illusion of depth
+For a "looking down a road" effect, vary the matrix values per scanline using HDMA:
+- Top of screen: Scale down (smaller matrix values)
+- Bottom of screen: Scale up (larger matrix values)
+- Center point moves down the screen
+- This creates the illusion of depth and perspective
 
 **Common Matrix Values:**
 - **Identity (no transform)**: A=0x0100, B=0x0000, C=0x0000, D=0x0100
@@ -1107,6 +1391,75 @@ VRAM (64KB) is organized as:
   - Extended tilemaps (64×64, 128×128) can be stored across multiple VRAM regions
 - **OAM**: Sprite attribute table (768 bytes for 128 sprites)
   - **Vertical Sprites**: Extended attributes (world coordinates) can be stored in WRAM or extended OAM
+
+### DMA (Direct Memory Access)
+
+> **✅ IMPLEMENTATION STATUS**: DMA system is fully implemented for fast memory transfers.
+
+DMA (Direct Memory Access) enables fast bulk transfers from ROM/RAM to VRAM, CGRAM, or OAM. This is much faster than copying byte-by-byte via CPU.
+
+**DMA Transfer Types:**
+- **Copy Mode**: Transfers data from source memory to destination
+- **Fill Mode**: Fills destination with a single byte value from source
+
+**DMA Destinations:**
+- **VRAM** (0): Transfer to video RAM (tile data, tilemaps)
+- **CGRAM** (1): Transfer to color palette RAM
+- **OAM** (2): Transfer to sprite attribute memory
+
+**DMA Usage Example:**
+```
+; Set up DMA: Copy 1024 bytes from ROM bank 1, offset 0x8000 to VRAM address 0x0000
+MOV R1, #0x8061        ; DMA_SOURCE_BANK
+MOV R2, #0x01          ; Bank 1
+MOV [R1], R2
+
+MOV R1, #0x8062        ; DMA_SOURCE_OFFSET_L
+MOV R2, #0x00          ; Offset low byte (0x8000)
+MOV [R1], R2
+MOV R1, #0x8063        ; DMA_SOURCE_OFFSET_H
+MOV R2, #0x80          ; Offset high byte
+MOV [R1], R2
+
+MOV R1, #0x8064        ; DMA_DEST_ADDR_L
+MOV R2, #0x00          ; VRAM address low byte
+MOV [R1], R2
+MOV R1, #0x8065        ; DMA_DEST_ADDR_H
+MOV R2, #0x00          ; VRAM address high byte
+MOV [R1], R2
+
+MOV R1, #0x8066        ; DMA_LENGTH_L
+MOV R2, #0x00          ; Length low byte (1024 = 0x0400)
+MOV [R1], R2
+MOV R1, #0x8067        ; DMA_LENGTH_H
+MOV R2, #0x04          ; Length high byte
+MOV [R1], R2
+
+MOV R1, #0x8060        ; DMA_CONTROL
+MOV R2, #0x01          ; Enable DMA, copy mode, VRAM destination
+MOV [R1], R2           ; Transfer starts immediately
+```
+
+**DMA Fill Mode Example:**
+```
+; Fill VRAM with 0x00 (clear VRAM)
+MOV R1, #0x8061        ; DMA_SOURCE_BANK
+MOV R2, #0x00          ; Bank 0 (WRAM)
+MOV [R1], R2
+MOV R1, #0x8062        ; DMA_SOURCE_OFFSET_L
+MOV R2, #0x00          ; Source offset (will read fill value from here)
+MOV [R1], R2
+; ... set destination and length ...
+MOV R1, #0x8060        ; DMA_CONTROL
+MOV R2, #0x03          ; Enable DMA, fill mode (bit 1=1), VRAM destination
+MOV [R1], R2           ; Transfer starts immediately
+```
+
+**Important Notes:**
+- DMA transfers execute immediately when `DMA_CONTROL` bit 0 is set
+- DMA is faster than CPU byte-by-byte copying
+- Use DMA during VBlank for best performance
+- Check `DMA_STATUS` to see if transfer is complete
 
 ### Setting Up Graphics
 

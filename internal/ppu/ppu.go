@@ -16,10 +16,11 @@ type PPU struct {
 	// OAM (768 bytes, 128 sprites × 6 bytes)
 	OAM [768]uint8
 
-	// Background layers
+	// Background layers (each has its own matrix transformation)
 	BG0, BG1, BG2, BG3 BackgroundLayer
 
-	// Matrix Mode
+	// Legacy Matrix Mode (deprecated - use per-layer matrix instead)
+	// Kept for backward compatibility, maps to BG0 matrix
 	MatrixEnabled    bool
 	MatrixA, MatrixB int16 // 8.8 fixed point
 	MatrixC, MatrixD int16 // 8.8 fixed point
@@ -37,11 +38,18 @@ type PPU struct {
 	// HDMA
 	HDMAEnabled   bool
 	HDMATableBase uint16
+	HDMAControl   uint8 // Bit 0=enable, bits 1-4=layer enable (BG0-BG3), bits 5-7=matrix update enable per layer
 
 	// Debug
 	debugFrameCount int
 	HDMAScrollX     [4][200]int16
 	HDMAScrollY     [4][200]int16
+	HDMAMatrixA     [4][200]int16 // Per-scanline matrix A updates
+	HDMAMatrixB     [4][200]int16 // Per-scanline matrix B updates
+	HDMAMatrixC     [4][200]int16 // Per-scanline matrix C updates
+	HDMAMatrixD     [4][200]int16 // Per-scanline matrix D updates
+	HDMAMatrixCX    [4][200]int16 // Per-scanline center X updates
+	HDMAMatrixCY    [4][200]int16 // Per-scanline center Y updates
 
 	// Frame counter (for ROM timing) - increments once per frame
 	FrameCounter uint16
@@ -55,10 +63,28 @@ type PPU struct {
 	// Logger for centralized logging
 	Logger *debug.Logger
 
+	// Interrupt callback (called when VBlank occurs)
+	// This allows PPU to trigger CPU interrupts
+	InterruptCallback func(interruptType uint8)
+
+	// Memory reader for DMA (reads from ROM/RAM)
+	// Set by emulator to allow DMA transfers
+	MemoryReader func(bank uint8, offset uint16) uint8
+
 	// VRAM/CGRAM/OAM access registers
 	VRAMAddr        uint16
 	CGRAMAddr       uint8
 	CGRAMWriteLatch bool // For 16-bit RGB555 writes
+
+	// DMA (Direct Memory Access)
+	DMAEnabled      bool
+	DMASourceBank   uint8
+	DMASourceOffset uint16
+	DMADestType     uint8 // 0=VRAM, 1=CGRAM, 2=OAM
+	DMADestAddr     uint16
+	DMALength       uint16
+	DMAMode         uint8  // 0=copy, 1=fill
+	DMACycles       uint16 // Cycles remaining for DMA transfer
 	CGRAMWriteValue uint16
 	OAMAddr         uint8
 	OAMByteIndex    uint8 // Current byte index within sprite (0-5)
@@ -96,6 +122,20 @@ type BackgroundLayer struct {
 	Enabled     bool
 	TileSize    bool // false = 8×8, true = 16×16
 	TilemapBase uint16
+
+	// Matrix Mode (per-layer transformation)
+	MatrixEnabled     bool
+	MatrixA, MatrixB  int16 // 8.8 fixed point
+	MatrixC, MatrixD  int16 // 8.8 fixed point
+	MatrixCenterX     int16
+	MatrixCenterY     int16
+	MatrixMirrorH     bool
+	MatrixMirrorV     bool
+	MatrixOutsideMode uint8 // 0=repeat/wrap, 1=backdrop, 2=character #0
+	MatrixDirectColor bool  // Direct color mode (bypass CGRAM, use direct RGB)
+	// Mosaic effect
+	MosaicEnabled bool
+	MosaicSize    uint8 // 1-15 (1 = no effect, 15 = max block size)
 }
 
 // Window represents a window
@@ -191,6 +231,16 @@ func (p *PPU) Read8(offset uint16) uint8 {
 		return uint8(p.FrameCounter & 0xFF)
 	case 0x40: // FRAME_COUNTER_HIGH
 		return uint8(p.FrameCounter >> 8)
+	case 0x60: // DMA_STATUS
+		// Bit 0: DMA active (1=transferring, 0=idle)
+		if p.DMAEnabled && p.DMACycles > 0 {
+			return 0x01
+		}
+		return 0x00
+	case 0x61: // DMA_LENGTH_L
+		return uint8(p.DMALength & 0xFF)
+	case 0x62: // DMA_LENGTH_H
+		return uint8(p.DMALength >> 8)
 	default:
 		return 0
 	}
@@ -336,27 +386,41 @@ func (p *PPU) Write8(offset uint16, value uint8) {
 			}
 		}
 
-	// Matrix Mode
-	case 0x18: // MATRIX_CONTROL
+	// Matrix Mode (Legacy - maps to BG0 for backward compatibility)
+	case 0x18: // MATRIX_CONTROL (BG0)
 		p.MatrixEnabled = (value & 0x01) != 0
 		p.MatrixMirrorH = (value & 0x02) != 0
 		p.MatrixMirrorV = (value & 0x04) != 0
-	case 0x19: // MATRIX_A_L
+		p.BG0.MatrixOutsideMode = (value >> 3) & 0x3  // Bits [4:3]
+		p.BG0.MatrixDirectColor = (value & 0x20) != 0 // Bit 5
+		// Also update BG0 matrix
+		p.BG0.MatrixEnabled = (value & 0x01) != 0
+		p.BG0.MatrixMirrorH = (value & 0x02) != 0
+		p.BG0.MatrixMirrorV = (value & 0x04) != 0
+	case 0x19: // MATRIX_A_L (BG0)
 		p.MatrixA = int16((uint16(p.MatrixA) & 0xFF00) | uint16(value))
-	case 0x1A: // MATRIX_A_H
+		p.BG0.MatrixA = p.MatrixA
+	case 0x1A: // MATRIX_A_H (BG0)
 		p.MatrixA = int16((uint16(p.MatrixA) & 0x00FF) | (uint16(value) << 8))
-	case 0x1B: // MATRIX_B_L
+		p.BG0.MatrixA = p.MatrixA
+	case 0x1B: // MATRIX_B_L (BG0)
 		p.MatrixB = int16((uint16(p.MatrixB) & 0xFF00) | uint16(value))
-	case 0x1C: // MATRIX_B_H
+		p.BG0.MatrixB = p.MatrixB
+	case 0x1C: // MATRIX_B_H (BG0)
 		p.MatrixB = int16((uint16(p.MatrixB) & 0x00FF) | (uint16(value) << 8))
-	case 0x1D: // MATRIX_C_L
+		p.BG0.MatrixB = p.MatrixB
+	case 0x1D: // MATRIX_C_L (BG0)
 		p.MatrixC = int16((uint16(p.MatrixC) & 0xFF00) | uint16(value))
-	case 0x1E: // MATRIX_C_H
+		p.BG0.MatrixC = p.MatrixC
+	case 0x1E: // MATRIX_C_H (BG0)
 		p.MatrixC = int16((uint16(p.MatrixC) & 0x00FF) | (uint16(value) << 8))
-	case 0x1F: // MATRIX_D_L
+		p.BG0.MatrixC = p.MatrixC
+	case 0x1F: // MATRIX_D_L (BG0)
 		p.MatrixD = int16((uint16(p.MatrixD) & 0xFF00) | uint16(value))
-	case 0x20: // MATRIX_D_H
+		p.BG0.MatrixD = p.MatrixD
+	case 0x20: // MATRIX_D_H (BG0)
 		p.MatrixD = int16((uint16(p.MatrixD) & 0x00FF) | (uint16(value) << 8))
+		p.BG0.MatrixD = p.MatrixD
 
 	// BG2/BG3 control
 	case 0x21: // BG2_CONTROL
@@ -374,48 +438,231 @@ func (p *PPU) Write8(offset uint16, value uint8) {
 		p.BG3.Enabled = (value & 0x01) != 0
 		p.BG3.TileSize = (value & 0x02) != 0
 
-	// Matrix center
-	case 0x27: // MATRIX_CENTER_X_L
+	// Matrix center (BG0)
+	case 0x27: // MATRIX_CENTER_X_L (BG0)
 		p.MatrixCenterX = int16((uint16(p.MatrixCenterX) & 0xFF00) | uint16(value))
-	case 0x28: // MATRIX_CENTER_X_H
+		p.BG0.MatrixCenterX = p.MatrixCenterX
+	case 0x28: // MATRIX_CENTER_X_H (BG0)
 		p.MatrixCenterX = int16((uint16(p.MatrixCenterX) & 0x00FF) | (uint16(value) << 8))
-	case 0x29: // MATRIX_CENTER_Y_L
+		p.BG0.MatrixCenterX = p.MatrixCenterX
+	case 0x29: // MATRIX_CENTER_Y_L (BG0)
 		p.MatrixCenterY = int16((uint16(p.MatrixCenterY) & 0xFF00) | uint16(value))
-	case 0x2A: // MATRIX_CENTER_Y_H
+		p.BG0.MatrixCenterY = p.MatrixCenterY
+	case 0x2A: // MATRIX_CENTER_Y_H (BG0)
 		p.MatrixCenterY = int16((uint16(p.MatrixCenterY) & 0x00FF) | (uint16(value) << 8))
+		p.BG0.MatrixCenterY = p.MatrixCenterY
 
-	// Windowing
-	case 0x2B: // WINDOW0_LEFT
+	// BG1 Matrix Mode (per-layer transformation)
+	case 0x2B: // BG1_MATRIX_CONTROL
+		p.BG1.MatrixEnabled = (value & 0x01) != 0
+		p.BG1.MatrixMirrorH = (value & 0x02) != 0
+		p.BG1.MatrixMirrorV = (value & 0x04) != 0
+		p.BG1.MatrixOutsideMode = (value >> 3) & 0x3  // Bits [4:3]
+		p.BG1.MatrixDirectColor = (value & 0x20) != 0 // Bit 5
+	case 0x2C: // BG1_MATRIX_A_L
+		p.BG1.MatrixA = int16((uint16(p.BG1.MatrixA) & 0xFF00) | uint16(value))
+	case 0x2D: // BG1_MATRIX_A_H
+		p.BG1.MatrixA = int16((uint16(p.BG1.MatrixA) & 0x00FF) | (uint16(value) << 8))
+	case 0x2E: // BG1_MATRIX_B_L
+		p.BG1.MatrixB = int16((uint16(p.BG1.MatrixB) & 0xFF00) | uint16(value))
+	case 0x2F: // BG1_MATRIX_B_H
+		p.BG1.MatrixB = int16((uint16(p.BG1.MatrixB) & 0x00FF) | (uint16(value) << 8))
+	case 0x30: // BG1_MATRIX_C_L
+		p.BG1.MatrixC = int16((uint16(p.BG1.MatrixC) & 0xFF00) | uint16(value))
+	case 0x31: // BG1_MATRIX_C_H
+		p.BG1.MatrixC = int16((uint16(p.BG1.MatrixC) & 0x00FF) | (uint16(value) << 8))
+	case 0x32: // BG1_MATRIX_D_L
+		p.BG1.MatrixD = int16((uint16(p.BG1.MatrixD) & 0xFF00) | uint16(value))
+	case 0x33: // BG1_MATRIX_D_H
+		p.BG1.MatrixD = int16((uint16(p.BG1.MatrixD) & 0x00FF) | (uint16(value) << 8))
+	case 0x34: // BG1_MATRIX_CENTER_X_L
+		p.BG1.MatrixCenterX = int16((uint16(p.BG1.MatrixCenterX) & 0xFF00) | uint16(value))
+	case 0x35: // BG1_MATRIX_CENTER_X_H
+		p.BG1.MatrixCenterX = int16((uint16(p.BG1.MatrixCenterX) & 0x00FF) | (uint16(value) << 8))
+	case 0x36: // BG1_MATRIX_CENTER_Y_L
+		p.BG1.MatrixCenterY = int16((uint16(p.BG1.MatrixCenterY) & 0xFF00) | uint16(value))
+	case 0x37: // BG1_MATRIX_CENTER_Y_H
+		p.BG1.MatrixCenterY = int16((uint16(p.BG1.MatrixCenterY) & 0x00FF) | (uint16(value) << 8))
+
+	// BG2 Matrix Mode
+	case 0x38: // BG2_MATRIX_CONTROL
+		p.BG2.MatrixEnabled = (value & 0x01) != 0
+		p.BG2.MatrixMirrorH = (value & 0x02) != 0
+		p.BG2.MatrixMirrorV = (value & 0x04) != 0
+		p.BG2.MatrixOutsideMode = (value >> 3) & 0x3  // Bits [4:3]
+		p.BG2.MatrixDirectColor = (value & 0x20) != 0 // Bit 5
+	case 0x39: // BG2_MATRIX_A_L
+		p.BG2.MatrixA = int16((uint16(p.BG2.MatrixA) & 0xFF00) | uint16(value))
+	case 0x3A: // BG2_MATRIX_A_H
+		p.BG2.MatrixA = int16((uint16(p.BG2.MatrixA) & 0x00FF) | (uint16(value) << 8))
+	case 0x3B: // BG2_MATRIX_B_L
+		p.BG2.MatrixB = int16((uint16(p.BG2.MatrixB) & 0xFF00) | uint16(value))
+	case 0x3C: // BG2_MATRIX_B_H
+		p.BG2.MatrixB = int16((uint16(p.BG2.MatrixB) & 0x00FF) | (uint16(value) << 8))
+	case 0x3D: // BG2_MATRIX_C_L
+		p.BG2.MatrixC = int16((uint16(p.BG2.MatrixC) & 0xFF00) | uint16(value))
+	case 0x3E: // BG2_MATRIX_C_H
+		p.BG2.MatrixC = int16((uint16(p.BG2.MatrixC) & 0x00FF) | (uint16(value) << 8))
+	case 0x3F: // BG2_MATRIX_D_L
+		p.BG2.MatrixD = int16((uint16(p.BG2.MatrixD) & 0xFF00) | uint16(value))
+	case 0x40: // BG2_MATRIX_D_H
+		p.BG2.MatrixD = int16((uint16(p.BG2.MatrixD) & 0x00FF) | (uint16(value) << 8))
+	case 0x41: // BG2_MATRIX_CENTER_X_L
+		p.BG2.MatrixCenterX = int16((uint16(p.BG2.MatrixCenterX) & 0xFF00) | uint16(value))
+	case 0x42: // BG2_MATRIX_CENTER_X_H
+		p.BG2.MatrixCenterX = int16((uint16(p.BG2.MatrixCenterX) & 0x00FF) | (uint16(value) << 8))
+	case 0x43: // BG2_MATRIX_CENTER_Y_L
+		p.BG2.MatrixCenterY = int16((uint16(p.BG2.MatrixCenterY) & 0xFF00) | uint16(value))
+	case 0x44: // BG2_MATRIX_CENTER_Y_H
+		p.BG2.MatrixCenterY = int16((uint16(p.BG2.MatrixCenterY) & 0x00FF) | (uint16(value) << 8))
+
+	// BG3 Matrix Mode
+	case 0x45: // BG3_MATRIX_CONTROL
+		p.BG3.MatrixEnabled = (value & 0x01) != 0
+		p.BG3.MatrixMirrorH = (value & 0x02) != 0
+		p.BG3.MatrixMirrorV = (value & 0x04) != 0
+		p.BG3.MatrixOutsideMode = (value >> 3) & 0x3  // Bits [4:3]
+		p.BG3.MatrixDirectColor = (value & 0x20) != 0 // Bit 5
+	case 0x46: // BG3_MATRIX_A_L
+		p.BG3.MatrixA = int16((uint16(p.BG3.MatrixA) & 0xFF00) | uint16(value))
+	case 0x47: // BG3_MATRIX_A_H
+		p.BG3.MatrixA = int16((uint16(p.BG3.MatrixA) & 0x00FF) | (uint16(value) << 8))
+	case 0x48: // BG3_MATRIX_B_L
+		p.BG3.MatrixB = int16((uint16(p.BG3.MatrixB) & 0xFF00) | uint16(value))
+	case 0x49: // BG3_MATRIX_B_H
+		p.BG3.MatrixB = int16((uint16(p.BG3.MatrixB) & 0x00FF) | (uint16(value) << 8))
+	case 0x4A: // BG3_MATRIX_C_L
+		p.BG3.MatrixC = int16((uint16(p.BG3.MatrixC) & 0xFF00) | uint16(value))
+	case 0x4B: // BG3_MATRIX_C_H
+		p.BG3.MatrixC = int16((uint16(p.BG3.MatrixC) & 0x00FF) | (uint16(value) << 8))
+	case 0x4C: // BG3_MATRIX_D_L
+		p.BG3.MatrixD = int16((uint16(p.BG3.MatrixD) & 0xFF00) | uint16(value))
+	case 0x4D: // BG3_MATRIX_D_H
+		p.BG3.MatrixD = int16((uint16(p.BG3.MatrixD) & 0x00FF) | (uint16(value) << 8))
+	case 0x4E: // BG3_MATRIX_CENTER_X_L
+		p.BG3.MatrixCenterX = int16((uint16(p.BG3.MatrixCenterX) & 0xFF00) | uint16(value))
+	case 0x4F: // BG3_MATRIX_CENTER_X_H
+		p.BG3.MatrixCenterX = int16((uint16(p.BG3.MatrixCenterX) & 0x00FF) | (uint16(value) << 8))
+	case 0x50: // BG3_MATRIX_CENTER_Y_L
+		p.BG3.MatrixCenterY = int16((uint16(p.BG3.MatrixCenterY) & 0xFF00) | uint16(value))
+	case 0x51: // BG3_MATRIX_CENTER_Y_H
+		p.BG3.MatrixCenterY = int16((uint16(p.BG3.MatrixCenterY) & 0x00FF) | (uint16(value) << 8))
+
+	// Windowing (0x52-0x5C)
+	case 0x52: // WINDOW0_LEFT
 		p.Window0.Left = value
-	case 0x2C: // WINDOW0_RIGHT
+	case 0x53: // WINDOW0_RIGHT
 		p.Window0.Right = value
-	case 0x2D: // WINDOW0_TOP
+	case 0x54: // WINDOW0_TOP
 		p.Window0.Top = value
-	case 0x2E: // WINDOW0_BOTTOM
+	case 0x55: // WINDOW0_BOTTOM
 		p.Window0.Bottom = value
-	case 0x2F: // WINDOW1_LEFT
+	case 0x56: // WINDOW1_LEFT
 		p.Window1.Left = value
-	case 0x30: // WINDOW1_RIGHT
+	case 0x57: // WINDOW1_RIGHT
 		p.Window1.Right = value
-	case 0x31: // WINDOW1_TOP
+	case 0x58: // WINDOW1_TOP
 		p.Window1.Top = value
-	case 0x32: // WINDOW1_BOTTOM
+	case 0x59: // WINDOW1_BOTTOM
 		p.Window1.Bottom = value
-	case 0x33: // WINDOW_CONTROL
+	case 0x5A: // WINDOW_CONTROL
 		p.WindowControl = value
-	case 0x34: // WINDOW_MAIN_ENABLE
+	case 0x5B: // WINDOW_MAIN_ENABLE
 		p.WindowMainEnable = value
-	case 0x35: // WINDOW_SUB_ENABLE
+	case 0x5C: // WINDOW_SUB_ENABLE
 		p.WindowSubEnable = value
 
-	// HDMA
-	case 0x36: // HDMA_CONTROL
+	// HDMA (0x5D-0x5F)
+	case 0x5D: // HDMA_CONTROL
+		// Bit 0: HDMA enable
+		// Bits 1-4: Layer enable for scroll HDMA (BG0-BG3)
+		// Bits 5-7: Reserved for future use (matrix HDMA is always enabled if layer has matrix enabled)
 		p.HDMAEnabled = (value & 0x01) != 0
-	case 0x37: // HDMA_TABLE_BASE_L
+		p.HDMAControl = value
+	case 0x5E: // HDMA_TABLE_BASE_L
 		p.HDMATableBase = (p.HDMATableBase & 0xFF00) | uint16(value)
-	case 0x38: // HDMA_TABLE_BASE_H
+	case 0x5F: // HDMA_TABLE_BASE_H
 		p.HDMATableBase = (p.HDMATableBase & 0x00FF) | (uint16(value) << 8)
+
+	// DMA registers (0x8060-0x8067, but offset is relative to 0x8000, so 0x60-0x67)
+	case 0x60: // DMA_CONTROL
+		// Bit 0: Enable DMA (1=start transfer, 0=disable)
+		// Bit 1: Mode (0=copy, 1=fill)
+		// Bits [3:2]: Destination type (0=VRAM, 1=CGRAM, 2=OAM)
+		if (value & 0x01) != 0 {
+			// Start DMA transfer
+			p.DMAEnabled = true
+			p.DMAMode = (value >> 1) & 0x01
+			p.DMADestType = (value >> 2) & 0x3
+			p.DMACycles = p.DMALength // Initialize cycle counter
+			// Execute DMA transfer immediately (for simplicity, can be made cycle-accurate later)
+			p.executeDMA()
+		} else {
+			p.DMAEnabled = false
+		}
+	case 0x61: // DMA_SOURCE_BANK
+		p.DMASourceBank = value
+	case 0x62: // DMA_SOURCE_OFFSET_L
+		p.DMASourceOffset = (p.DMASourceOffset & 0xFF00) | uint16(value)
+	case 0x63: // DMA_SOURCE_OFFSET_H
+		p.DMASourceOffset = (p.DMASourceOffset & 0x00FF) | (uint16(value) << 8)
+	case 0x64: // DMA_DEST_ADDR_L
+		p.DMADestAddr = (p.DMADestAddr & 0xFF00) | uint16(value)
+	case 0x65: // DMA_DEST_ADDR_H
+		p.DMADestAddr = (p.DMADestAddr & 0x00FF) | (uint16(value) << 8)
+	case 0x66: // DMA_LENGTH_L
+		p.DMALength = (p.DMALength & 0xFF00) | uint16(value)
+	case 0x67: // DMA_LENGTH_H
+		p.DMALength = (p.DMALength & 0x00FF) | (uint16(value) << 8)
+	default:
+		// Unknown register, ignore
 	}
+}
+
+// executeDMA executes a DMA transfer
+func (p *PPU) executeDMA() {
+	if !p.DMAEnabled || p.MemoryReader == nil {
+		return
+	}
+
+	// Read fill value once for fill mode
+	var fillValue uint8
+	if p.DMAMode == 1 {
+		fillValue = p.MemoryReader(p.DMASourceBank, p.DMASourceOffset)
+	}
+
+	for i := uint16(0); i < p.DMALength; i++ {
+		var data uint8
+
+		if p.DMAMode == 1 {
+			// Fill mode: use fill value for all bytes
+			data = fillValue
+		} else {
+			// Copy mode: read from source
+			data = p.MemoryReader(p.DMASourceBank, p.DMASourceOffset+i)
+		}
+
+		// Write to destination
+		switch p.DMADestType {
+		case 0: // VRAM
+			destAddr := uint32(p.DMADestAddr) + uint32(i)
+			if destAddr < 65536 {
+				p.VRAM[destAddr] = data
+			}
+		case 1: // CGRAM
+			// CGRAM is 16-bit (RGB555), so we need to handle it specially
+			// For simplicity, write as 8-bit (low byte only)
+			addr := (p.DMADestAddr + i) & 0x1FF // Wrap at 512 bytes
+			p.CGRAM[addr] = data
+		case 2: // OAM
+			addr := (p.DMADestAddr + i) & 0x2FF // Wrap at 768 bytes
+			p.OAM[addr] = data
+		}
+	}
+
+	// DMA complete
+	p.DMAEnabled = false
+	p.DMACycles = 0
 }
 
 // Read16 reads a 16-bit value from PPU registers
@@ -680,9 +927,11 @@ func (p *PPU) renderBackgroundLayer(layerNum int) {
 }
 
 // renderMatrixMode renders Matrix Mode (Mode 7-style)
+// NOTE: This is the old frame-based rendering function (deprecated)
+// Clock-driven mode uses renderDotMatrixMode() instead
 func (p *PPU) renderMatrixMode() {
-	// TODO: Implement Matrix Mode transformation
-	// For now, just render BG0 normally
+	// Clock-driven mode uses renderDotMatrixMode() per-pixel
+	// This function is kept for compatibility but should not be called in clock-driven mode
 	p.renderBackgroundLayer(0)
 }
 

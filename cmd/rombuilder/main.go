@@ -172,7 +172,7 @@ func main() {
 
 	// For now, we'll create a minimal loop that at least runs
 	// JMP main_loop (relative offset will be calculated)
-	mainLoopStart := uint16(len(builder.code) * 2) // Current position in bytes
+	mainLoopStart := uint16(builder.GetCodeLength() * 2) // Current position in bytes
 
 	// Simple delay loop
 	// MOV R6, #0  (counter)
@@ -180,7 +180,7 @@ func main() {
 	builder.AddImmediate(0)
 
 	// delay_loop:
-	delayLoopStart := uint16(len(builder.code) * 2)
+	delayLoopStart := uint16(builder.GetCodeLength() * 2)
 
 	// ADD R6, #1
 	builder.AddInstruction(rom.EncodeADD(1, 6, 0))
@@ -192,13 +192,13 @@ func main() {
 
 	// BNE delay_loop
 	builder.AddInstruction(rom.EncodeBNE())
-	currentPC := uint16(len(builder.code)*2 + 2) // PC after instruction + offset
+	currentPC := uint16(builder.GetCodeLength()*2 + 2) // PC after instruction + offset
 	offset := rom.CalculateBranchOffset(currentPC, delayLoopStart)
 	builder.AddImmediate(uint16(offset))
 
 	// JMP main_loop
 	builder.AddInstruction(rom.EncodeJMP())
-	currentPC = uint16(len(builder.code)*2 + 2)
+	currentPC = uint16(builder.GetCodeLength()*2 + 2)
 	offset = rom.CalculateBranchOffset(currentPC, mainLoopStart)
 	builder.AddImmediate(uint16(offset))
 
@@ -209,7 +209,7 @@ func main() {
 	}
 
 	fmt.Printf("ROM built successfully: %s\n", outputPath)
-	fmt.Printf("ROM size: %d bytes\n", len(builder.code)*2)
+	fmt.Printf("ROM size: %d bytes\n", builder.GetCodeLength()*2)
 }
 
 

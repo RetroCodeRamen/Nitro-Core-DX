@@ -84,6 +84,27 @@ func NewEmulatorWithLogger(logger *debug.Logger) *Emulator {
 	// Create CPU with bus (not MemorySystem)
 	cpu := cpu.NewCPU(bus, cpuLogger)
 
+	// Set up PPU interrupt callback to trigger CPU interrupts
+	ppu.InterruptCallback = func(interruptType uint8) {
+		cpu.TriggerInterrupt(interruptType)
+	}
+
+	// Set up PPU memory reader for DMA
+	ppu.MemoryReader = func(bank uint8, offset uint16) uint8 {
+		return bus.Read8(bank, offset)
+	}
+
+	// Initialize interrupt vectors in memory (bank 0, addresses 0xFFE0-0xFFE3)
+	// Default vectors point to ROM entry point (can be overridden by ROM)
+	// Vector format: 2 bytes per vector (bank, offset_high)
+	// Offset low byte is always 0x00 (ROM addresses start at 0x8000+)
+	// IRQ vector (0xFFE0-0xFFE1): bank, offset_high
+	bus.Write8(0, 0xFFE0, 0x01) // Default bank 1
+	bus.Write8(0, 0xFFE1, 0x80) // Default offset high byte (0x8000)
+	// NMI vector (0xFFE2-0xFFE3): bank, offset_high
+	bus.Write8(0, 0xFFE2, 0x01) // Default bank 1
+	bus.Write8(0, 0xFFE3, 0x80) // Default offset high byte (0x8000)
+
 	// Create clock scheduler (~7.67 MHz CPU, ~7.67 MHz PPU, 44,100 Hz APU)
 	// Genesis-like speed: 7,670,000 Hz
 	// At 60 FPS: 127,833 cycles per frame (220 scanlines × 581 dots = 127,820 cycles)

@@ -45,15 +45,8 @@ func main() {
 	pcHistory := make(map[string]int)
 	oamWriteCount := 0
 	
-	// Hook into PPU Write8 to count OAM writes
-	originalWrite8 := emu.PPU.Write8
-	emu.PPU.Write8 = func(offset uint16, value uint8) {
-		if offset == 0x14 || offset == 0x15 {
-			oamWriteCount++
-			fmt.Printf("  [PPU] OAM write: offset=0x%02X, value=0x%02X (write #%d)\n", offset, value, oamWriteCount)
-		}
-		originalWrite8(offset, value)
-	}
+	// Note: OAM writes will be logged via the logger if PPU logging is enabled
+	// We can track OAM writes by monitoring the logger output or checking OAM state
 
 	emu.Start()
 

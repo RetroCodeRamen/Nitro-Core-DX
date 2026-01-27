@@ -37,6 +37,19 @@ type APU struct {
 	// ROM can read this once per frame to check for completion
 	// This register is automatically cleared after being read
 	ChannelCompletionStatus uint8
+	
+	// PCM playback support
+	PCMChannels [4]PCMChannel // One PCM channel per audio channel
+}
+
+// PCMChannel represents a PCM playback channel
+type PCMChannel struct {
+	Enabled      bool
+	SampleData   []int8  // PCM sample data (8-bit signed)
+	SampleRate   uint32  // Sample rate for this PCM stream
+	PlayPosition uint32  // Current playback position (in samples)
+	Loop         bool    // Loop playback
+	Volume       uint8   // PCM volume (0-255)
 }
 
 // AudioChannel represents an audio channel
@@ -126,10 +139,14 @@ func (a *APU) Read8(offset uint16) uint8 {
 		return uint8(ch.Frequency >> 8)
 	case 2: // VOLUME
 		return ch.Volume
-	case 3: // CONTROL - enable bit + waveform
+	case 3: // CONTROL - enable bit + waveform + PCM mode
 		control := uint8(0)
 		if ch.Enabled {
 			control |= 0x01
+		}
+		// Bit 4: PCM mode (1=PCM, 0=waveform)
+		if a.PCMChannels[channel].Enabled {
+			control |= 0x10
 		}
 		if channel < 3 {
 			control |= (ch.Waveform & 0x3) << 1
@@ -360,25 +377,64 @@ func (a *APU) GenerateSample() float32 {
 
 	for i := 0; i < 4; i++ {
 		ch := &a.Channels[i]
+		pcmCh := &a.PCMChannels[i]
+		
 		if !ch.Enabled {
 			continue
 		}
 
-		// Debug: Log if channel is enabled but has no phase increment
-		if ch.PhaseIncrement == 0 && ch.Frequency > 0 {
-			// This shouldn't happen, but log it once
-			if a.debugFrameCount < 5 && a.Logger != nil {
-				a.Logger.LogAPUf(debug.LogLevelWarning,
-					"Channel %d enabled with frequency %d Hz but PhaseIncrement is 0! (SampleRate=%d)",
-					i, ch.Frequency, a.SampleRate)
-			}
-		}
-
-		// Debug logging removed - audio generation is working
-
 		var channelSample float32
 
-		switch ch.Waveform {
+		// Check if this channel is in PCM mode
+		if pcmCh.Enabled && len(pcmCh.SampleData) > 0 {
+			// PCM playback mode
+			if int(pcmCh.PlayPosition) < len(pcmCh.SampleData) {
+				// Get sample (8-bit signed -> -1.0 to 1.0)
+				sampleValue := float32(pcmCh.SampleData[pcmCh.PlayPosition]) / 128.0
+				channelSample = sampleValue
+				
+				// Advance playback position
+				pcmCh.PlayPosition++
+				
+				// Handle looping after advancing
+				if pcmCh.Loop && int(pcmCh.PlayPosition) >= len(pcmCh.SampleData) {
+					pcmCh.PlayPosition = 0 // Wrap to start
+				}
+			} else {
+				// PlayPosition is past end - handle based on loop mode
+				if pcmCh.Loop {
+					// Loop: wrap to start and play first sample
+					pcmCh.PlayPosition = 0
+					if len(pcmCh.SampleData) > 0 {
+						sampleValue := float32(pcmCh.SampleData[0]) / 128.0
+						channelSample = sampleValue
+					} else {
+						channelSample = 0.0
+					}
+				} else {
+					// One-shot: disable and output silence
+					channelSample = 0.0
+					pcmCh.Enabled = false
+					ch.Enabled = false
+				}
+			}
+			
+			// Apply PCM volume
+			volume := float32(pcmCh.Volume) / 255.0
+			channelSample *= volume
+		} else {
+			// Normal waveform generation mode
+			// Debug: Log if channel is enabled but has no phase increment
+			if ch.PhaseIncrement == 0 && ch.Frequency > 0 {
+				// This shouldn't happen, but log it once
+				if a.debugFrameCount < 5 && a.Logger != nil {
+					a.Logger.LogAPUf(debug.LogLevelWarning,
+						"Channel %d enabled with frequency %d Hz but PhaseIncrement is 0! (SampleRate=%d)",
+						i, ch.Frequency, a.SampleRate)
+				}
+			}
+
+			switch ch.Waveform {
 		case 0: // Sine wave
 			// Smooth sine wave: sin(phase) gives -1.0 to 1.0
 			channelSample = float32(math.Sin(ch.Phase))
@@ -411,9 +467,10 @@ func (a *APU) GenerateSample() float32 {
 			}
 		}
 
-		// Apply channel volume (0-255 -> 0.0-1.0)
-		volume := float32(ch.Volume) / 255.0
-		channelSample *= volume
+			// Apply channel volume (0-255 -> 0.0-1.0)
+			volume := float32(ch.Volume) / 255.0
+			channelSample *= volume
+		}
 
 		// Debug logging removed - audio generation is working
 

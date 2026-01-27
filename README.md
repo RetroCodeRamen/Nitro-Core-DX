@@ -12,24 +12,31 @@ A custom 16-bit fantasy console emulator inspired by classic 8/16-bit consoles, 
 
 ### ✅ Currently Implemented
 
-- **Core Emulation**: CPU, Memory, PPU, APU, Input systems
+- **Core Emulation**: CPU, Memory, PPU, APU, Input systems (100% complete)
 - **Synchronization**: One-shot completion status, frame counter, VBlank flag
-- **Basic Rendering**: Sprite system, background layers, tile rendering
-- **Audio System**: 4-channel audio synthesis with duration control
+- **Graphics System**: Complete PPU with all features
+  - Sprite system with priority, blending, and alpha transparency
+  - 4 background layers with per-layer Matrix Mode transformations
+  - Matrix Mode with outside-screen handling and direct color mode
+  - Mosaic effect, DMA transfers, sprite-to-background priority
+- **Audio System**: 4-channel audio synthesis with PCM playback support
+  - Waveform generation (sine, square, saw, noise)
+  - PCM sample playback with loop and one-shot modes
+  - Volume control and duration management
+- **Interrupt System**: Complete IRQ/NMI handling with vector table
 - **ROM Loading**: Complete ROM header parsing and execution
 - **Debugging Tools**: Register viewer, memory viewer, cycle-by-cycle logger
-- **Sprite Animation**: Working sprite movement with VBlank synchronization
+- **Test Suite**: Comprehensive tests for all hardware features
 
 ### 🚧 In Progress
 
-- **PPU Rendering**: Full tilemap implementation, Matrix Mode transformation
-- **Development Tools**: Tile viewer panel, advanced debugging features
+- **Development Tools**: Advanced debugging features, tile viewer panel
+- **Language Design**: NitroLang compiler design (documentation phase)
 
-### ❌ Planned
+### ❌ Optional Enhancements (Not Required)
 
-- **UI Framework**: SDL2-based interface with dockable panels
-- **Advanced Features**: HDMA, large world support, vertical sprites
-- **Development Tools**: CPU debugger, PPU viewer, APU analyzer
+- **Vertical Sprites**: 3D sprite scaling for Matrix Mode (can be added later)
+- **FM Synthesis**: Advanced audio synthesis (can be added later)
 
 For detailed status, see the [System Manual](SYSTEM_MANUAL.md).
 

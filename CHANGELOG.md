@@ -12,6 +12,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Test Suite** - Comprehensive test coverage for all new features
+  - Sprite priority, blending, and mosaic effect tests
+  - Matrix Mode outside-screen and direct color tests
+  - DMA transfer tests
+  - PCM playback tests (basic, loop, one-shot, volume)
+  - Interrupt system tests (IRQ, NMI, masking)
+  - Test documentation (TEST_SUMMARY.md, TEST_RESULTS.md, TEST_FIXES.md)
+- **ROM Compatibility Fix** - Fixed sprite blending backward compatibility
+  - Normal mode (blendMode=0) now ignores alpha value
+  - Maintains compatibility with ROMs using control byte 0x03
+  - Fixed sprite transparency issue in normal mode
+- **Matrix Mode Outside-Screen Handling** - Complete outside-screen coordinate handling
+  - Repeat/wrap mode (default)
+  - Backdrop mode (render backdrop color when outside bounds)
+  - Character #0 mode (render tile 0 when outside bounds)
+- **Matrix Mode Direct Color Mode** - Direct RGB color rendering
+  - Bypass CGRAM palette lookup
+  - Direct 4-bit per channel color expansion
+  - Per-layer direct color control
+- **PCM Playback** - Complete PCM audio playback system
+  - PCM channel support (one per audio channel)
+  - 8-bit signed PCM sample playback
+  - Loop and one-shot playback modes
+  - PCM volume control
+  - Integrated with existing audio channel system
+- **Sprite Blending/Alpha** - Complete sprite blending system
+  - Normal, alpha, additive, and subtractive blend modes
+  - Alpha transparency (0-15 levels)
+  - Sprite-to-background blending
+- **Mosaic Effect** - Per-layer mosaic support
+  - Configurable mosaic size (1-15 pixels)
+  - Pixel grouping for retro/pixelated effects
+- **DMA System** - Direct Memory Access for fast transfers
+  - Memory to VRAM/CGRAM/OAM transfers
+  - Copy and fill modes
+  - DMA registers and control
+- **Sprite Priority System** - Complete sprite priority sorting and rendering
+  - Sprites sorted by priority (bits [7:6] of attributes)
+  - Proper sprite-to-background priority interaction
+  - Unified priority system (BG3=3, BG2=2, BG1=1, BG0=0, Sprites=0-3)
+  - Sprites can render behind backgrounds based on priority
+- **Interrupt System** - Complete interrupt handling implementation
+  - IRQ/NMI handlers with vector table
+  - Interrupt vector table (bank 0, addresses 0xFFE0-0xFFE3)
+  - VBlank interrupt (IRQ) automatically triggered
+  - Interrupt state saving (PC, PBR, Flags to stack)
+  - Non-maskable interrupt (NMI) support
+  - Interrupt enable/disable via I flag
+- **Per-Layer Matrix Mode** - Each background layer (BG0-BG3) now supports independent Matrix Mode transformations
+  - BG1, BG2, BG3 matrix registers (0x802B-0x8051)
+  - Multiple simultaneous 3D objects (roads, buildings, boxes, etc.)
+  - Per-layer matrix control, center points, and mirroring
+- **HDMA Matrix Updates** - Per-scanline matrix parameter updates via HDMA
+  - Matrix A, B, C, D, Center X, Center Y can be updated every scanline
+  - Enables advanced perspective effects (roads, buildings, 3D landscapes)
+  - HDMA table format: 64 bytes per scanline (4 layers × 16 bytes)
+- **Enhanced Matrix Mode Capabilities**:
+  - Multiple simultaneous transformations (SNES Mode 7 could only do one layer)
+  - Per-scanline perspective effects
+  - 3D town scenes with multiple transformed objects
+  - Independent transformations per layer
 - **Timing Synchronization** - Unified clock system with CPU and PPU synchronized at ~7.67 MHz (Genesis-like speed)
   - CPU speed: 7,670,000 Hz (changed from 10 MHz)
   - PPU timing: 220 scanlines × 581 dots = 127,820 cycles per frame
@@ -30,6 +91,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `docs/TIMING_FIX_SUMMARY.md` - Summary of timing synchronization changes
 
 ### Changed
+- **Matrix Mode Implementation** - Fully implemented with per-layer support
+  - Matrix Mode status updated from "not fully implemented" to "fully implemented"
+  - Legacy Matrix Mode registers (0x8018-0x802A) now map to BG0 for backward compatibility
+- **Register Map Updates**:
+  - Window registers moved to 0x8052-0x805C (was 0x802B-0x8035)
+  - HDMA registers moved to 0x805D-0x805F (was 0x8036-0x8038)
+  - New per-layer matrix registers added (0x802B-0x8051)
 - **CPU Clock Speed** - Reduced from 10 MHz to ~7.67 MHz (Genesis-like)
   - Target: 127,820 cycles per frame at 60 FPS
   - Better matches Genesis console speed
@@ -44,6 +112,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Build System** - Added `-tags no_sdl_ttf` build option
   - Allows building without SDL2_ttf dependency
   - Uses simple bitmap font renderer as fallback
+- **Documentation** - Updated Programming Manual with new features
+  - Added per-layer matrix register documentation
+  - Added HDMA matrix update documentation
+  - Added interrupt system documentation (new section)
+  - Updated register map with new matrix registers
+  - Added examples for multiple simultaneous matrix transformations
+  - Added interrupt handler examples
 
 ### Fixed
 - **Performance Issues** - Removed excessive logging overhead

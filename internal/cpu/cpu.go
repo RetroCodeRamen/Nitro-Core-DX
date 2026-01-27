@@ -41,6 +41,21 @@ const (
 	FlagD = 5 // Division by zero (set when division by zero occurs)
 )
 
+// Interrupt types
+const (
+	INT_NONE   = 0 // No interrupt
+	INT_VBLANK = 1 // VBlank interrupt (IRQ)
+	INT_TIMER  = 2 // Timer interrupt (IRQ) - future
+	INT_NMI    = 3 // Non-maskable interrupt
+)
+
+// Interrupt vector addresses (in bank 0)
+const (
+	VectorIRQ  = 0xFFE0 // IRQ vector (2 bytes: bank, offset)
+	VectorNMI  = 0xFFE2 // NMI vector (2 bytes: bank, offset)
+	VectorRESET = 0xFFE4 // Reset vector (2 bytes: bank, offset) - for future use
+)
+
 // CPU represents the emulated CPU
 type CPU struct {
 	State CPUState
@@ -357,9 +372,15 @@ func (c *CPU) ExecuteCycles(targetCycles uint32) error {
 			return err
 		}
 		
-		// Check for interrupts
-		if c.State.InterruptPending != 0 && !c.GetFlag(FlagI) {
-			// TODO: Handle interrupt
+		// Check for interrupts (at end of instruction)
+		if c.State.InterruptPending != 0 {
+			// NMI is non-maskable (always handled)
+			// IRQ is maskable (only if I flag is clear)
+			if c.State.InterruptPending == INT_NMI || !c.GetFlag(FlagI) {
+				if err := c.handleInterrupt(c.State.InterruptPending); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	return nil
@@ -370,6 +391,71 @@ func (c *CPU) ExecuteCycles(targetCycles uint32) error {
 func (c *CPU) StepCPU(cycles uint64) error {
 	targetCycles := c.State.Cycles + uint32(cycles)
 	return c.ExecuteCycles(targetCycles)
+}
+
+// handleInterrupt handles an interrupt
+// Saves current state to stack and jumps to interrupt vector
+func (c *CPU) handleInterrupt(interruptType uint8) error {
+	// Determine vector address based on interrupt type
+	var vectorAddr uint16
+	switch interruptType {
+	case INT_VBLANK, INT_TIMER:
+		vectorAddr = VectorIRQ
+	case INT_NMI:
+		vectorAddr = VectorNMI
+	default:
+		return fmt.Errorf("unknown interrupt type: %d", interruptType)
+	}
+
+	// Save current PC to stack (PBR first, then PC)
+	c.Push16(uint16(c.State.PBR))
+	c.Push16(c.State.PCOffset)
+
+	// Save flags to stack
+	c.Push16(uint16(c.State.Flags))
+
+	// Set I flag (disable interrupts)
+	c.SetFlag(FlagI, true)
+
+	// Read interrupt vector from memory (bank 0)
+	// Vector is 2 bytes: bank (1 byte), offset_high (1 byte)
+	// Offset low byte is always 0x00 (ROM addresses start at 0x8000+)
+	vectorBank := uint8(c.Mem.Read8(0, vectorAddr))
+	vectorOffsetHigh := uint8(c.Mem.Read8(0, vectorAddr+1))
+	vectorOffset := uint16(vectorOffsetHigh) << 8 // Offset low byte is 0x00
+
+	// Validate vector
+	if vectorBank == 0 {
+		// Invalid vector - don't jump (prevents crashes)
+		return fmt.Errorf("invalid interrupt vector: bank is 0 (vector at 0x%04X)", vectorAddr)
+	}
+	if vectorOffset < 0x8000 {
+		// Invalid vector - don't jump (prevents crashes)
+		return fmt.Errorf("invalid interrupt vector: offset 0x%04X < 0x8000 (vector at 0x%04X)", vectorOffset, vectorAddr)
+	}
+
+	// Jump to interrupt vector
+	c.State.PBR = vectorBank
+	c.State.PCOffset = vectorOffset
+	c.State.PCBank = vectorBank
+
+	// Clear interrupt pending flag
+	c.State.InterruptPending = INT_NONE
+
+	// Interrupt handling takes cycles
+	c.State.Cycles += 7 // Interrupt overhead (save state + jump)
+
+	return nil
+}
+
+// TriggerInterrupt triggers an interrupt
+// interruptType: INT_VBLANK, INT_TIMER, or INT_NMI
+func (c *CPU) TriggerInterrupt(interruptType uint8) {
+	if interruptType == INT_NONE {
+		return
+	}
+	// Set interrupt pending (will be handled at end of current instruction)
+	c.State.InterruptPending = interruptType
 }
 
 // GetPC returns the current PC as a string (bank:offset)
