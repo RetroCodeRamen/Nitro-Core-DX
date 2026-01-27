@@ -17,6 +17,8 @@
 8. [Testing Framework](#testing-framework)
 9. [SDK Features Plan](#sdk-features-plan)
 10. [Current Issues & Solutions](#current-issues--solutions)
+11. [Hardware Design & Physical Components](#hardware-design--physical-components)
+12. [Stretch Goals](#stretch-goals)
 
 ---
 
@@ -350,6 +352,48 @@ Modified `MOV` mode 2 to automatically detect I/O addresses (bank 0, offset >= 0
 - Performance optimizations
 - SDK asset pipeline
 - IDE integration
+
+### Hardware Design & Physical Components 📋
+
+- **3D Printable Console Casing** - Design hardware casing as 3D printable file
+  - Create STL/3MF files for people to print their own console
+  - Include mounting points for internal components
+  - Design for standard 3D printer bed sizes
+  - Documentation for assembly and component placement
+
+- **3D Printable Controller** - Design controller as 3D printable file
+  - Create STL/3MF files matching the controller mockup
+  - Include button placement and PCB mounting points
+  - Design for comfortable ergonomics
+  - Documentation for assembly and wiring
+
+### Stretch Goals 🎯
+
+**After Dev Kit Completion:**
+
+- **FPGA Implementation** - Port emulator to FPGA hardware
+  - Translate Go architecture to Verilog/VHDL
+  - Target FPGA platform (TBD - likely Lattice or Xilinx)
+  - Hardware verification and testing
+  - Performance optimization for FPGA constraints
+
+- **Production Run** - Physical console manufacturing
+  - **Prerequisites:**
+    - ✅ Dev kit must be complete
+    - ✅ At least 3 good games must be available
+    - ✅ FPGA implementation must be verified
+    - ✅ Funding secured (crowdfunding, investors, etc.)
+  - Manufacturing considerations:
+    - PCB design and assembly
+    - Component sourcing
+    - Quality assurance
+    - Packaging and distribution
+
+**Note:** Production run is a long-term goal and will only proceed if:
+1. Dev kit is fully functional and polished
+2. At least 3 quality games demonstrate the console's capabilities
+3. FPGA implementation is stable and verified
+4. Funding is available to support manufacturing
 
 ---
 
