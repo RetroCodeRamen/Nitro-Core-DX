@@ -12,7 +12,7 @@ A custom 16-bit fantasy console emulator inspired by classic 8/16-bit consoles, 
 
 Ever wonder what would happen if you took the SNES's gorgeous graphics and mixed them with the Genesis's raw horsepower? That's exactly what Nitro-Core-DX is all about. It's a fantasy console that doesn't just emulate the classics—it creates something entirely new by combining the best of both worlds.
 
-Here's what the console will look like when we build the first prototype:
+Here's what the console will look like when I build the first prototype:
 
 <div align="center">
 
@@ -30,7 +30,7 @@ Here's what the console will look like when we build the first prototype:
 
 </div>
 
-Think of it as the console that could have existed in an alternate timeline where Nintendo and Sega decided to collaborate instead of compete. We're building this from the ground up with modern tools, but with the soul of the 16-bit era.
+Think of it as the console that could have existed in an alternate timeline where Nintendo and Sega decided to collaborate instead of compete. I'm building this from the ground up with modern tools, but with the soul of the 16-bit era.
 
 ---
 
@@ -82,25 +82,25 @@ The project documentation is organized into four main documents:
 
 ## The Vision: Best of Both Worlds
 
-Nitro-Core-DX started with a simple question: *"What if?"* What if we could take the SNES's beautiful graphics and combine them with the Genesis's raw speed? What if we didn't have to choose between Mode 7 effects and smooth 60 FPS gameplay?
+Nitro-Core-DX started with a simple question: *"What if?"* What if you could take the SNES's beautiful graphics and combine them with the Genesis's raw speed? What if you didn't have to choose between Mode 7 effects and smooth 60 FPS gameplay?
 
-This isn't just another emulator—it's a passion project that's building something genuinely new. We're not trying to recreate history; we're trying to create the console that *should have* existed. And we're doing it the right way: cycle-accurate emulation, proper architecture, comprehensive testing, and documentation that actually makes sense.
+This isn't just another emulator—it's a passion project that's building something genuinely new. I'm not trying to recreate history; I'm trying to create the console that *should have* existed. And I'm doing it the right way: cycle-accurate emulation, proper architecture, comprehensive testing, and documentation that actually makes sense.
 
-### What We're Stealing (Politely) from SNES
+### What I'm Stealing (Politely) from SNES
 
-The SNES brought us some incredible graphics tech, and we're bringing all of it:
+The SNES brought some incredible graphics tech, and Nitro-Core-DX brings all of it:
 
 - **4 Background Layers** - Parallax scrolling that'll make your eyes happy
-- **Matrix Mode** - Mode 7-style perspective and rotation (but better, because we can do it on multiple layers simultaneously)
+- **Matrix Mode** - Mode 7-style perspective and rotation (but better, because it can do it on multiple layers simultaneously)
 - **32,768 Colors** - That gorgeous 15-bit RGB555 palette
 - **Sprite Magic** - Priorities, blending modes, alpha transparency—the works
 - **Smart Memory** - Banked architecture that gives you flexibility without headaches
 
-### What We're Borrowing from Genesis
+### What I'm Borrowing from Genesis
 
-The Genesis was fast, and we like fast:
+The Genesis was fast, and I like fast:
 
-- **~7.67 MHz CPU** - Nearly 3× faster than the SNES's 2.68 MHz (yes, we did the math)
+- **~7.67 MHz CPU** - Nearly 3× faster than the SNES's 2.68 MHz (yes, the math checks out)
 - **DMA That Actually Works** - Fast memory transfers that don't slow you down
 - **Arcade Performance** - The kind of speed that makes racing games and shooters feel *right*
 
@@ -108,25 +108,25 @@ The Genesis was fast, and we like fast:
 
 A fantasy console that gives you SNES-quality visuals running at Genesis-level performance. Smooth 60 FPS with complex graphics, advanced parallax scrolling, and Matrix Mode effects that can handle 3D landscapes and racing games without breaking a sweat.
 
-**Our Philosophy:**
-We're not in a rush. This is a long-term project where doing it right matters more than doing it fast. Every component gets the attention it deserves—from cycle-accurate CPU emulation to hardware-accurate synchronization signals. We're building something that'll last.
+**My Philosophy:**
+I'm not in a rush. This is a long-term project where doing it right matters more than doing it fast. Every component gets the attention it deserves—from cycle-accurate CPU emulation to hardware-accurate synchronization signals. I'm building something that'll last.
 
 ---
 
-## Why Go? (Or: The Language We Chose After Actually Thinking About It)
+## Why Go? (Or: The Language I Chose After Actually Thinking About It)
 
-We didn't just pick Go because it's trendy. We evaluated multiple languages and Go won because it hits the sweet spot between "fast enough" and "actually maintainable."
+I didn't just pick Go because it's trendy. I evaluated multiple languages and Go won because it hits the sweet spot between "fast enough" and "actually maintainable."
 
 Here's why Go works so well for Nitro-Core-DX:
 
-- **Performance**: Near-native speed that keeps us at a steady 60 FPS without breaking a sweat
+- **Performance**: Near-native speed that keeps it at a steady 60 FPS without breaking a sweat
 - **Developer Experience**: Clean syntax that doesn't make you want to throw your keyboard
 - **Concurrency**: Built-in goroutines that make audio/rendering threading actually pleasant
 - **Cross-Platform**: One binary, runs everywhere (Linux, macOS, Windows—you name it)
 - **Memory Safety**: Garbage collected, but not in a "pause the world for 5 seconds" kind of way
 - **Maintainability**: Code that you can actually read and understand six months later
 
-The best part? When we eventually port this to FPGA hardware, the architecture we've built in Go will translate cleanly. That's not an accident—it's by design.
+The best part? When I eventually port this to FPGA hardware, the architecture I've built in Go will translate cleanly. That's not an accident—it's by design.
 
 ---
 
@@ -162,16 +162,16 @@ The best part? When we eventually port this to FPGA hardware, the architecture w
   - I/O register routing that actually makes sense
 
 - **ROM Loading and Execution**
-  - Proper header parsing (32-byte header, because we're not animals)
+  - Proper header parsing (32-byte header, because proper standards matter)
   - Entry point handling that works the way you expect
   - LoROM-style memory mapping that'll feel familiar
 
 ### Performance (Because Speed Matters)
 
-We target a steady 60 FPS because anything less feels wrong. Here's how we make it happen:
+The emulator targets a steady 60 FPS because anything less feels wrong. Here's how it makes it happen:
 
 - **Frame Limiting**: Automatic 60 FPS that actually works
-  - High-resolution timers (nanosecond precision, because we're not messing around)
+  - High-resolution timers (nanosecond precision, because accuracy matters)
   - Smooth frame pacing (exactly 16.666... milliseconds per frame, no more, no less)
   - No stuttering, no frame drops, no frame skips—just smooth gameplay
 
@@ -186,7 +186,7 @@ We target a steady 60 FPS because anything less feels wrong. Here's how we make 
 
 ### Development Toolkit (For When Things Go Wrong)
 
-The emulator includes a comprehensive debugging environment because let's face it—you're going to need it. We've built the tools we wish existed when we were debugging our own ROMs.
+The emulator includes a comprehensive debugging environment because let's face it—you're going to need it. I've built the tools I wish existed when I was debugging my own ROMs.
 
 #### Logging System
 
@@ -283,9 +283,9 @@ The console has a native resolution of 320×200 pixels. To make it usable on mod
 
 ### Prerequisites
 
-You'll need a few things before we can get started:
+You'll need a few things before you can get started:
 
-- **Go 1.18 or later** ([Download Go](https://golang.org/dl/)) - The language we're using, because it's actually good
+- **Go 1.18 or later** ([Download Go](https://golang.org/dl/)) - The language I'm using, because it's actually good
 - **SDL2 Development Libraries** (for the UI that you'll actually see)
   - **Ubuntu/Debian**: `sudo apt-get install libsdl2-dev`
   - **Fedora/RHEL**: `sudo dnf install SDL2-devel`
@@ -297,7 +297,7 @@ You'll need a few things before we can get started:
   - **macOS**: `brew install sdl2_ttf`
   - **Windows**: Download from [SDL2_ttf website](https://www.libsdl.org/projects/SDL_ttf/)
   
-  *Note: The emulator works fine without SDL2_ttf—we have a built-in bitmap font that looks pretty good.*
+  *Note: The emulator works fine without SDL2_ttf—it has a built-in bitmap font that looks pretty good.*
 
 ### Installation
 
@@ -398,7 +398,7 @@ go fmt ./...
 **Runtime Errors:**
 - Check that the ROM file exists and is readable (file permissions matter!)
 - Verify the ROM file is a valid Nitro-Core-DX ROM (magic number "RMCF")
-- Check console output for specific error messages (we try to make them helpful)
+- Check console output for specific error messages (I try to make them helpful)
 
 ---
 
@@ -482,7 +482,7 @@ nitro-core-dx/
 
 ### Contributing
 
-Contributions are welcome! This project is in active development, and we appreciate any help.
+Contributions are welcome! This project is in active development, and I appreciate any help.
 
 **Getting Started:**
 1. Read the [README.md](README.md) for project overview
@@ -537,7 +537,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Acknowledgments (The People Who Made This Possible)
 
-- **SNES**: For showing us what beautiful 16-bit graphics could look like
+- **SNES**: For showing what beautiful 16-bit graphics could look like
 - **Sega Genesis**: For proving that speed matters just as much as looks
 - **The Retro Gaming Community**: For keeping the spirit of 16-bit gaming alive and inspiring projects like this one
 
