@@ -42,6 +42,7 @@ The project documentation is organized into four main documents:
 - **[README.md](README.md)**: Project overview, quick start, build instructions, and contributing guide
 - **[SYSTEM_MANUAL.md](SYSTEM_MANUAL.md)**: Complete system architecture, FPGA compatibility, testing framework, and development tools
 - **[NITRO_CORE_DX_PROGRAMMING_MANUAL.md](NITRO_CORE_DX_PROGRAMMING_MANUAL.md)**: Complete programming guide for ROM developers
+- **[CHANGELOG.md](CHANGELOG.md)**: Version history and change log
 
 ---
 
