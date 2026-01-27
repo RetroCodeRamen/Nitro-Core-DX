@@ -20,50 +20,51 @@ type PPU struct {
 	BG0, BG1, BG2, BG3 BackgroundLayer
 
 	// Matrix Mode
-	MatrixEnabled      bool
-	MatrixA, MatrixB   int16 // 8.8 fixed point
-	MatrixC, MatrixD   int16 // 8.8 fixed point
-	MatrixCenterX       int16
-	MatrixCenterY       int16
-	MatrixMirrorH       bool
-	MatrixMirrorV       bool
+	MatrixEnabled    bool
+	MatrixA, MatrixB int16 // 8.8 fixed point
+	MatrixC, MatrixD int16 // 8.8 fixed point
+	MatrixCenterX    int16
+	MatrixCenterY    int16
+	MatrixMirrorH    bool
+	MatrixMirrorV    bool
 
 	// Windowing
-	Window0, Window1    Window
-	WindowControl       uint8
-	WindowMainEnable    uint8
-	WindowSubEnable     uint8
+	Window0, Window1 Window
+	WindowControl    uint8
+	WindowMainEnable uint8
+	WindowSubEnable  uint8
 
 	// HDMA
-	HDMAEnabled         bool
-	HDMATableBase       uint16
+	HDMAEnabled   bool
+	HDMATableBase uint16
 
 	// Debug
-	debugFrameCount     int
-	HDMAScrollX         [4][200]int16
-	HDMAScrollY         [4][200]int16
-	
+	debugFrameCount int
+	HDMAScrollX     [4][200]int16
+	HDMAScrollY     [4][200]int16
+
 	// Frame counter (for ROM timing) - increments once per frame
-	FrameCounter        uint16
-	
+	FrameCounter uint16
+
 	// VBlank flag (hardware-accurate synchronization signal)
-	// Set at start of each frame, cleared when read (one-shot)
+	// Set at start of VBlank period (scanline 200), cleared when read (one-shot)
 	// This matches real hardware behavior (NES, SNES, etc.)
-	VBlankFlag          bool
-	
+	// FPGA-implementable: Simple D flip-flop with read-clear logic
+	VBlankFlag bool
+
 	// Logger for centralized logging
-	Logger              *debug.Logger
+	Logger *debug.Logger
 
 	// VRAM/CGRAM/OAM access registers
-	VRAMAddr            uint16
-	CGRAMAddr           uint8
-	CGRAMWriteLatch     bool // For 16-bit RGB555 writes
-	CGRAMWriteValue     uint16
-	OAMAddr             uint8
-	OAMByteIndex        uint8 // Current byte index within sprite (0-5)
+	VRAMAddr        uint16
+	CGRAMAddr       uint8
+	CGRAMWriteLatch bool // For 16-bit RGB555 writes
+	CGRAMWriteValue uint16
+	OAMAddr         uint8
+	OAMByteIndex    uint8 // Current byte index within sprite (0-5)
 
 	// Output buffer (320×200, RGB888)
-	OutputBuffer        [320 * 200]uint32
+	OutputBuffer [320 * 200]uint32
 
 	// Scanline/dot stepping state (for clock-driven operation)
 	currentScanline     int
@@ -71,6 +72,16 @@ type PPU struct {
 	scanlineInitialized bool
 	frameStarted        bool
 	FrameComplete       bool // Set to true when frame rendering is complete (safe to read buffer)
+}
+
+// GetScanline returns the current scanline (for debugging)
+func (p *PPU) GetScanline() int {
+	return p.currentScanline
+}
+
+// GetDot returns the current dot (for debugging)
+func (p *PPU) GetDot() int {
+	return p.currentDot
 }
 
 // BackgroundLayer represents a background layer
@@ -90,13 +101,13 @@ type Window struct {
 // NewPPU creates a new PPU instance
 func NewPPU(logger *debug.Logger) *PPU {
 	return &PPU{
-		BG0: BackgroundLayer{},
-		BG1: BackgroundLayer{},
-		BG2: BackgroundLayer{},
-		BG3: BackgroundLayer{},
+		BG0:     BackgroundLayer{},
+		BG1:     BackgroundLayer{},
+		BG2:     BackgroundLayer{},
+		BG3:     BackgroundLayer{},
 		Window0: Window{},
 		Window1: Window{},
-		Logger: logger,
+		Logger:  logger,
 	}
 }
 
@@ -115,16 +126,58 @@ func (p *PPU) Read8(offset uint16) uint8 {
 		return 0
 	case 0x15: // OAM_DATA
 		if p.OAMAddr < 128 {
-			return p.OAM[p.OAMAddr*6]
+			addr := uint16(p.OAMAddr)*6 + uint16(p.OAMByteIndex)
+			if addr < 768 {
+				value := p.OAM[addr]
+				// Increment byte index (like write does)
+				p.OAMByteIndex++
+				if p.OAMByteIndex >= 6 {
+					// Move to next sprite after reading 6 bytes
+					p.OAMByteIndex = 0
+					p.OAMAddr++
+					if p.OAMAddr > 127 {
+						p.OAMAddr = 0
+					}
+				}
+				return value
+			}
 		}
 		return 0
 	case 0x3E: // VBLANK_FLAG (one-shot: cleared when read)
 		// VBlank flag: hardware-accurate synchronization signal
-		// Set at start of each frame, cleared when read
+		// Set at start of VBlank period (scanline 200), cleared when read (one-shot)
 		// Bit 0 = VBlank active (1 = VBlank period, 0 = not VBlank)
 		// This matches real hardware behavior (NES, SNES, etc.)
+		//
+		// IMPORTANT: The flag persists through the entire VBlank period (scanlines 200-219).
+		// If ROM reads it during VBlank and clears it, we re-set it so it's available
+		// for the rest of VBlank. This allows ROM to read the flag multiple times during
+		// VBlank if needed (though typically only once).
+		//
+		// CRITICAL FIX: Check if we're in VBlank BEFORE reading the flag value.
+		// This ensures the flag is set correctly even if it was cleared by a previous read.
+		inVBlank := p.currentScanline >= VisibleScanlines && p.currentScanline < TotalScanlines
+
 		flag := p.VBlankFlag
-		p.VBlankFlag = false  // Clear immediately after read (one-shot)
+
+		// If we're in VBlank period, the flag should always be true
+		// This fixes the issue where ROM reads flag multiple times during VBlank
+		if inVBlank {
+			flag = true
+		}
+
+		// Clear flag after read (one-shot behavior)
+		// But immediately re-set if still in VBlank period
+		p.VBlankFlag = false
+		if inVBlank {
+			p.VBlankFlag = true
+		}
+
+		if p.Logger != nil {
+			p.Logger.LogPPUf(debug.LogLevelDebug,
+				"VBlank flag read: scanline=%d, dot=%d, inVBlank=%v, flag=%v, returning=0x%02X",
+				p.currentScanline, p.currentDot, inVBlank, flag, map[bool]uint8{true: 0x01, false: 0x00}[flag])
+		}
 		if flag {
 			return 0x01
 		}
@@ -207,8 +260,8 @@ func (p *PPU) Write8(offset uint16, value uint8) {
 			addr := uint16(p.CGRAMAddr) * 2
 			if addr < 512 {
 				// Store in little-endian order: low byte first, high byte second
-				p.CGRAM[addr] = uint8(p.CGRAMWriteValue & 0xFF)      // Low byte
-				p.CGRAM[addr+1] = uint8(p.CGRAMWriteValue >> 8)       // High byte
+				p.CGRAM[addr] = uint8(p.CGRAMWriteValue & 0xFF) // Low byte
+				p.CGRAM[addr+1] = uint8(p.CGRAMWriteValue >> 8) // High byte
 				p.CGRAMAddr++
 				if p.CGRAMAddr > 255 {
 					p.CGRAMAddr = 0
@@ -219,15 +272,46 @@ func (p *PPU) Write8(offset uint16, value uint8) {
 
 	// OAM access
 	case 0x14: // OAM_ADDR
+		if p.Logger != nil {
+			p.Logger.LogPPUf(debug.LogLevelDebug, "OAM_ADDR write: 0x%02X (sprite %d)", value, value)
+		}
+		// OAM writes are only allowed during VBlank period (hardware-accurate)
+		// During visible rendering (scanlines 0-199), OAM is locked
+		// Allow writes if: VBlank period (scanline >= 200) OR frame hasn't started yet OR first frame (initialization)
+		// Note: ROM should wait for VBlank before updating sprites to avoid wavy artifacts
+		if p.currentScanline < 200 && p.frameStarted && p.FrameCounter > 1 {
+			if p.Logger != nil {
+				p.Logger.LogPPUf(debug.LogLevelWarning, "OAM_ADDR write ignored during visible rendering (scanline %d)", p.currentScanline)
+			}
+			return
+		}
 		p.OAMAddr = value
 		if p.OAMAddr > 127 {
 			p.OAMAddr = 127
 		}
 		p.OAMByteIndex = 0 // Reset byte index when setting sprite address
 	case 0x15: // OAM_DATA
+		// OAM writes are only allowed during VBlank period (hardware-accurate)
+		// During visible rendering (scanlines 0-199), OAM is locked
+		// Allow writes if: VBlank period (scanline >= 200) OR frame hasn't started yet OR first frame (initialization)
+		// Note: ROM should wait for VBlank before updating sprites to avoid wavy artifacts
+		if p.currentScanline < 200 && p.frameStarted && p.FrameCounter > 1 {
+			if p.Logger != nil {
+				p.Logger.LogPPUf(debug.LogLevelWarning, "OAM_DATA write ignored during visible rendering (scanline %d)", p.currentScanline)
+			}
+			return
+		}
+		if p.Logger != nil {
+			p.Logger.LogPPUf(debug.LogLevelDebug, "OAM_DATA write: sprite=%d, byte=%d, value=0x%02X",
+				p.OAMAddr, p.OAMByteIndex, value)
+		}
 		addr := uint16(p.OAMAddr)*6 + uint16(p.OAMByteIndex)
 		if addr < 768 {
+			oldValue := p.OAM[addr]
 			p.OAM[addr] = value
+			if p.Logger != nil && oldValue != value {
+				p.Logger.LogPPUf(debug.LogLevelDebug, "OAM[%d] = 0x%02X (was 0x%02X)", addr, value, oldValue)
+			}
 			p.OAMByteIndex++
 			if p.OAMByteIndex >= 6 {
 				// Move to next sprite after writing 6 bytes
@@ -236,6 +320,10 @@ func (p *PPU) Write8(offset uint16, value uint8) {
 				if p.OAMAddr > 127 {
 					p.OAMAddr = 0
 				}
+			}
+		} else {
+			if p.Logger != nil {
+				p.Logger.LogPPUf(debug.LogLevelWarning, "OAM_DATA write out of bounds: addr=%d (max 767)", addr)
 			}
 		}
 
@@ -341,15 +429,15 @@ func (p *PPU) RenderFrame() {
 	// DEPRECATED: This is the old frame-based rendering function
 	// In clock-driven mode, PPU rendering happens via StepPPU() -> stepDot() -> renderDot()
 	// This function should not be called in clock-driven mode
-	
+
 	// Set VBlank flag at start of frame (hardware-accurate synchronization)
 	// This signal indicates the start of vertical blanking period
 	// ROMs can wait for this signal to synchronize with frame boundaries
 	p.VBlankFlag = true
-	
+
 	// Increment frame counter at start of frame (for ROM timing)
 	p.FrameCounter++
-	
+
 	// Clear output buffer
 	for i := range p.OutputBuffer {
 		p.OutputBuffer[i] = 0x000000 // Black
@@ -415,7 +503,7 @@ func (p *PPU) RenderFrame() {
 
 	// Render sprites
 	p.renderSprites()
-	
+
 	// Debug: Log sprite 0 OAM data
 	if p.debugFrameCount%60 == 0 && p.Logger != nil {
 		p.Logger.LogPPUf(debug.LogLevelDebug,
@@ -524,7 +612,7 @@ func (p *PPU) renderBackgroundLayer(layerNum int) {
 			if layer.TilemapBase != 0 {
 				tilemapBase = layer.TilemapBase
 			}
-			tilemapOffset := uint16((tileY*tilemapWidth+tileX) * 2)
+			tilemapOffset := uint16((tileY*tilemapWidth + tileX) * 2)
 			if uint32(tilemapBase)+uint32(tilemapOffset) >= 65536 {
 				// Out of bounds, render black
 				p.OutputBuffer[y*320+x] = 0x000000
@@ -595,7 +683,7 @@ func (p *PPU) renderSprites() {
 	for spriteIndex := 0; spriteIndex < 128; spriteIndex++ {
 		// OAM entry is 6 bytes per sprite
 		oamAddr := spriteIndex * 6
-		
+
 		// Read sprite data
 		// Byte 0: X position (low byte, unsigned)
 		xLow := uint8(p.OAM[oamAddr])
@@ -608,47 +696,47 @@ func (p *PPU) renderSprites() {
 			// Sign extend (negative value)
 			spriteX |= 0xFFFFFF00
 		}
-		
+
 		// Byte 2: Y position (8-bit, 0-255)
 		spriteY := int(p.OAM[oamAddr+2])
-		
+
 		// Byte 3: Tile index
 		tileIndex := uint8(p.OAM[oamAddr+3])
-		
+
 		// Byte 4: Attributes
 		attributes := uint8(p.OAM[oamAddr+4])
 		paletteIndex := attributes & 0x0F
 		flipX := (attributes & 0x10) != 0
 		flipY := (attributes & 0x20) != 0
 		_ = (attributes >> 6) & 0x3 // priority (not used yet)
-		
+
 		// Byte 5: Control
 		control := uint8(p.OAM[oamAddr+5])
 		enabled := (control & 0x01) != 0
 		tileSize16 := (control & 0x02) != 0
-		
+
 		if !enabled {
 			continue
 		}
-		
+
 		// Sprite size
 		spriteSize := 8
 		if tileSize16 {
 			spriteSize = 16
 		}
-		
+
 		// Render sprite pixels
 		for py := 0; py < spriteSize; py++ {
 			for px := 0; px < spriteSize; px++ {
 				// Calculate screen position
 				screenX := spriteX + px
 				screenY := spriteY + py
-				
+
 				// Check bounds
 				if screenX < 0 || screenX >= 320 || screenY < 0 || screenY >= 200 {
 					continue
 				}
-				
+
 				// Apply flip
 				tileX := px
 				tileY := py
@@ -658,18 +746,18 @@ func (p *PPU) renderSprites() {
 				if flipY {
 					tileY = spriteSize - 1 - tileY
 				}
-				
+
 				// Read tile data (4bpp = 2 pixels per byte)
 				tileDataOffset := uint16(tileIndex) * uint16(spriteSize*spriteSize/2)
 				pixelOffsetInTile := tileY*spriteSize + tileX
 				byteOffsetInTile := pixelOffsetInTile / 2
 				pixelInByte := pixelOffsetInTile % 2
-				
+
 				if uint32(tileDataOffset)+uint32(byteOffsetInTile) >= 65536 {
 					continue
 				}
 				tileDataAddr := tileDataOffset + uint16(byteOffsetInTile)
-				
+
 				// Read pixel color index
 				tileByte := p.VRAM[tileDataAddr]
 				var colorIndex uint8
@@ -678,12 +766,12 @@ func (p *PPU) renderSprites() {
 				} else {
 					colorIndex = tileByte & 0x0F
 				}
-				
+
 				// Color index 0 is transparent for sprites
 				if colorIndex == 0 {
 					continue
 				}
-				
+
 				// Look up color and render
 				color := p.getColorFromCGRAM(paletteIndex, colorIndex)
 				p.OutputBuffer[screenY*320+screenX] = color
@@ -704,14 +792,14 @@ func (p *PPU) isPixelInWindow(x, y, layerNum int) bool {
 	// If windowing is enabled, check if pixel is inside window bounds
 	// If Right is 0 and Left is 0, assume window is not active
 	win0Inside := true // Default to inside if window not configured
-	if (p.Window0.Right > 0 || p.Window0.Left > 0) {
+	if p.Window0.Right > 0 || p.Window0.Left > 0 {
 		// Window is configured, check bounds
 		win0Inside = x >= int(p.Window0.Left) && x <= int(p.Window0.Right) &&
 			y >= int(p.Window0.Top) && y <= int(p.Window0.Bottom)
 	}
-	
+
 	win1Inside := true // Default to inside if window not configured
-	if (p.Window1.Right > 0 || p.Window1.Left > 0) {
+	if p.Window1.Right > 0 || p.Window1.Left > 0 {
 		// Window is configured, check bounds
 		win1Inside = x >= int(p.Window1.Left) && x <= int(p.Window1.Right) &&
 			y >= int(p.Window1.Top) && y <= int(p.Window1.Bottom)
@@ -761,4 +849,3 @@ func (p *PPU) getColorFromCGRAM(paletteIndex, colorIndex uint8) uint32 {
 
 	return (r << 16) | (g << 8) | b
 }
-

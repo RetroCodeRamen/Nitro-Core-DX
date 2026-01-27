@@ -1,7 +1,7 @@
 # Nitro-Core-DX Programming Manual
 
-**Version 1.0**  
-**Last Updated: January 6, 2026**
+**Version 1.1**  
+**Last Updated: January 27, 2026**
 
 > **⚠️ ARCHITECTURE IN DESIGN PHASE**: This system is currently in active development. The architecture is not yet finalized, and changes may break compatibility with existing ROMs. If you're developing software for Nitro-Core-DX, be aware that future changes may require code updates. See [System Manual](SYSTEM_MANUAL.md) for current implementation status and development plans.
 
@@ -82,11 +82,18 @@ The CPU has 8 general-purpose 16-bit registers:
 
 1. **Register Direct** (Mode 0): `MOV R1, R2`
 2. **Immediate** (Mode 1): `MOV R1, #0x1234`
-3. **Direct Address** (Mode 2): `MOV R1, [R2]` (load 16-bit from address in R2)
+3. **Direct Address** (Mode 2): `MOV R1, [R2]` (load from address in R2)
+   - **I/O Registers** (bank 0, offset >= 0x8000): Automatically reads 8-bit and zero-extends to 16-bit
+   - **Normal Memory** (WRAM, Extended WRAM, ROM): Reads 16-bit
+   - This automatic detection makes it easy to read I/O registers without needing mode 6
 4. **Indirect** (Mode 3): `MOV [R1], R2` (store to address in R1)
+   - **I/O Registers** (bank 0, offset >= 0x8000): Automatically writes only low 8 bits
+   - **Normal Memory**: Writes 16-bit
 5. **Stack Operations** (Mode 4/5): `PUSH R1` / `POP R1`
-6. **8-bit Load** (Mode 6): `MOV R1, [R2]` (load 8-bit from address in R2, zero-extended)
-7. **8-bit Store** (Mode 7): `MOV [R1], R2` (store low 8 bits of R2 to address in R1)
+6. **8-bit Load** (Mode 6): `MOV R1, [R2]` (explicitly load 8-bit from address in R2, zero-extended)
+   - Use this when you want to explicitly read 8-bit from normal memory
+7. **8-bit Store** (Mode 7): `MOV [R1], R2` (explicitly store low 8 bits of R2 to address in R1)
+   - Use this when you want to explicitly write 8-bit to normal memory
 
 ---
 
@@ -189,8 +196,12 @@ Some instructions require an additional 16-bit immediate value.
 - **Modes**:
   - **Mode 0**: `MOV R1, R2` - Register to register
   - **Mode 1**: `MOV R1, #imm` - Immediate to register (next word is immediate)
-  - **Mode 2**: `MOV R1, [R2]` - Load 16-bit from memory at address in R2
+  - **Mode 2**: `MOV R1, [R2]` - Load from memory at address in R2
+    - I/O registers (bank 0, offset >= 0x8000): Automatically reads 8-bit, zero-extends to 16-bit
+    - Normal memory: Reads 16-bit
   - **Mode 3**: `MOV [R1], R2` - Store to memory at address in R1
+    - I/O registers (bank 0, offset >= 0x8000): Automatically writes only low 8 bits
+    - Normal memory: Writes 16-bit
   - **Mode 4**: `PUSH R1` - Push register to stack
   - **Mode 5**: `POP R1` - Pop stack to register
   - **Mode 6**: `MOV R1, [R2]` - Load 8-bit from memory at address in R2 (zero-extended to 16-bit)
@@ -300,7 +311,18 @@ The system uses a banked memory architecture with 24-bit addressing (bank:offset
 
 ### I/O Register Map (Bank 0, 0x8000-0xFFFF)
 
-**Important:** All I/O registers are 8-bit only. When writing 16-bit values to I/O addresses (using `MOV [R1], R2` mode 3), only the low byte is written. The high byte is ignored. This applies to all PPU, APU, and Input registers. For normal memory (WRAM, Extended WRAM), 16-bit writes work correctly.
+**Important:** All I/O registers are 8-bit only. The CPU automatically handles this:
+- **Mode 2 (`MOV R1, [R2]`)**: When reading from I/O addresses (bank 0, offset >= 0x8000), automatically reads 8-bit and zero-extends to 16-bit. For normal memory, reads 16-bit.
+- **Mode 3 (`MOV [R1], R2`)**: When writing to I/O addresses, automatically writes only the low byte. The high byte is ignored. For normal memory, writes 16-bit.
+- This automatic detection makes I/O register access seamless - you don't need to use mode 6/7 for I/O registers.
+
+**Example:**
+```assembly
+MOV R4, #0x803E        ; VBlank flag address
+MOV R5, [R4]           ; Mode 2: Automatically reads 8-bit from I/O, zero-extends to 16-bit
+CMP R5, #0             ; Compare with 0
+BEQ wait_vblank        ; Loop if flag is 0
+```
 
 #### PPU Registers (0x8000-0x8FFF)
 

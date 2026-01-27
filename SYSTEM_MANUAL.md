@@ -435,6 +435,223 @@ This repository has been completely rewritten in Go to replace the previous Pyth
 
 ---
 
+## Testing Framework
+
+The emulator uses a comprehensive testing approach designed for the clock-driven, FPGA-ready architecture.
+
+### Testing Strategy
+
+#### 1. Unit Tests (`*_test.go`)
+
+Unit tests verify individual components work correctly in isolation:
+
+- **`internal/ppu/ppu_test.go`**: Tests PPU components
+  - `TestSpriteRendering`: Verifies sprite rendering logic
+  - `TestOAMWrite`: Tests OAM (Object Attribute Memory) write functionality
+  - `TestVRAMWrite`: Tests VRAM write functionality
+  - `TestCGRAMWrite`: Tests CGRAM (palette) write functionality
+  - `TestFrameTiming`: Tests PPU frame timing
+
+- **`internal/cpu/cpu_test.go`**: Tests CPU instruction execution
+- **`internal/emulator/emulator_test.go`**: Tests emulator core functionality
+
+#### 2. Integration Tests
+
+Integration tests verify components work together:
+
+- **`internal/emulator/savestate_test.go`**: Tests save/load state functionality
+- **`internal/emulator/frame_order_test.go`**: Tests frame execution order
+
+#### 3. ROM-Based Tests
+
+ROM-based tests verify the complete system:
+
+- **`test/roms/simple_sprite.rom`**: Simple static sprite test
+- **`test/roms/bouncing_ball.rom`**: Complex test with movement, collision, and sound
+
+### Running Tests
+
+**Run All Tests:**
+```bash
+go test ./...
+```
+
+**Run Specific Test Suite:**
+```bash
+go test ./internal/ppu -v
+go test ./internal/cpu -v
+go test ./internal/emulator -v
+```
+
+**Run Specific Test:**
+```bash
+go test ./internal/ppu -v -run TestSpriteRendering
+```
+
+### Debugging Failed Tests
+
+#### PPU Sprite Rendering Issues
+
+If sprite rendering fails, check:
+
+1. **Palette Index**: Must be in bits [3:0] of attributes byte
+   - Palette 0 = `0x00`
+   - Palette 1 = `0x01`
+   - Palette 2 = `0x02`
+   - etc.
+
+2. **CGRAM Setup**: Ensure color is written to correct palette
+   - Palette 1, Color 1 = CGRAM address `0x11 * 2 = 0x22`
+
+3. **VRAM Tile Data**: Ensure tile data is initialized
+   - 16x16 tile = 128 bytes
+   - Color index 1 = `0x11` (two pixels per byte)
+
+4. **OAM Data**: Verify sprite is enabled and positioned correctly
+   - Control byte bit 0 = enable
+   - Control byte bit 1 = 16x16 size
+
+### Test Coverage Goals
+
+- [x] PPU sprite rendering
+- [x] PPU OAM/VRAM/CGRAM writes
+- [ ] PPU background rendering
+- [ ] PPU scanline timing
+- [ ] CPU instruction execution
+- [ ] CPU cycle accuracy
+- [ ] APU sound generation
+- [ ] Clock scheduler coordination
+- [ ] Memory bus routing
+- [ ] Save/load state
+
+### Performance Testing
+
+For performance-critical components:
+
+```go
+func BenchmarkFeature(b *testing.B) {
+    // Set up
+    // ...
+    
+    b.ResetTimer()
+    for i := 0; i < b.N; i++ {
+        // Test code
+    }
+}
+```
+
+Run benchmarks:
+```bash
+go test -bench=. ./internal/ppu
+```
+
+### Future Testing Improvements
+
+1. **Visual Regression Tests**: Compare rendered frames
+2. **Cycle Accuracy Tests**: Verify exact cycle counts
+3. **FPGA Compatibility Tests**: Test against FPGA implementation
+4. **ROM Compatibility Tests**: Test against known-good ROMs
+5. **Stress Tests**: Long-running tests for memory leaks
+6. **Concurrency Tests**: Test thread safety (if applicable)
+
+---
+
+## Development Tools
+
+The emulator includes a comprehensive development toolkit for debugging and ROM creation.
+
+### Current Implementation Status
+
+#### Phase 1: UI Consolidation ✅ IN PROGRESS
+
+**Goal**: All UI rendered externally using Fyne, nothing rendered by emulator internals
+
+**Status**:
+- ✅ Fyne toolbar buttons functional with state updates
+- ⏳ SDL2-based UI rendering removal (keep only for emulator screen)
+- ⏳ All panels are Fyne widgets
+- ⏳ Menu items toggle panels
+
+#### Phase 2: Debug Panels
+
+**2.1 Register Viewer ✅ CREATED**
+
+- Real-time CPU register display (R0-R7)
+- Program Counter (PC) display (bank:offset)
+- Stack Pointer (SP) display
+- Bank registers (PBR, DBR)
+- Flags register (Z, N, C, V, I, D)
+- Updates at 60 FPS
+- **Status**: Panel created and integrated into FyneUI
+
+**2.2 Memory Viewer ⏳ PLANNED**
+
+- Hex dump view of memory
+- Bank selector (0-255)
+- Offset selector (0x0000-0xFFFF)
+- Real-time updates
+- Search functionality
+- Bookmark addresses
+
+**2.3 Tile Viewer ⏳ PLANNED**
+
+- Visual grid of tiles from VRAM
+- Palette selector
+- Tile size selector (8x8 or 16x16)
+- Click to select tile
+- Export tile as image
+- Real-time updates as VRAM changes
+
+#### Phase 3: Sprite Editor Tool
+
+**3.1 Basic Sprite Editor ✅ CREATED**
+
+- Pixel-level editing (8x8 or 16x16 tiles)
+- Palette selector (16 colors)
+- Clear/Export/Import buttons
+- Grid display
+- **Status**: Basic structure created, needs pixel editing and export functionality
+
+**3.2 Enhanced Sprite Editor ⏳ PLANNED**
+
+- Multi-tile sprite editing
+- Animation support
+- Sprite sheet management
+- Export to ROM format
+- Preview with different palettes
+
+#### Phase 4: Better Test ROMs
+
+**4.1 Animated Sprite ROM ⏳ PLANNED**
+
+- Multiple animation frames
+- Sprite movement
+- Collision detection
+- Sound effects
+
+**4.2 Character Sprite ROM ⏳ PLANNED**
+
+- Character sprite (not just a box)
+- Walking animation
+- Multiple directions
+- Background scrolling
+
+### UI Architecture
+
+**External Rendering (Fyne)**:
+- ✅ Menu bar (Fyne native menus)
+- ✅ Toolbar buttons (Fyne widgets)
+- ✅ Status bar (Fyne label)
+- ✅ Debug panels (Fyne containers)
+- ✅ Emulator screen (Fyne canvas with SDL2 rendering)
+
+**Internal Rendering (SDL2)**:
+- ✅ Emulator output buffer (320x200 pixels)
+- ❌ NO UI buttons or menus rendered by SDL2
+- ❌ NO UI elements rendered by emulator internals
+
+---
+
 ## Reference
 
 For detailed programming information, see the [Programming Manual](NITRO_CORE_DX_PROGRAMMING_MANUAL.md).

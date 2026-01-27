@@ -40,14 +40,14 @@ func (m *MenuBar) Render(renderer *sdl.Renderer, width int32, textRenderer TextR
 	// Draw menu items with proper text labels
 	// Clear previous rects
 	m.itemRects = m.itemRects[:0]
-	
+
 	textColor := sdl.Color{R: 240, G: 240, B: 240, A: 255} // Light gray/white
-	
+
 	x := int32(10 * scale)
 	for i, item := range m.menuItems {
 		// Estimate text width (will be refined with actual rendering)
-		itemWidth := int32(len(item) * 7 * scale) + int32(20*scale) // Padding
-		
+		itemWidth := int32(len(item)*7*scale) + int32(20*scale) // Padding
+
 		// Store rect for click detection
 		m.itemRects = append(m.itemRects, sdl.Rect{
 			X: x,
@@ -55,7 +55,7 @@ func (m *MenuBar) Render(renderer *sdl.Renderer, width int32, textRenderer TextR
 			W: itemWidth,
 			H: m.height,
 		})
-		
+
 		// Draw menu item text
 		if textRenderer != nil {
 			textY := (m.height - int32(12*scale)) / 2 // Center vertically (approximate)
@@ -63,9 +63,9 @@ func (m *MenuBar) Render(renderer *sdl.Renderer, width int32, textRenderer TextR
 				// If text rendering fails, skip text but still draw the box
 			}
 		}
-		
+
 		x += itemWidth
-		
+
 		// Draw separator (except after last item)
 		if i < len(m.menuItems)-1 {
 			renderer.SetDrawColor(128, 128, 128, 255)
@@ -83,4 +83,3 @@ func (m *MenuBar) HandleClick(x, y int32) (string, bool) {
 	}
 	return "", false
 }
-

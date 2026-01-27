@@ -1,0 +1,33 @@
+Register State Dump
+Generated: 2026-01-27 11:02:34
+
+=== CPU Registers ===
+
+General Purpose Registers:
+  R0: 0x00A0 (  160)  0000000010100000
+  R1: 0x0064 (  100)  0000000001100100
+  R2: 0x0002 (    2)  0000000000000010
+  R3: 0x0002 (    2)  0000000000000010
+  R4: 0x8010 (32784)  1000000000010000
+  R5: 0x0011 (   17)  0000000000010001
+  R6: 0x007F (  127)  0000000001111111
+  R7: 0x0000 (    0)  0000000000000000
+
+Special Registers:
+  PC:  01:8076  (Bank: 01, Offset: 8076)
+  SP:  0x1FFF  ( 8191)
+  PBR: 0x01  (  1)
+  DBR: 0x00  (  0)
+
+Flags Register (0x04):
+  Z (Zero):        0
+  N (Negative):    0
+  C (Carry):       1
+  V (Overflow):    0
+  I (Interrupt):   0
+  D (Div by Zero): 0
+
+CPU State:
+  Cycles: 748408029
+  Running: true
+  Paused: false

@@ -6,38 +6,62 @@ import (
 	"image/color"
 	"time"
 
+	"nitro-core-dx/internal/debug"
+	"nitro-core-dx/internal/emulator"
+	"nitro-core-dx/internal/ui/panels"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 	"github.com/veandco/go-sdl2/sdl"
-	"nitro-core-dx/internal/debug"
-	"nitro-core-dx/internal/emulator"
 )
 
 // FyneUI represents the Fyne-based UI with SDL2 for emulator rendering
 type FyneUI struct {
-	app            fyne.App
-	window         fyne.Window
-	emulator       *emulator.Emulator
-	scale          int
-	running         bool
-	paused          bool
-	
+	app      fyne.App
+	window   fyne.Window
+	emulator *emulator.Emulator
+	scale    int
+	running  bool
+	paused   bool
+
 	// SDL2 for emulator rendering
-	sdlRenderer    *sdl.Renderer
-	sdlTexture      *sdl.Texture
-	audioDev        sdl.AudioDeviceID
-	
+	sdlRenderer *sdl.Renderer
+	sdlTexture  *sdl.Texture
+	audioDev    sdl.AudioDeviceID
+
 	// Fyne widgets
-	emulatorImage  *canvas.Image
-	statusLabel    *widget.Label
-	toolbar        *fyne.Container
-	
-	// Menu state
+	emulatorImage *canvas.Image
+	statusLabel   *widget.Label
+	toolbar       *fyne.Container
+
+	// Toolbar buttons (for state updates)
+	startBtn  *widget.Button
+	pauseBtn  *widget.Button
+	resumeBtn *widget.Button
+	stopBtn   *widget.Button
+	resetBtn  *widget.Button
+	stepBtn   *widget.Button
+
+	// Debug panels
 	showLogViewer   bool
 	showLogControls bool
+	showRegisters   bool
+	showMemory      bool
+	showTiles       bool
+
+	// Panel containers
+	logViewerPanel   *fyne.Container
+	logControlsPanel *fyne.Container
+	registersPanel   *fyne.Container
+	memoryPanel      *fyne.Container
+	tilesPanel       *fyne.Container
+
+	// Panel update functions
+	updateRegisters func()
+	updateMemory    func()
 }
 
 // NewFyneUI creates a new Fyne-based UI
@@ -67,50 +91,75 @@ func NewFyneUI(emu *emulator.Emulator, scale int) (*FyneUI, error) {
 	// Create Fyne app
 	fyneApp := app.NewWithID("com.nitro-core-dx.emulator")
 	window := fyneApp.NewWindow("Nitro-Core-DX Emulator")
-	
+
 	// Create status label
 	statusLabel := widget.NewLabel("FPS: 0.0 | CPU: 0 cycles/frame | Frame: 0")
-	
-	// Create toolbar
-	toolbar := createToolbar(emu)
-	
+
+	// Create toolbar (returns container and button references)
+	toolbar, startBtn, pauseBtn, resumeBtn, stopBtn, resetBtn, stepBtn := createToolbar(emu)
+
 	// Create emulator image (will be updated with SDL2 rendering)
 	emulatorImage := canvas.NewImageFromImage(image.NewRGBA(image.Rect(0, 0, 320*scale, 200*scale)))
 	emulatorImage.FillMode = canvas.ImageFillContain
-	
-	// Create main content
-	content := container.NewBorder(
-		toolbar,           // Top
-		statusLabel,       // Bottom
-		nil,               // Left
-		nil,               // Right
-		emulatorImage,     // Center
-	)
-	
-	window.SetContent(content)
-	window.Resize(fyne.NewSize(float32(320*scale), float32(200*scale)+100))
-	
-	// Create menus
-	createMenus(window, emu)
-	
+
+	// Create debug panels (initially hidden)
+	registersPanel, updateRegistersFunc := panels.RegisterViewer(emu, window)
+	registersPanel.Hide()
+
+	memoryPanel, updateMemoryFunc := panels.MemoryViewer(emu)
+	memoryPanel.Hide()
+
+	// Create UI instance first (needed for menu callbacks)
 	ui := &FyneUI{
-		app:            fyneApp,
-		window:         window,
-		emulator:       emu,
-		scale:          scale,
+		app:             fyneApp,
+		window:          window,
+		emulator:        emu,
+		scale:           scale,
 		running:         false,
 		paused:          false,
 		audioDev:        audioDev,
-		emulatorImage: emulatorImage,
-		statusLabel:    statusLabel,
-		toolbar:        toolbar,
+		emulatorImage:   emulatorImage,
+		statusLabel:     statusLabel,
+		toolbar:         toolbar,
+		startBtn:        startBtn,
+		pauseBtn:        pauseBtn,
+		resumeBtn:       resumeBtn,
+		stopBtn:         stopBtn,
+		resetBtn:        resetBtn,
+		stepBtn:         stepBtn,
+		registersPanel:  registersPanel,
+		memoryPanel:     memoryPanel,
+		updateRegisters: updateRegistersFunc,
+		updateMemory:    updateMemoryFunc,
 	}
-	
+
+	// Create right-side panel container (vertical stack for multiple panels)
+	rightPanels := container.NewVBox(
+		registersPanel,
+		memoryPanel,
+	)
+
+	// Create main content with side panel for debug tools
+	mainContent := container.NewBorder(
+		toolbar,       // Top
+		statusLabel,   // Bottom
+		nil,           // Left
+		rightPanels,   // Right (debug panels)
+		emulatorImage, // Center
+	)
+
+	window.SetContent(mainContent)
+	window.Resize(fyne.NewSize(float32(320*scale)+300, float32(200*scale)+100))
+
+	// Create menus (pass UI instance for panel toggling)
+	createMenus(window, emu, ui)
+
 	return ui, nil
 }
 
 // createToolbar creates the toolbar with emulator controls
-func createToolbar(emu *emulator.Emulator) *fyne.Container {
+// Returns the container and button references for state updates
+func createToolbar(emu *emulator.Emulator) (*fyne.Container, *widget.Button, *widget.Button, *widget.Button, *widget.Button, *widget.Button, *widget.Button) {
 	startBtn := widget.NewButton("Start", func() {
 		emu.Start()
 	})
@@ -131,7 +180,10 @@ func createToolbar(emu *emulator.Emulator) *fyne.Container {
 			emu.RunFrame()
 		}
 	})
-	
+
+	// Initially disable buttons based on state
+	updateToolbarButtons(startBtn, pauseBtn, resumeBtn, stopBtn, resetBtn, stepBtn, emu.Running, emu.Paused)
+
 	return container.NewHBox(
 		startBtn,
 		pauseBtn,
@@ -139,11 +191,36 @@ func createToolbar(emu *emulator.Emulator) *fyne.Container {
 		stopBtn,
 		resetBtn,
 		stepBtn,
-	)
+	), startBtn, pauseBtn, resumeBtn, stopBtn, resetBtn, stepBtn
+}
+
+// updateToolbarButtons updates button enabled/disabled state
+func updateToolbarButtons(startBtn, pauseBtn, resumeBtn, stopBtn, resetBtn, stepBtn *widget.Button, running, paused bool) {
+	if !running {
+		startBtn.Enable()
+		pauseBtn.Disable()
+		resumeBtn.Disable()
+		stopBtn.Disable()
+		stepBtn.Disable()
+	} else if paused {
+		startBtn.Disable()
+		pauseBtn.Disable()
+		resumeBtn.Enable()
+		stopBtn.Enable()
+		stepBtn.Enable()
+	} else {
+		startBtn.Disable()
+		pauseBtn.Enable()
+		resumeBtn.Disable()
+		stopBtn.Enable()
+		stepBtn.Disable()
+	}
+	// Reset button is always enabled
+	resetBtn.Enable()
 }
 
 // createMenus creates the native Fyne menus
-func createMenus(window fyne.Window, emu *emulator.Emulator) {
+func createMenus(window fyne.Window, emu *emulator.Emulator, ui *FyneUI) {
 	// File menu
 	fileMenu := fyne.NewMenu("File",
 		fyne.NewMenuItem("Open ROM...", func() {
@@ -154,7 +231,7 @@ func createMenus(window fyne.Window, emu *emulator.Emulator) {
 			window.Close()
 		}),
 	)
-	
+
 	// Emulation menu
 	emulationMenu := fyne.NewMenu("Emulation",
 		fyne.NewMenuItem("Start", func() {
@@ -178,31 +255,93 @@ func createMenus(window fyne.Window, emu *emulator.Emulator) {
 			}
 		}),
 	)
-	
+
 	// View menu
 	viewMenu := fyne.NewMenu("View",
 		fyne.NewMenuItem("Log Viewer", func() {
-			// TODO: Toggle log viewer
+			ui.showLogViewer = !ui.showLogViewer
+			// TODO: Show/hide log viewer panel
 		}),
 		fyne.NewMenuItem("Log Controls", func() {
-			// TODO: Toggle log controls
+			ui.showLogControls = !ui.showLogControls
+			// TODO: Show/hide log controls panel
+		}),
+		fyne.NewMenuItemSeparator(),
+		fyne.NewMenuItem("Registers", func() {
+			ui.showRegisters = !ui.showRegisters
+			if ui.registersPanel != nil {
+				if ui.showRegisters {
+					ui.registersPanel.Show()
+				} else {
+					ui.registersPanel.Hide()
+				}
+			}
+		}),
+		fyne.NewMenuItem("Memory Viewer", func() {
+			ui.showMemory = !ui.showMemory
+			if ui.memoryPanel != nil {
+				if ui.showMemory {
+					ui.memoryPanel.Show()
+				} else {
+					ui.memoryPanel.Hide()
+				}
+			}
+		}),
+		fyne.NewMenuItem("Tile Viewer", func() {
+			ui.showTiles = !ui.showTiles
+			// TODO: Show/hide tile viewer panel
 		}),
 	)
-	
+
 	// Debug menu
 	debugMenu := fyne.NewMenu("Debug",
-		fyne.NewMenuItem("Log Controls", func() {
-			// TODO: Show log controls
+		fyne.NewMenuItem("Registers", func() {
+			ui.showRegisters = !ui.showRegisters
+			if ui.registersPanel != nil {
+				if ui.showRegisters {
+					ui.registersPanel.Show()
+				} else {
+					ui.registersPanel.Hide()
+				}
+			}
+		}),
+		fyne.NewMenuItem("Memory Viewer", func() {
+			ui.showMemory = !ui.showMemory
+			if ui.memoryPanel != nil {
+				if ui.showMemory {
+					ui.memoryPanel.Show()
+				} else {
+					ui.memoryPanel.Hide()
+				}
+			}
+		}),
+		fyne.NewMenuItem("Tile Viewer", func() {
+			ui.showTiles = !ui.showTiles
+			// TODO: Show/hide tile viewer panel
+		}),
+		fyne.NewMenuItemSeparator(),
+		fyne.NewMenuItem("Toggle Cycle Logging", func() {
+			if emu.CycleLogger != nil {
+				emu.CycleLogger.Toggle()
+				enabled, current, total, max := emu.CycleLogger.GetStatus()
+				if enabled {
+					fmt.Printf("Cycle logging ENABLED (logged: %d/%d cycles, total: %d)\n", current, max, total)
+				} else {
+					fmt.Printf("Cycle logging DISABLED (logged: %d/%d cycles, total: %d)\n", current, max, total)
+				}
+			} else {
+				fmt.Println("Cycle logging not initialized (use -cyclelog flag to enable)")
+			}
 		}),
 	)
-	
+
 	// Help menu
 	helpMenu := fyne.NewMenu("Help",
 		fyne.NewMenuItem("About", func() {
 			// TODO: About dialog
 		}),
 	)
-	
+
 	mainMenu := fyne.NewMainMenu(
 		fileMenu,
 		emulationMenu,
@@ -210,7 +349,7 @@ func createMenus(window fyne.Window, emu *emulator.Emulator) {
 		debugMenu,
 		helpMenu,
 	)
-	
+
 	window.SetMainMenu(mainMenu)
 }
 
@@ -218,32 +357,32 @@ func createMenus(window fyne.Window, emu *emulator.Emulator) {
 func (ui *FyneUI) renderEmulatorScreen() (image.Image, error) {
 	// Get output buffer from emulator (make a copy to avoid race conditions)
 	buffer := ui.emulator.GetOutputBuffer()
-	
+
 	if len(buffer) != 320*200 {
 		return nil, fmt.Errorf("buffer size mismatch: expected %d, got %d", 320*200, len(buffer))
 	}
-	
+
 	// Make a copy of the buffer to avoid race conditions with PPU rendering
 	bufferCopy := make([]uint32, len(buffer))
 	copy(bufferCopy, buffer)
-	
+
 	// Create scaled RGBA image
 	scaledW := 320 * ui.scale
 	scaledH := 200 * ui.scale
 	img := image.NewRGBA(image.Rect(0, 0, scaledW, scaledH))
-	
+
 	// Scale pixels manually for perfect integer scaling
 	for y := 0; y < 200; y++ {
 		for x := 0; x < 320; x++ {
 			idx := y*320 + x
 			colorValue := bufferCopy[idx]
-			
+
 			// Convert RGB888 to RGBA
 			r := uint8((colorValue >> 16) & 0xFF)
 			g := uint8((colorValue >> 8) & 0xFF)
 			b := uint8(colorValue & 0xFF)
 			c := color.RGBA{R: r, G: g, B: b, A: 255}
-			
+
 			// Scale pixel
 			for sy := 0; sy < ui.scale; sy++ {
 				for sx := 0; sx < ui.scale; sx++ {
@@ -252,25 +391,25 @@ func (ui *FyneUI) renderEmulatorScreen() (image.Image, error) {
 			}
 		}
 	}
-	
+
 	return img, nil
 }
 
 // Run runs the Fyne UI main loop
 func (ui *FyneUI) Run() error {
 	defer ui.Cleanup()
-	
+
 	// Start emulator
 	ui.emulator.Start()
 	ui.running = true
-	
+
 	// Update loop
 	go ui.updateLoop()
-	
+
 	// Show and run (blocks until window is closed)
 	ui.window.ShowAndRun()
 	ui.running = false
-	
+
 	return nil
 }
 
@@ -278,10 +417,10 @@ func (ui *FyneUI) Run() error {
 func (ui *FyneUI) updateLoop() {
 	ticker := time.NewTicker(time.Second / 60) // 60 FPS
 	defer ticker.Stop()
-	
+
 	for ui.running {
 		<-ticker.C
-		
+
 		// Update emulator
 		if !ui.emulator.Paused {
 			if err := ui.emulator.RunFrame(); err != nil {
@@ -290,7 +429,7 @@ func (ui *FyneUI) updateLoop() {
 				}
 			}
 		}
-		
+
 		// Render emulator screen
 		// Note: RunFrame() completes a full PPU frame (79,200 cycles), so buffer is ready
 		// FrameComplete flag ensures we don't read mid-frame, but RunFrame() guarantees completion
@@ -302,13 +441,25 @@ func (ui *FyneUI) updateLoop() {
 				ui.emulatorImage.Refresh()
 			})
 		}
-		
+
 		// Update status - must be done on main thread
 		fps := ui.emulator.GetFPS()
 		cycles := ui.emulator.GetCPUCyclesPerFrame()
 		frameCount := ui.emulator.FrameCount
+		running := ui.emulator.Running
+		paused := ui.emulator.Paused
 		fyne.Do(func() {
 			ui.statusLabel.SetText(fmt.Sprintf("FPS: %.1f | CPU: %d cycles/frame | Frame: %d", fps, cycles, frameCount))
+			// Update toolbar button states
+			updateToolbarButtons(ui.startBtn, ui.pauseBtn, ui.resumeBtn, ui.stopBtn, ui.resetBtn, ui.stepBtn, running, paused)
+			// Update register viewer if visible
+			if ui.showRegisters && ui.updateRegisters != nil {
+				ui.updateRegisters()
+			}
+			// Update memory viewer if visible
+			if ui.showMemory && ui.updateMemory != nil {
+				ui.updateMemory()
+			}
 		})
 	}
 }
@@ -319,7 +470,7 @@ func (ui *FyneUI) Cleanup() {
 	if ui.emulator != nil && ui.emulator.Logger != nil {
 		ui.emulator.Logger.Shutdown()
 	}
-	
+
 	if ui.audioDev != 0 {
 		sdl.CloseAudioDevice(ui.audioDev)
 	}
@@ -331,4 +482,3 @@ func (ui *FyneUI) Cleanup() {
 	}
 	sdl.Quit()
 }
-

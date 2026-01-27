@@ -1,8 +1,17 @@
-# Binaries
+# Binaries (all binaries should be built, not committed)
 nitro-core-dx
+emulator
 audiotest
 demorom
 testrom
+
+# Debug logs and state dumps
+*.log
+register_state_*.txt
+sprite_debug.log
+
+# Embedded git repositories (should be submodules if needed)
+nxbrew-dl/
 *.exe
 *.dll
 *.so

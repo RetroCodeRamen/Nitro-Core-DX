@@ -133,6 +133,16 @@ func EncodeBLE() uint16 {
 	return 0xC600
 }
 
+// EncodeSHL encodes a SHL instruction
+func EncodeSHL(mode, reg1, reg2 uint8) uint16 {
+	return 0xA000 | (uint16(mode) << 8) | (uint16(reg1) << 4) | uint16(reg2)
+}
+
+// EncodeSHR encodes a SHR instruction
+func EncodeSHR(mode, reg1, reg2 uint8) uint16 {
+	return 0xB000 | (uint16(mode) << 8) | (uint16(reg1) << 4) | uint16(reg2)
+}
+
 // EncodeJMP encodes a JMP instruction
 func EncodeJMP() uint16 {
 	return 0xD000
@@ -154,14 +164,15 @@ func EncodeNOP() uint16 {
 }
 
 // CalculateBranchOffset calculates a branch offset
+// currentPC: PC pointing to the offset word (after branch instruction)
+// targetPC: Target address to branch to
+// Offset is relative to PC after instruction and offset word (currentPC + 2)
 func CalculateBranchOffset(currentPC, targetPC uint16) int16 {
-	// Offset is relative to PC after instruction and offset word (PC + 4)
-	offset := int32(targetPC) - int32(currentPC) - 4
+	// Offset is relative to PC after instruction and offset word
+	// currentPC points to the offset word, so PC after offset word is currentPC + 2
+	offset := int32(targetPC) - int32(currentPC) - 2
 	if offset < -32768 || offset > 32767 {
-		panic(fmt.Sprintf("branch offset out of range: %d", offset))
+		panic(fmt.Sprintf("branch offset out of range: %d (currentPC=0x%04X, targetPC=0x%04X)", offset, currentPC, targetPC))
 	}
 	return int16(offset)
 }
-
-
-

@@ -44,6 +44,15 @@ go build -o testrom ./cmd/testrom
 ```
 
 ### 3. Build the Emulator
+
+**Note:** The emulator binary is named `nitro-core-dx` (not `emulator`). This is the FPGA-ready, clock-driven emulator.
+
+**Without SDL2_ttf (recommended if SDL2_ttf is not installed):**
+```bash
+go build -tags "no_sdl_ttf" -o nitro-core-dx ./cmd/emulator
+```
+
+**With SDL2_ttf (if you have SDL2_ttf installed):**
 ```bash
 go build -o nitro-core-dx ./cmd/emulator
 ```

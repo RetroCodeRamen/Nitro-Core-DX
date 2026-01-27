@@ -29,7 +29,20 @@ func (c *CPU) executeMOV(mode, reg1, reg2 uint8) error {
 
 	case 2: // MOV R1, [R2] - Load from memory
 		addr := c.GetRegister(reg2)
-		value := c.Mem.Read16(c.State.DBR, addr)
+		bank := c.State.DBR
+		
+		// I/O addresses (offset 0x8000+ in bank 0) are 8-bit only
+		// For I/O addresses, read 8-bit and zero-extend to 16-bit
+		if addr >= 0x8000 && bank == 0 {
+			value := uint16(c.Mem.Read8(0, addr))
+			c.SetRegister(reg1, value)
+			c.UpdateFlags(value)
+			c.State.Cycles += 2 // Memory access
+			return nil
+		}
+		
+		// Normal memory (WRAM, Extended WRAM, or ROM space): 16-bit read
+		value := c.Mem.Read16(bank, addr)
 		c.SetRegister(reg1, value)
 		c.UpdateFlags(value)
 		c.State.Cycles += 2 // Memory access
@@ -336,6 +349,11 @@ func (c *CPU) executeCMPAndBranches(mode, reg1, reg2 uint8) error {
 
 		a := c.GetRegister(reg1)
 		result := a - value
+		
+		// Debug logging for CMP (via logger adapter if available)
+		// Note: CPULoggerAdapter doesn't have LogCPUf, so we'll log via the adapter's LogCPU
+		// For now, we'll add logging in the trace tool instead
+		
 		c.UpdateFlagsWithOverflow(a, value, result, true)
 		c.State.Cycles++
 		return nil

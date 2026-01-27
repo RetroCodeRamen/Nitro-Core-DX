@@ -6,10 +6,10 @@ import (
 
 // Toolbar represents the toolbar with quick action buttons
 type Toolbar struct {
-	height     int32
-	scale      int
-	buttonRects []sdl.Rect // Store button positions for click detection
-	buttonLabels []string  // Store button labels for click detection
+	height       int32
+	scale        int
+	buttonRects  []sdl.Rect // Store button positions for click detection
+	buttonLabels []string   // Store button labels for click detection
 }
 
 // NewToolbar creates a new toolbar
@@ -39,7 +39,7 @@ func (t *Toolbar) Render(renderer *sdl.Renderer, width int32, yOffset int32, emu
 
 	buttonWidth := int32(50 * t.scale)
 	buttonHeight := t.height - 4
-	
+
 	// Draw buttons: [Start] [Pause] [Resume] [Stop] [Reset] [Step]
 	buttons := []struct {
 		label   string
@@ -52,36 +52,36 @@ func (t *Toolbar) Render(renderer *sdl.Renderer, width int32, yOffset int32, emu
 		{"Reset", true},
 		{"Step", emuPaused},
 	}
-	
+
 	// Clear previous button rects
 	t.buttonRects = t.buttonRects[:0]
 	t.buttonLabels = t.buttonLabels[:0]
-	
+
 	x := int32(5 * t.scale)
 	for i, btn := range buttons {
 		if !btn.enabled {
 			continue
 		}
-		
+
 		btnRect := &sdl.Rect{
 			X: x,
 			Y: yOffset + 2,
 			W: buttonWidth,
 			H: buttonHeight,
 		}
-		
+
 		// Store for click detection
 		t.buttonRects = append(t.buttonRects, *btnRect)
 		t.buttonLabels = append(t.buttonLabels, btn.label)
-		
+
 		// Draw button background
 		renderer.SetDrawColor(128, 128, 128, 255)
 		renderer.FillRect(btnRect)
-		
+
 		// Draw button border
 		renderer.SetDrawColor(64, 64, 64, 255)
 		renderer.DrawRect(btnRect)
-		
+
 		// Draw button text (centered) with modern font
 		if textRenderer != nil {
 			textColor := sdl.Color{R: 255, G: 255, B: 255, A: 255} // White
@@ -92,9 +92,9 @@ func (t *Toolbar) Render(renderer *sdl.Renderer, width int32, yOffset int32, emu
 				// If text rendering fails, skip text but still draw the button
 			}
 		}
-		
+
 		x += buttonWidth + int32(5*t.scale)
-		
+
 		// Draw separator after each button except the last
 		if i < len(buttons)-1 {
 			renderer.SetDrawColor(64, 64, 64, 255)
@@ -112,4 +112,3 @@ func (t *Toolbar) HandleClick(x, y int32) (string, bool) {
 	}
 	return "", false
 }
-

@@ -17,11 +17,13 @@ A custom 16-bit fantasy console emulator inspired by classic 8/16-bit consoles, 
 - **Basic Rendering**: Sprite system, background layers, tile rendering
 - **Audio System**: 4-channel audio synthesis with duration control
 - **ROM Loading**: Complete ROM header parsing and execution
+- **Debugging Tools**: Register viewer, memory viewer, cycle-by-cycle logger
+- **Sprite Animation**: Working sprite movement with VBlank synchronization
 
 ### 🚧 In Progress
 
 - **PPU Rendering**: Full tilemap implementation, Matrix Mode transformation
-- **Development Tools**: Logging system, debugger, memory viewer
+- **Development Tools**: Tile viewer panel, advanced debugging features
 
 ### ❌ Planned
 
@@ -33,11 +35,13 @@ For detailed status, see the [System Manual](SYSTEM_MANUAL.md).
 
 ---
 
-## Documentation Structure
+## Documentation
 
-- **[README.md](README.md)**: Project overview, quick start, features
-- **[Programming Manual](NITRO_CORE_DX_PROGRAMMING_MANUAL.md)**: How to program software for Nitro-Core-DX
-- **[System Manual](SYSTEM_MANUAL.md)**: Architecture, design, development status, FPGA compatibility
+The project documentation is organized into four main documents:
+
+- **[README.md](README.md)**: Project overview, quick start, build instructions, and contributing guide
+- **[SYSTEM_MANUAL.md](SYSTEM_MANUAL.md)**: Complete system architecture, FPGA compatibility, testing framework, and development tools
+- **[NITRO_CORE_DX_PROGRAMMING_MANUAL.md](NITRO_CORE_DX_PROGRAMMING_MANUAL.md)**: Complete programming guide for ROM developers
 
 ---
 
@@ -236,11 +240,17 @@ The console has a native resolution of 320×200 pixels. To make it usable on mod
 
 ### Prerequisites
 
-- **Go 1.21 or later** ([Download Go](https://golang.org/dl/))
+- **Go 1.18 or later** ([Download Go](https://golang.org/dl/))
 - **SDL2 Development Libraries** (for UI)
-  - Ubuntu/Debian: `sudo apt-get install libsdl2-dev`
-  - macOS: `brew install sdl2`
-  - Windows: Download from [SDL2 website](https://www.libsdl.org/download-2.0.php)
+  - **Ubuntu/Debian**: `sudo apt-get install libsdl2-dev`
+  - **Fedora/RHEL**: `sudo dnf install SDL2-devel`
+  - **macOS**: `brew install sdl2`
+  - **Windows**: Download from [SDL2 website](https://www.libsdl.org/download-2.0.php)
+
+**Optional - SDL2_ttf** (for system fonts instead of bitmap fonts):
+  - **Ubuntu/Debian**: `sudo apt-get install libsdl2-ttf-dev`
+  - **macOS**: `brew install sdl2_ttf`
+  - **Windows**: Download from [SDL2_ttf website](https://www.libsdl.org/projects/SDL_ttf/)
 
 ### Installation
 
@@ -251,19 +261,28 @@ The console has a native resolution of 320×200 pixels. To make it usable on mod
    ```
 
 2. **Build the emulator:**
+   
+   **Without SDL2_ttf (recommended if SDL2_ttf is not installed):**
+   ```bash
+   go build -tags "no_sdl_ttf" -o nitro-core-dx ./cmd/emulator
+   ```
+   
+   **With SDL2_ttf (if you have SDL2_ttf installed):**
    ```bash
    go build -o nitro-core-dx ./cmd/emulator
    ```
+   
+   **Note:** The emulator binary is named `nitro-core-dx` (not `emulator`). This is the FPGA-ready, clock-driven emulator.
 
 3. **Build a test ROM (optional):**
    ```bash
-   go build -o demorom ./cmd/demorom
-   ./demorom demo.rom
+   go build -o testrom ./cmd/testrom
+   ./testrom test.rom
    ```
 
 4. **Run the emulator:**
    ```bash
-   ./nitro-core-dx -rom demo.rom -scale 3
+   ./nitro-core-dx -rom test.rom
    ```
 
 ### Command Line Options
@@ -271,6 +290,23 @@ The console has a native resolution of 320×200 pixels. To make it usable on mod
 - `-rom <path>`: Path to ROM file (required)
 - `-unlimited`: Run at unlimited speed (no frame limit)
 - `-scale <1-6>`: Display scale multiplier (default: 3)
+- `-log`: Enable logging (disabled by default)
+
+### Example Usage
+
+```bash
+# Run with default 3x scale
+./nitro-core-dx -rom test.rom
+
+# Run at unlimited speed with 4x scale
+./nitro-core-dx -rom test.rom -unlimited -scale 4
+
+# Run with 1x scale (native resolution)
+./nitro-core-dx -rom test.rom -scale 1
+
+# Run with logging enabled
+./nitro-core-dx -rom test.rom -log
+```
 
 ### Controls
 
@@ -278,7 +314,7 @@ The console has a native resolution of 320×200 pixels. To make it usable on mod
 - **Z / W**: A button (change block color)
 - **X**: B button (change background color)
 - **Space**: Pause/Resume
-- **Ctrl+R**: Reset
+- **Ctrl+R**: Reset emulator
 - **Alt+F**: Toggle fullscreen
 - **ESC**: Quit
 
@@ -286,9 +322,10 @@ The console has a native resolution of 320×200 pixels. To make it usable on mod
 
 ```bash
 # Build the emulator
-go build -o nitro-core-dx ./cmd/emulator
+go build -tags "no_sdl_ttf" -o nitro-core-dx ./cmd/emulator
 
 # Build test ROM generators
+go build -o testrom ./cmd/testrom
 go build -o demorom ./cmd/demorom
 go build -o audiotest ./cmd/audiotest
 
@@ -299,7 +336,22 @@ go test ./...
 go fmt ./...
 ```
 
-For detailed build instructions, see [BUILD_INSTRUCTIONS.md](BUILD_INSTRUCTIONS.md).
+### Troubleshooting
+
+**SDL2 Not Found:**
+1. Install SDL2 development libraries (see Prerequisites)
+2. Make sure `pkg-config` can find SDL2: `pkg-config --modversion sdl2`
+3. If using a custom SDL2 installation, set `PKG_CONFIG_PATH` environment variable
+
+**Build Errors:**
+- Make sure Go is properly installed: `go version`
+- Make sure all dependencies are downloaded: `go mod download`
+- Clean and rebuild: `go clean -cache && go build ./...`
+
+**Runtime Errors:**
+- Check that the ROM file exists and is readable
+- Verify the ROM file is a valid Nitro-Core-DX ROM (magic number "RMCF")
+- Check console output for specific error messages
 
 ---
 
@@ -383,13 +435,36 @@ nitro-core-dx/
 
 ### Contributing
 
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+Contributions are welcome! This project is in active development, and we appreciate any help.
 
+**Getting Started:**
+1. Read the [README.md](README.md) for project overview
+2. Read the [SYSTEM_MANUAL.md](SYSTEM_MANUAL.md) for architecture details
+3. Read the [NITRO_CORE_DX_PROGRAMMING_MANUAL.md](NITRO_CORE_DX_PROGRAMMING_MANUAL.md) for programming guide
+
+**Development Status:**
+⚠️ **ARCHITECTURE IN DESIGN PHASE**: This system is currently in active development. The architecture is not yet finalized, and changes may break compatibility with existing ROMs.
+
+**Code Style:**
+- Follow Go conventions and best practices
+- Use `go fmt` to format code
+- Write clear, commented code
+- Add tests where appropriate
+
+**Documentation:**
+- Update relevant documentation when making changes
+- Keep the [SYSTEM_MANUAL.md](SYSTEM_MANUAL.md) up to date with architecture changes
+- Update the [NITRO_CORE_DX_PROGRAMMING_MANUAL.md](NITRO_CORE_DX_PROGRAMMING_MANUAL.md) for API changes
+
+**Pull Request Process:**
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+3. Make your changes
+4. Test thoroughly
+5. Submit a pull request with a clear description
+
+**Questions?**
+Feel free to open an issue for questions or discussions.
 
 ### Code Quality
 

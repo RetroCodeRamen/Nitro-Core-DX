@@ -49,6 +49,9 @@ type Emulator struct {
 	// Audio samples buffer (for host adapter)
 	AudioSampleBuffer []int16
 	AudioSampleIndex  int
+
+	// Cycle logger (for debugging)
+	CycleLogger *debug.CycleLogger
 }
 
 // NewEmulator creates a new clock-driven emulator instance
@@ -179,6 +182,29 @@ func (e *Emulator) RunFrame() error {
 		_, err := e.Clock.Step()
 		if err != nil {
 			return fmt.Errorf("clock step error: %w", err)
+		}
+		
+		// Log cycle state if cycle logger is enabled
+		if e.CycleLogger != nil && e.CycleLogger.IsEnabled() {
+			// Convert CPU state to snapshot (to avoid import cycles)
+			snapshot := &debug.CPUStateSnapshot{
+				R0:      e.CPU.State.R0,
+				R1:      e.CPU.State.R1,
+				R2:      e.CPU.State.R2,
+				R3:      e.CPU.State.R3,
+				R4:      e.CPU.State.R4,
+				R5:      e.CPU.State.R5,
+				R6:      e.CPU.State.R6,
+				R7:      e.CPU.State.R7,
+				PCBank:  e.CPU.State.PCBank,
+				PCOffset: e.CPU.State.PCOffset,
+				PBR:     e.CPU.State.PBR,
+				DBR:     e.CPU.State.DBR,
+				SP:      e.CPU.State.SP,
+				Flags:   e.CPU.State.Flags,
+				Cycles:  e.CPU.State.Cycles,
+			}
+			e.CycleLogger.LogCycle(snapshot)
 		}
 		
 		// Generate audio sample when it's time (every ~227 cycles)

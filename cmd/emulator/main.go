@@ -16,6 +16,9 @@ func main() {
 	unlimited := flag.Bool("unlimited", false, "Run at unlimited speed (no frame limit)")
 	scale := flag.Int("scale", 3, "Display scale (1-6)")
 	enableLogging := flag.Bool("log", false, "Enable logging (disabled by default)")
+	cycleLogFile := flag.String("cyclelog", "", "Enable cycle-by-cycle logging to file (e.g., -cyclelog debug.log)")
+	maxCycles := flag.Uint64("maxcycles", 100000, "Maximum cycles to log (default: 100000, 0 = unlimited)")
+	startCycle := flag.Uint64("cyclestart", 0, "Start logging after this many cycles (default: 0 = start immediately)")
 	flag.Parse()
 
 	if *romPath == "" {
@@ -24,6 +27,9 @@ func main() {
 		fmt.Println("  -unlimited       Run at unlimited speed")
 		fmt.Println("  -scale <1-6>     Display scale (default: 3)")
 		fmt.Println("  -log             Enable logging (disabled by default)")
+		fmt.Println("  -cyclelog <file> Enable cycle-by-cycle logging to file")
+		fmt.Println("  -maxcycles <N>   Maximum cycles to log (default: 100000, 0 = unlimited)")
+		fmt.Println("  -cyclestart <N>  Start logging after N cycles (default: 0 = start immediately)")
 		os.Exit(1)
 	}
 
@@ -74,6 +80,22 @@ func main() {
 
 	// Set frame limit
 	emu.SetFrameLimit(!*unlimited)
+
+	// Enable cycle logging if requested
+	if *cycleLogFile != "" {
+		// Create adapters to avoid import cycles
+		oamAdapter := emulator.NewOAMAdapter(emu.PPU)
+		ppuAdapter := emulator.NewPPUAdapter(emu.PPU)
+		apuAdapter := emulator.NewAPUAdapter(emu.APU)
+		cycleLogger, err := debug.NewCycleLogger(*cycleLogFile, *maxCycles, *startCycle, emu.Bus, oamAdapter, ppuAdapter, apuAdapter)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error creating cycle logger: %v\n", err)
+			os.Exit(1)
+		}
+		emu.CycleLogger = cycleLogger
+		fmt.Printf("Cycle logging enabled: %s (max cycles: %d, start cycle: %d)\n", *cycleLogFile, *maxCycles, *startCycle)
+		defer cycleLogger.Close()
+	}
 
 	fmt.Println("Nitro-Core-DX Emulator")
 	fmt.Println("====================")
