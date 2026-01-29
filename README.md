@@ -113,7 +113,7 @@ I'm not in a rush. This is a long-term project where doing it right matters more
 
 ---
 
-## Why Go? (Or: The Language I Chose After Actually Thinking About It)
+## Why Go? 
 
 I didn't just pick Go because it's trendy. I evaluated multiple languages and Go won because it hits the sweet spot between "fast enough" and "actually maintainable."
 
