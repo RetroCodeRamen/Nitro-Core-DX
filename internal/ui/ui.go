@@ -462,8 +462,8 @@ func (u *UI) updateInput() {
 		buttons |= 0x08 // RIGHT
 	}
 
-	// Action buttons (WASD + ZX)
-	if keys[sdl.SCANCODE_W] != 0 || keys[sdl.SCANCODE_Z] != 0 {
+	// Action buttons (WASD)
+	if keys[sdl.SCANCODE_W] != 0 {
 		buttons |= 0x10 // A
 	}
 	if keys[sdl.SCANCODE_X] != 0 {
@@ -483,13 +483,13 @@ func (u *UI) updateInput() {
 	if keys[sdl.SCANCODE_E] != 0 {
 		buttons |= 0x200 // R
 	}
+	if keys[sdl.SCANCODE_Z] != 0 {
+		buttons |= 0x800 // Z (right shoulder, second button)
+	}
 
-	// Start/Select
+	// Start
 	if keys[sdl.SCANCODE_RETURN] != 0 {
 		buttons |= 0x400 // START
-	}
-	if keys[sdl.SCANCODE_RSHIFT] != 0 || keys[sdl.SCANCODE_LSHIFT] != 0 {
-		buttons |= 0x800 // SELECT
 	}
 
 	// Update emulator input (need to access through emulator)

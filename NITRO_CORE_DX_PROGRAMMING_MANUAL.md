@@ -636,7 +636,7 @@ Each channel has 8 bytes of registers, starting at:
 - Bit 8: L (high byte)
 - Bit 9: R (high byte)
 - Bit 10: START (high byte)
-- Bit 11: SELECT (high byte)
+- Bit 11: Z (high byte, right shoulder button)
 
 ---
 
@@ -2075,7 +2075,7 @@ MOV [R7], R0
    ```
    MOV R1, #0xA000        ; CONTROLLER1
    MOV R2, [R1]            ; Read button state (low byte)
-   ; Read high byte for L, R, START, SELECT buttons
+   ; Read high byte for L, R, START, Z buttons
    ADD R1, #0x0001         ; CONTROLLER1 high byte
    MOV R3, [R1]            ; Read high byte
    ; R2 = low byte, R3 = high byte
@@ -2103,7 +2103,7 @@ MOV [R7], R0
    ```
    MOV R1, #0xA002        ; CONTROLLER2
    MOV R2, [R1]            ; Read button state (low byte)
-   ; Read high byte for L, R, START, SELECT buttons
+   ; Read high byte for L, R, START, Z buttons
    ADD R1, #0x0001         ; CONTROLLER2 high byte
    MOV R3, [R1]            ; Read high byte
    ; R2 = low byte, R3 = high byte
@@ -2131,7 +2131,7 @@ MOV [R7], R0
 - `0x100` = L (read from high byte)
 - `0x200` = R (read from high byte)
 - `0x400` = START (read from high byte)
-- `0x800` = SELECT (read from high byte)
+- `0x800` = Z (read from high byte, right shoulder button)
 
 ---
 

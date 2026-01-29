@@ -1,0 +1,126 @@
+-- CoreLX Comprehensive Language Feature Test
+-- This ROM tests all language features to ensure CoreLX can build games
+
+asset TestTiles: tiles8
+    hex
+        AA BB CC DD EE FF 00 11
+        22 33 44 55 66 77 88 99
+
+type Vec2 = struct
+    x: i16
+    y: i16
+
+function Start()
+    -- Test 1: Variable Declarations
+    -- Test := (inferred type)
+    x := 10
+    y := 20
+    z := x + y
+    
+    -- Test typed declaration
+    counter: u8 = 0
+    flag: bool = true
+    
+    -- Test 2: Control Flow - If/Else
+    if x > 5
+        z = z + 1
+    else
+        z = z - 1
+    
+    -- Test elseif
+    if x < 5
+        z = 1
+    else
+        if x < 15
+            z = 2
+        else
+            z = 3
+    
+    -- Test 3: While Loop
+    while counter < 10
+        counter = counter + 1
+    
+    -- Test 4: For Loop
+    sum := 0
+    i := 0
+    while i < 5
+        sum = sum + i
+        i = i + 1
+    
+    -- Test 5: Expressions - Arithmetic
+    a := 10 + 5
+    b := 20 - 8
+    c := 4 * 2
+    d := 16 / 2
+    
+    -- Test 6: Expressions - Comparison
+    eq := a == 15
+    ne := a != 10
+    lt := a < 20
+    gt := a > 5
+    le := a <= 15
+    ge := a >= 15
+    
+    -- Test 7: Expressions - Logical
+    and_result := true and true
+    or_result := false or true
+    not_result := not false
+    
+    -- Test 8: Expressions - Bitwise
+    bit_and := 0x0F & 0xF0
+    bit_or := 0x0F | 0xF0
+    bit_xor := 0x0F ^ 0xFF
+    bit_shift_left := 1 << 4
+    bit_shift_right := 16 >> 2
+    
+    -- Test 9: Struct Declaration and Usage
+    pos := Vec2()
+    pos.x = 100
+    pos.y = 200
+    
+    -- Test 10: Sprite Operations
+    hero := Sprite()
+    hero.tile = 0
+    hero.attr = SPR_PAL(1)
+    hero.ctrl = SPR_ENABLE() | SPR_SIZE_16()
+    
+    -- Test 11: Built-in Functions
+    ppu.enable_display()
+    base := gfx.load_tiles(ASSET_TestTiles, 0)
+    
+    -- Test 12: Member Access
+    tile_val := hero.tile
+    attr_val := hero.attr
+    
+    -- Test 13: Assignment to Struct Members
+    hero.tile = base
+    hero.attr = SPR_PAL(2) | SPR_PRI(1)
+    
+    -- Test 14: Address-of Operator
+    sprite_ptr := &hero
+    
+    -- Test 15: Function Calls with Arguments
+    sprite.set_pos(&hero, 120, 80)
+    
+    -- Test 16: Main Game Loop
+    frame := 0
+    done := false
+    while not done
+        wait_vblank()
+        frame = frame + 1
+        
+        -- Update sprite position based on frame
+        if frame % 60 == 0
+            -- Every 60 frames, move sprite
+            -- Read current tile, increment, write back
+            current_tile := hero.tile
+            new_tile := current_tile + 1
+            hero.tile = new_tile
+        
+        -- Write sprite to OAM
+        oam.write(0, &hero)
+        oam.flush()
+        
+        -- Limit test to 300 frames (5 seconds at 60fps)
+        if frame >= 300
+            done = true

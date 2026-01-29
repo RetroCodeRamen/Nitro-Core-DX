@@ -1,0 +1,195 @@
+-- Simple Pellet Collection Game
+-- Player moves a green block, collects blue pellets for points
+-- Avoids red pellets or loses a life
+-- 3 lives total
+
+-- Simple 8x8 tiles
+-- Green block (player) - solid green pattern
+asset PlayerTile: tiles8
+    hex
+        FF FF FF FF FF FF FF FF
+        FF 00 FF 00 FF 00 FF 00
+        FF FF FF FF FF FF FF FF
+        FF 00 FF 00 FF 00 FF 00
+        FF FF FF FF FF FF FF FF
+        FF 00 FF 00 FF 00 FF 00
+        FF FF FF FF FF FF FF FF
+        FF 00 FF 00 FF 00 FF 00
+
+-- Blue pellet - small blue circle
+asset BluePelletTile: tiles8
+    hex
+        00 00 00 00 00 00 00 00
+        00 00 00 00 00 00 00 00
+        00 00 11 11 11 11 00 00
+        00 00 11 22 22 11 00 00
+        00 00 11 22 22 11 00 00
+        00 00 11 11 11 11 00 00
+        00 00 00 00 00 00 00 00
+        00 00 00 00 00 00 00 00
+
+-- Red pellet - small red circle
+asset RedPelletTile: tiles8
+    hex
+        00 00 00 00 00 00 00 00
+        00 00 00 00 00 00 00 00
+        00 00 33 33 33 33 00 00
+        00 00 33 44 44 33 00 00
+        00 00 33 44 44 33 00 00
+        00 00 33 33 33 33 00 00
+        00 00 00 00 00 00 00 00
+        00 00 00 00 00 00 00 00
+
+-- Note: __Boot() function support may need parser updates
+-- For now, using Start() as entry point
+
+function Start()
+    ppu.enable_display()
+    
+    -- Load tiles
+    player_base := gfx.load_tiles(ASSET_PlayerTile, 0)
+    blue_base := gfx.load_tiles(ASSET_BluePelletTile, 1)
+    red_base := gfx.load_tiles(ASSET_RedPelletTile, 2)
+    
+    -- Initialize game state
+    player_x := 160  -- Center X (320/2 - 8)
+    player_y := 96   -- Center Y (200/2 - 8)
+    lives := 3
+    score := 0
+    pellet_x := 50
+    pellet_y := 50
+    pellet_type := 0  -- 0 = blue, 1 = red
+    pellet_active := 0  -- 0 = inactive, 1 = active
+    spawn_timer := 0
+    
+    -- Create player sprite
+    player := Sprite()
+    sprite.set_pos(&player, player_x, player_y)
+    player.tile = player_base
+    player.attr = SPR_PAL(2) | SPR_PRI(0)  -- Green palette
+    player.ctrl = SPR_ENABLE()  -- 8x8 is default
+    
+    -- Create pellet sprite
+    pellet := Sprite()
+    pellet.tile = blue_base
+    pellet.attr = SPR_PAL(1) | SPR_PRI(1)  -- Blue palette
+    pellet.ctrl = SPR_ENABLE()  -- 8x8 is default
+    
+    -- Main game loop
+    while lives > 0
+        wait_vblank()
+        
+        -- Read input
+        -- TODO: Add memory read functions to CoreLX for controller access
+        -- Controller reading would be:
+        --   1. Write 1 to 0xA001 to latch buttons
+        --   2. Read 0xA000 for low byte (UP, DOWN, LEFT, RIGHT, A, B, X, Y)
+        --   3. Read 0xA001 for high byte (L, R, START, Z)
+        --   4. Write 0 to 0xA001 to release latch
+        -- For now, using frame counter to simulate movement for testing
+        frame := frame_counter()
+        
+        -- Simulate input based on frame counter (for testing)
+        -- Replace this with actual controller reading when memory I/O is available
+        input_sim := frame & 0x03
+        
+        -- UP
+        if input_sim == 0
+            if player_y > 8
+                player_y = player_y - 2
+        
+        -- DOWN  
+        if input_sim == 1
+            if player_y < 192
+                player_y = player_y + 2
+        
+        -- LEFT
+        if input_sim == 2
+            if player_x > 8
+                player_x = player_x - 2
+        
+        -- RIGHT
+        if input_sim == 3
+            if player_x < 312
+                player_x = player_x + 2
+        
+        -- Update player sprite position
+        sprite.set_pos(&player, player_x, player_y)
+        
+        -- Spawn pellets occasionally
+        spawn_timer = spawn_timer + 1
+        if spawn_timer >= 60  -- Every second (60 frames)
+            spawn_timer = 0
+            if pellet_active == 0
+                -- Spawn a new pellet
+                -- Random position (using frame counter, simplified)
+                -- Use bit operations to get random-ish positions
+                temp_x := frame & 0xFF
+                temp_y := (frame >> 8) & 0xFF
+                -- Scale to screen bounds (simplified: use modulo)
+                pellet_x = (temp_x & 0x7F) * 2 + 20  -- 0-254, offset by 20
+                pellet_y = (temp_y & 0x5F) * 2 + 20  -- 0-190, offset by 20
+                
+                -- Random type (80% blue, 20% red)
+                type_roll := frame & 0x0F
+                if type_roll < 12
+                    pellet_type = 0  -- Blue
+                else
+                    pellet_type = 1  -- Red
+                
+                pellet_active = 1
+        
+        -- Update and render pellets
+        if pellet_active == 1
+            -- Update pellet sprite
+            sprite.set_pos(&pellet, pellet_x, pellet_y)
+            if pellet_type == 0
+                pellet.tile = blue_base
+                pellet.attr = SPR_PAL(1) | SPR_PRI(1)  -- Blue palette
+            else
+                pellet.tile = red_base
+                pellet.attr = SPR_PAL(0) | SPR_PRI(1)  -- Red palette
+            
+            -- Check collision with player
+            dx := player_x - pellet_x
+            if dx < 0
+                dx = -dx
+            dy := player_y - pellet_y
+            if dy < 0
+                dy = -dy
+            
+            if dx < 8 and dy < 8
+                -- Collision!
+                if pellet_type == 0
+                    -- Blue pellet - collect
+                    score = score + 1
+                    pellet_active = 0  -- Remove pellet
+                else
+                    -- Red pellet - lose life
+                    lives = lives - 1
+                    pellet_active = 0  -- Remove pellet
+                    -- Reset player position
+                    player_x = 160
+                    player_y = 96
+            
+            -- Write pellet sprite
+            oam.write(1, &pellet)
+        
+        -- Write player sprite
+        oam.write(0, &player)
+        
+        -- Clear unused sprites
+        i := 2
+        while i < 128
+            empty := Sprite()
+            empty.ctrl = 0  -- Disabled
+            oam.write(i, &empty)
+            i = i + 1
+        
+        oam.flush()
+    
+    -- Game over - keep displaying final state
+    while true
+        wait_vblank()
+        oam.write(0, &player)
+        oam.flush()

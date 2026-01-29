@@ -1,0 +1,10 @@
+-- Minimal sprite test - just show one sprite
+
+function Start()
+    ppu.enable_display()
+    
+    while true
+        wait_vblank()
+        -- Write sprite 0 directly
+        oam.write(0, 0)  -- id=0, sprite pointer (unused)
+        oam.flush()

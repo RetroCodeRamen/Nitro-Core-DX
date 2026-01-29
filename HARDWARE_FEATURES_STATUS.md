@@ -48,7 +48,7 @@ This document tracks the implementation status of all hardware features for the 
 
 ### Input System
 - ✅ Controller 1 & 2 support
-- ✅ 12-button support (UP, DOWN, LEFT, RIGHT, A, B, X, Y, L, R, START, SELECT)
+- ✅ 12-button support (UP, DOWN, LEFT, RIGHT, A, B, X, Y, L, R, START, Z)
 - ✅ Latch mechanism
 
 ### Synchronization

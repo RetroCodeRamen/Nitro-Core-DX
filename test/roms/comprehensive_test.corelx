@@ -1,0 +1,47 @@
+-- Comprehensive CoreLX test
+
+asset TestTiles: tiles8
+    hex
+        AA BB CC DD
+
+type Vec2 = struct
+    x: i16
+    y: i16
+
+function Start()
+    -- Variable declarations
+    x := 10
+    y: u8 = 20
+    z := x + y
+    
+    -- If statement
+    if x > 5
+        z = z + 1
+    else
+        z = z - 1
+    
+    -- While loop
+    counter := 0
+    while counter < 10
+        counter = counter + 1
+    
+    -- Function calls
+    ppu.enable_display()
+    base := gfx.load_tiles(ASSET_TestTiles, 0)
+    
+    -- Struct usage
+    pos := Vec2()
+    pos.x = 100
+    pos.y = 200
+    
+    -- Sprite operations
+    sprite := Sprite()
+    sprite.tile = base
+    sprite.attr = SPR_PAL(1)
+    sprite.ctrl = SPR_ENABLE() | SPR_SIZE_16()
+    
+    -- Main loop
+    while true
+        wait_vblank()
+        oam.write(0, &sprite)
+        oam.flush()

@@ -1,24 +1,186 @@
-MIT License
+Nitro Core DX Dual License
 
-Copyright (c) 2024 Nitro-Core-DX Contributors
+Version 1.2
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+Copyright (c) 2026 Austin Jones
+All rights reserved.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+TL;DR (Non-Binding Summary)
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+You may freely use, modify, and experiment with the Nitro Core DX platform for non-commercial purposes
 
+You own 100% of the games and software you create for Nitro Core DX
 
+You may sell your games without permission
 
+The emulator, architecture, and hardware implementations are not commercial-use free
+
+Any commercial use of the platform itself (software or hardware) requires permission
+
+This summary is informational only. The full license below governs.
+
+1. Scope and Definitions
+
+This license governs the Nitro Core DX Platform, which includes:
+
+Emulator source code
+
+System architecture and design
+
+Instruction set architecture (ISA)
+
+Memory maps and hardware behavior
+
+Official tools, documentation, and reference implementations
+
+This license does not apply to original software, games, or applications created to run on Nitro Core DX.
+
+2. Non-Commercial Platform License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of the Nitro Core DX Platform (the “Platform”) to use, copy, modify, and experiment with the Platform for non-commercial purposes only, subject to the following conditions.
+
+You MAY:
+
+Study, modify, and experiment with the Platform
+
+Fork and redistribute the Platform for non-commercial use
+
+Create compilers, tools, debuggers, or development utilities
+
+Use the Platform for education, research, or hobby projects
+
+Run the Platform on personal devices, emulators, or test hardware
+
+You MUST:
+
+Retain this license and copyright notice
+
+Credit Nitro Core DX as the original platform
+
+Clearly indicate if the Platform has been modified
+
+You MAY NOT:
+
+Sell, license, or monetize the Platform
+
+Bundle the Platform with paid products or services
+
+Use the Platform in commercial distributions without permission
+
+3. Ownership of Games and Software
+
+Any original game, application, or software written to run on Nitro Core DX is:
+
+Fully owned by its creator
+
+Not subject to this license
+
+Free to be licensed, sold, or distributed under any terms chosen by its author
+
+This includes:
+
+Commercial games
+
+Freeware and open-source software
+
+Demos, tools, and utilities
+
+No permission is required to sell or distribute such software.
+
+4. Encouraged Attribution (Optional)
+
+Developers are encouraged, but not required, to acknowledge Nitro Core DX as the target platform for their software (for example: “Built for Nitro Core DX”).
+
+This is voluntary and non-binding.
+
+5. Platform Ownership and Reserved Rights
+
+The Nitro Core DX Platform remains the exclusive intellectual property of the copyright holder.
+
+This includes:
+
+Emulator implementations
+
+System architecture and specifications
+
+Instruction set and memory design
+
+Official development tools and documentation
+
+All rights not expressly granted are reserved.
+
+6. Hardware and FPGA Restrictions
+
+The following apply regardless of modification level:
+
+FPGA, ASIC, or hardware implementations of Nitro Core DX may be created only for personal, educational, or research purposes
+
+Commercial manufacture, sale, licensing, or distribution of hardware implementations requires explicit written permission
+
+This includes:
+
+FPGA bitstreams
+
+HDL implementations
+
+Physical consoles or embedded systems
+
+Development kits or boards
+
+All commercial hardware rights are expressly reserved.
+
+7. Commercial Platform License
+
+Any commercial use of the Platform requires prior written permission.
+
+Commercial use includes, but is not limited to:
+
+Selling or licensing the emulator
+
+Paid services or subscriptions based on the Platform
+
+Commercial hardware or FPGA implementations
+
+Bundling the Platform with paid products
+
+Commercial licensing terms are negotiated on a case-by-case basis.
+
+Contact:
+[your email / contact information here]
+
+8. No Warranty
+
+THE PLATFORM IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.
+
+9. License Compatibility
+
+This license is not OSI-approved and is not compatible with MIT, GPL, Apache, or similar open-source licenses for combined Platform distribution.
+
+Developer FAQ (Informational)
+
+Can I sell my game?
+Yes. Games and software you write for Nitro Core DX are yours to sell.
+
+Do I need permission to publish a game?
+No.
+
+Can I open-source my game?
+Yes. You choose your own license.
+
+Can I fork the emulator and sell it?
+No, not without a Commercial Platform License.
+
+Can I build FPGA hardware for myself?
+Yes, for personal or educational use only.
+
+Can I sell FPGA or hardware implementations?
+No, not without permission.
+
+Does this license claim ownership of my code?
+No. Your software remains yours.
+
+License Philosophy (Non-Binding)
+
+Nitro Core DX is intended to be a developer-friendly platform that encourages experimentation, creativity, and commercial software creation while preserving the integrity and long-term stewardship of the underlying system.
+
+This license separates platform ownership from software ownership to ensure developers benefit directly from their work while allowing the platform to evolve responsibly, including future hardware implementations.

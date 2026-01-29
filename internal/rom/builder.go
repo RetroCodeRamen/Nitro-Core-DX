@@ -107,6 +107,11 @@ func EncodeOR(mode, reg1, reg2 uint8) uint16 {
 	return 0x7000 | (uint16(mode) << 8) | (uint16(reg1) << 4) | uint16(reg2)
 }
 
+// EncodeXOR encodes an XOR instruction
+func EncodeXOR(mode, reg1, reg2 uint8) uint16 {
+	return 0x8000 | (uint16(mode) << 8) | (uint16(reg1) << 4) | uint16(reg2)
+}
+
 // EncodeCMP encodes a CMP instruction
 func EncodeCMP(mode, reg1, reg2 uint8) uint16 {
 	return 0xC000 | (uint16(mode) << 8) | (uint16(reg1) << 4) | uint16(reg2)

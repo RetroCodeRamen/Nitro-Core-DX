@@ -408,7 +408,7 @@ A fantasy console that delivers **SNES-quality graphics** with **Genesis-level p
 ### Input System
 
 - **Dual Controllers**: Controller 1 and Controller 2
-- **12-Button Support**: UP, DOWN, LEFT, RIGHT, A, B, X, Y, L, R, START, SELECT
+- **12-Button Support**: UP, DOWN, LEFT, RIGHT, A, B, X, Y, L, R, START, Z
 - **Latch Mechanism**: Button state latching for reliable input
 
 ---

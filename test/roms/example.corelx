@@ -1,0 +1,5 @@
+function Start()
+    ppu.enable_display()
+    
+    while true
+        wait_vblank()

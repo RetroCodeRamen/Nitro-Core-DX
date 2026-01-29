@@ -12,6 +12,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **CoreLX Compiler** - Complete compiler implementation for CoreLX language
+  - Lexer, parser, semantic analyzer, and code generator
+  - Lua-like syntax compiled to Nitro-Core-DX bytecode
+  - Documentation: `CORELX_PROGRAMMING_GUIDE.md`, `CORELX_COMPILER_STATUS.md`
+  - Test ROMs and examples in `test/roms/`
+  - Location: `cmd/corelx/`, `internal/corelx/`
+- **Interactive Debugger** - Debugger tool for ROM development
+  - Breakpoints, step execution, register viewing
+  - Documentation: `docs/DEBUGGING_GUIDE.md`, `docs/DEBUGGING_QUICK_START.md`
+  - Location: `cmd/debugger/`, `internal/debug/debugger.go`
+- **ROM Builder Enhancements** - Added `EncodeXOR` function for XOR instruction encoding
+  - Location: `internal/rom/builder.go`
+- **Input System Update** - Changed ButtonSELECT to ButtonZ for better controller mapping
+  - Z key now maps to ButtonZ instead of SELECT
+  - Location: `internal/input/input.go`, `internal/ui/ui.go`
+
+### Changed
+- **Code Refactoring Rollback** - Rolled back refactoring changes that caused performance degradation
+  - Restored original CPU, memory, and emulator implementations
+  - Performance restored from ~18 FPS back to ~60 FPS
+  - Location: `internal/cpu/`, `internal/memory/`, `internal/emulator/`
+  - Date: 2026-01-28
 - **Console Mockup Images** - Added prototype design images to README
   - Console isometric view
   - Console top view

@@ -1,0 +1,221 @@
+-- Sprite Eater Game
+-- Control a sprite with arrow keys to eat other sprites
+-- Green sprites = +1 point, Red sprites = game over
+
+asset PlayerTile: tiles8
+    hex
+        FF FF FF FF FF FF FF FF
+        FF 00 00 00 00 00 00 FF
+        FF 00 FF FF FF FF 00 FF
+        FF 00 FF 00 00 FF 00 FF
+        FF 00 FF 00 00 FF 00 FF
+        FF 00 FF FF FF FF 00 FF
+        FF 00 00 00 00 00 00 FF
+        FF FF FF FF FF FF FF FF
+
+asset GreenFoodTile: tiles8
+    hex
+        00 00 00 00 00 00 00 00
+        00 00 1F 1F 1F 1F 00 00
+        00 1F 1F 1F 1F 1F 1F 00
+        00 1F 1F 1F 1F 1F 1F 00
+        00 1F 1F 1F 1F 1F 1F 00
+        00 1F 1F 1F 1F 1F 1F 00
+        00 00 1F 1F 1F 1F 00 00
+        00 00 00 00 00 00 00 00
+
+asset RedFoodTile: tiles8
+    hex
+        00 00 00 00 00 00 00 00
+        00 00 E0 E0 E0 E0 00 00
+        00 E0 E0 E0 E0 E0 E0 00
+        00 E0 E0 E0 E0 E0 E0 00
+        00 E0 E0 E0 E0 E0 E0 00
+        00 E0 E0 E0 E0 E0 E0 00
+        00 00 E0 E0 E0 E0 00 00
+        00 00 00 00 00 00 00 00
+
+function Start()
+    -- Enable display
+    ppu.enable_display()
+    
+    -- Load tiles
+    player_base := gfx.load_tiles(ASSET_PlayerTile, 0)
+    green_base := gfx.load_tiles(ASSET_GreenFoodTile, 8)
+    red_base := gfx.load_tiles(ASSET_RedFoodTile, 16)
+    
+    -- Initialize player sprite
+    player := Sprite()
+    player_x := 160
+    player_y := 100
+    sprite.set_pos(&player, player_x, player_y)
+    player.tile = player_base
+    player.attr = SPR_PAL(0)
+    player.ctrl = SPR_ENABLE()
+    
+    -- Initialize food sprites (3 green, 1 red)
+    green1 := Sprite()
+    green1_x := 80
+    green1_y := 60
+    sprite.set_pos(&green1, green1_x, green1_y)
+    green1.tile = green_base
+    green1.attr = SPR_PAL(1)
+    green1.ctrl = SPR_ENABLE()
+    
+    green2 := Sprite()
+    green2_x := 240
+    green2_y := 80
+    sprite.set_pos(&green2, green2_x, green2_y)
+    green2.tile = green_base
+    green2.attr = SPR_PAL(1)
+    green2.ctrl = SPR_ENABLE()
+    
+    green3 := Sprite()
+    green3_x := 120
+    green3_y := 140
+    sprite.set_pos(&green3, green3_x, green3_y)
+    green3.tile = green_base
+    green3.attr = SPR_PAL(1)
+    green3.ctrl = SPR_ENABLE()
+    
+    red1 := Sprite()
+    red1_x := 200
+    red1_y := 120
+    sprite.set_pos(&red1, red1_x, red1_y)
+    red1.tile = red_base
+    red1.attr = SPR_PAL(2)
+    red1.ctrl = SPR_ENABLE()
+    
+    -- Game state
+    score := 0
+    game_over := false
+    frame := 0
+    
+    -- Main game loop
+    while not game_over
+        -- Simple frame delay (skip wait_vblank for now to avoid blocking)
+        -- In a real game, wait_vblank() would sync to 60fps
+        frame = frame + 1
+        
+        -- Read input
+        buttons := input.read()
+        
+        -- Move player based on input
+        -- UP (bit 0)
+        if (buttons & 0x01) != 0
+            if player_y > 8
+                player_y = player_y - 2
+        
+        -- DOWN (bit 1)
+        if (buttons & 0x02) != 0
+            if player_y < 192
+                player_y = player_y + 2
+        
+        -- LEFT (bit 2)
+        if (buttons & 0x04) != 0
+            if player_x > 8
+                player_x = player_x - 2
+        
+        -- RIGHT (bit 3)
+        if (buttons & 0x08) != 0
+            if player_x < 312
+                player_x = player_x + 2
+        
+        -- Update player position
+        sprite.set_pos(&player, player_x, player_y)
+        
+        -- Check collisions with green food
+        -- Green 1 collision
+        dx1 := player_x - green1_x
+        if dx1 < 0
+            dx1 = -dx1
+        dy1 := player_y - green1_y
+        if dy1 < 0
+            dy1 = -dy1
+        if dx1 < 12 and dy1 < 12
+            -- Collision! Remove green1 and add score
+            score = score + 1
+            green1.ctrl = 0
+            -- Respawn green1 at new position (use bitwise AND for pseudo-random)
+            rand_val := frame + frame + frame + frame + frame + frame + frame
+            green1_x = (rand_val & 0xFF) + 10
+            if green1_x > 300
+                green1_x = green1_x - 200
+            rand_val2 := frame + frame + frame + frame + frame + frame + frame + frame + frame + frame + frame
+            green1_y = (rand_val2 & 0xFF) + 10
+            if green1_y > 180
+                green1_y = green1_y - 100
+            sprite.set_pos(&green1, green1_x, green1_y)
+            green1.ctrl = SPR_ENABLE()
+        
+        -- Green 2 collision
+        dx2 := player_x - green2_x
+        if dx2 < 0
+            dx2 = -dx2
+        dy2 := player_y - green2_y
+        if dy2 < 0
+            dy2 = -dy2
+        if dx2 < 12 and dy2 < 12
+            score = score + 1
+            green2.ctrl = 0
+            rand_val3 := frame + frame + frame + frame + frame + frame + frame + frame + frame + frame + frame + frame + frame
+            green2_x = (rand_val3 & 0xFF) + 10
+            if green2_x > 300
+                green2_x = green2_x - 200
+            rand_val4 := frame + frame + frame + frame + frame + frame + frame + frame + frame + frame + frame + frame + frame + frame + frame + frame + frame
+            green2_y = (rand_val4 & 0xFF) + 10
+            if green2_y > 180
+                green2_y = green2_y - 100
+            sprite.set_pos(&green2, green2_x, green2_y)
+            green2.ctrl = SPR_ENABLE()
+        
+        -- Green 3 collision
+        dx3 := player_x - green3_x
+        if dx3 < 0
+            dx3 = -dx3
+        dy3 := player_y - green3_y
+        if dy3 < 0
+            dy3 = -dy3
+        if dx3 < 12 and dy3 < 12
+            score = score + 1
+            green3.ctrl = 0
+            rand_val5 := frame + frame + frame + frame + frame + frame + frame + frame + frame + frame + frame + frame + frame + frame + frame + frame + frame + frame + frame
+            green3_x = (rand_val5 & 0xFF) + 10
+            if green3_x > 300
+                green3_x = green3_x - 200
+            rand_val6 := frame + frame + frame + frame + frame + frame + frame + frame + frame + frame + frame + frame + frame + frame + frame + frame + frame + frame + frame + frame + frame + frame + frame
+            green3_y = (rand_val6 & 0xFF) + 10
+            if green3_y > 180
+                green3_y = green3_y - 100
+            sprite.set_pos(&green3, green3_x, green3_y)
+            green3.ctrl = SPR_ENABLE()
+        
+        -- Check collision with red food (game over)
+        dx_red := player_x - red1_x
+        if dx_red < 0
+            dx_red = -dx_red
+        dy_red := player_y - red1_y
+        if dy_red < 0
+            dy_red = -dy_red
+        if dx_red < 12 and dy_red < 12
+            -- Game over!
+            game_over = true
+        
+        -- Move red food slowly
+        if frame % 2 == 0
+            red1_x = red1_x + 1
+            if red1_x > 310
+                red1_x = 10
+            sprite.set_pos(&red1, red1_x, red1_y)
+        
+        -- Write all sprites to OAM
+        oam.write(0, &player)
+        oam.write(1, &green1)
+        oam.write(2, &green2)
+        oam.write(3, &green3)
+        oam.write(4, &red1)
+        oam.flush()
+        
+        -- Limit to prevent infinite loop (60 seconds at 60fps)
+        if frame >= 3600
+            game_over = true

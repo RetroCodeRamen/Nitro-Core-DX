@@ -97,6 +97,6 @@ const (
 	ButtonL     = 8
 	ButtonR     = 9
 	ButtonSTART = 10
-	ButtonSELECT = 11
+	ButtonZ     = 11
 )
 

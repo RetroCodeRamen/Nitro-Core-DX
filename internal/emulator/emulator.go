@@ -52,6 +52,9 @@ type Emulator struct {
 
 	// Cycle logger (for debugging)
 	CycleLogger *debug.CycleLogger
+
+	// Debugger (for interactive debugging)
+	Debugger *debug.Debugger
 }
 
 // NewEmulator creates a new clock-driven emulator instance

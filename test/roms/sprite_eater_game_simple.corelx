@@ -1,0 +1,31 @@
+-- Simple Sprite Test - Just show one sprite
+
+asset PlayerTile: tiles8
+    hex
+        FF FF FF FF FF FF FF FF
+        FF 00 00 00 00 00 00 FF
+        FF 00 FF FF FF FF 00 FF
+        FF 00 FF 00 00 FF 00 FF
+        FF 00 FF 00 00 FF 00 FF
+        FF 00 FF FF FF FF 00 FF
+        FF 00 00 00 00 00 00 FF
+        FF FF FF FF FF FF FF FF
+
+function Start()
+    -- Enable display
+    ppu.enable_display()
+    
+    -- Load tiles
+    player_base := gfx.load_tiles(ASSET_PlayerTile, 0)
+    
+    -- Initialize player sprite
+    player := Sprite()
+    sprite.set_pos(&player, 160, 100)
+    player.tile = player_base
+    player.attr = SPR_PAL(0)
+    player.ctrl = SPR_ENABLE()
+    
+    -- Main loop - just write sprite to OAM
+    while true
+        oam.write(0, &player)
+        oam.flush()

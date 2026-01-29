@@ -1,0 +1,20 @@
+asset HeroTiles: tiles8
+    hex
+        00 00 11 11 22 22 33 33
+        44 44 55 55 66 66 77 77
+
+function Start()
+    ppu.enable_display()
+
+    base := gfx.load_tiles(ASSET_HeroTiles, 0)
+
+    hero := Sprite()
+    sprite.set_pos(&hero, 120, 80)
+    hero.tile = base
+    hero.attr = SPR_PAL(1) | SPR_PRI(2)
+    hero.ctrl = SPR_ENABLE() | SPR_SIZE_16()
+
+    while true
+        wait_vblank()
+        oam.write(0, &hero)
+        oam.flush()
