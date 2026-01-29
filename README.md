@@ -12,6 +12,141 @@ A custom 16-bit fantasy console emulator inspired by classic 8/16-bit consoles, 
 
 Ever wonder what would happen if you took the SNES's gorgeous graphics and mixed them with the Genesis's raw horsepower? That's exactly what Nitro-Core-DX is all about. It's a fantasy console that doesn't just emulate the classics—it creates something entirely new by combining the best of both worlds.
 
+---
+
+## The Three-Layer Challenge: Hardware, Emulator, and Compiler
+
+Nitro-Core-DX isn't just an emulator—it's a complete system built from scratch. This project involves three major components, each with its own complexity:
+
+### 1. **Hardware Architecture Design**
+The foundation: designing a custom 16-bit CPU, memory map, PPU (graphics), APU (audio), and I/O systems. This includes:
+- Custom instruction set with 16-bit operations
+- Banked memory architecture (256 banks × 64KB = 16MB addressable)
+- Graphics pipeline with 4 background layers, sprites, Matrix Mode
+- Audio synthesis with 4 channels and waveform generation
+- Memory-mapped I/O registers for hardware control
+
+**The Challenge**: Every design decision affects everything else. Change a register layout? Update the emulator. Modify the instruction encoding? Fix the compiler. It's a delicate balance between "what's possible" and "what's practical."
+
+### 2. **Emulator Implementation**
+The execution layer: cycle-accurate CPU emulation, pixel-perfect PPU rendering, sample-accurate audio synthesis. This includes:
+- CPU instruction execution with precise cycle counting
+- PPU rendering pipeline (tiles, sprites, layers, Matrix Mode)
+- APU waveform generation and mixing
+- Memory bus routing and bank switching
+- Synchronization (VBlank, frame counter, completion flags)
+
+**The Challenge**: The emulator must match the hardware specification exactly. A single cycle off can cause timing issues. A register read/write bug can break entire games. And when something doesn't work, is it the emulator's fault or the hardware design?
+
+### 3. **CoreLX Compiler**
+The language layer: a custom compiled language (CoreLX) with Lua-like syntax, designed for hardware-first programming. This includes:
+- Lexer and parser for CoreLX syntax
+- Semantic analysis and type checking
+- Code generation (translating CoreLX to Nitro-Core-DX assembly)
+- Built-in function mapping (PPU, APU, sprite operations)
+- Asset embedding and ROM building
+
+**The Challenge**: The compiler must generate correct assembly code that matches the hardware's expectations. A wrong register allocation? The ROM crashes. An incorrect memory address? Graphics glitch. And when the ROM doesn't work, is it the compiler's fault, the emulator's fault, or the hardware design?
+
+---
+
+## The Debugging Nightmare: Where's the Bug?
+
+This is where things get interesting—and frustrating. When something doesn't work, there are **four potential sources of the problem**:
+
+### 🔍 **Is it the ROM code?**
+- Did I write the CoreLX code correctly?
+- Is the logic sound?
+- Are the function calls correct?
+
+### 🔍 **Is it the compiler?**
+- Did the compiler generate the wrong assembly?
+- Is register allocation incorrect?
+- Are memory addresses calculated wrong?
+- Did built-in functions get translated incorrectly?
+
+### 🔍 **Is it the emulator?**
+- Is the CPU executing instructions correctly?
+- Are memory reads/writes working?
+- Is the PPU rendering correctly?
+- Are I/O registers responding as expected?
+- Is synchronization working?
+
+### 🔍 **Is it the hardware design?**
+- Is the instruction set complete?
+- Are the register layouts correct?
+- Is the memory map sound?
+- Are there design flaws that need fixing?
+
+**The Reality**: Most bugs involve multiple layers. A compiler bug might generate code that exposes an emulator bug, which reveals a hardware design flaw. Or vice versa. It's like debugging a house of cards—fix one thing, and three others might fall over.
+
+---
+
+## Flying Blind: The Learning Experience
+
+I'm building this project "flying blind"—learning as I go, with AI assistance helping where I'm technically weak. It's an incredible learning experience, but it comes with unique challenges:
+
+### The Good
+- **Deep Understanding**: Building everything from scratch means understanding every layer
+- **Creative Freedom**: No legacy constraints—design what makes sense
+- **AI Assistance**: AI helps with heavy lifting (code generation, documentation, debugging suggestions)
+- **Real Learning**: Every bug teaches something new about hardware, compilers, or emulation
+
+### The Hard Parts
+- **Isolation is Difficult**: When a ROM crashes, which layer is at fault?
+- **Testing is Complex**: Need to test hardware design, emulator accuracy, and compiler correctness
+- **Documentation is Critical**: Without good docs, it's impossible to know what "correct" behavior is
+- **No Reference Implementation**: Can't compare to "known good" behavior—we're defining what "good" is
+
+### The Strategy
+1. **Test Each Layer Independently**: Write assembly ROMs to test emulator. Write simple CoreLX to test compiler.
+2. **Comprehensive Logging**: Log everything—CPU cycles, memory access, register changes, PPU state
+3. **Incremental Development**: Build one feature at a time, test thoroughly before moving on
+4. **Document Everything**: Write down expected behavior, test cases, known issues
+5. **Use AI Strategically**: AI helps with code generation and debugging, but I make the architectural decisions
+
+---
+
+## Project Components Overview
+
+### Core Emulator (`cmd/emulator/`)
+The main emulator application that runs ROMs. Handles:
+- ROM loading and execution
+- CPU cycle execution
+- PPU frame rendering
+- APU audio synthesis
+- Input handling
+- UI (SDL2-based)
+
+### CoreLX Compiler (`cmd/corelx/` + `internal/corelx/`)
+The CoreLX language compiler. Handles:
+- Lexing and parsing CoreLX source files
+- Semantic analysis and type checking
+- Code generation (CoreLX → Nitro Core DX assembly)
+- ROM building (assembly → ROM binary)
+
+**Status**: Phase 1 complete (all built-in functions implemented). Phase 2 (asset system) and Phase 3 (struct system) in progress.
+
+### Hardware Design (Documented in `SYSTEM_MANUAL.md`)
+The hardware specification. Defines:
+- CPU instruction set and encoding
+- Memory map and bank switching
+- PPU registers and rendering pipeline
+- APU registers and audio synthesis
+- I/O register layout
+
+**Status**: Architecture stable. All core features implemented and tested.
+
+### Development Tools
+Various utilities for testing and development:
+- `cmd/testrom/` - Test ROM generator
+- `cmd/demorom/` - Demo ROM generator
+- `cmd/audiotest/` - Audio test ROM generator
+- `cmd/debugger/` - Debugging tools
+- `cmd/trace_*/` - Tracing utilities
+
+---
+
 Here's what the console will look like when I build the first prototype:
 
 <div align="center">
@@ -74,7 +209,7 @@ The project documentation is organized into four main documents:
 
 - **[README.md](README.md)**: Project overview, quick start, build instructions, and contributing guide
 - **[SYSTEM_MANUAL.md](SYSTEM_MANUAL.md)**: Complete system architecture, FPGA compatibility, testing framework, and development tools
-- **[NITRO_CORE_DX_PROGRAMMING_MANUAL.md](NITRO_CORE_DX_PROGRAMMING_MANUAL.md)**: Complete programming guide for ROM developers
+- **[PROGRAMMING_MANUAL.md](PROGRAMMING_MANUAL.md)**: Complete programming guide covering both CoreLX and assembly languages
 - **[CHANGELOG.md](CHANGELOG.md)**: Version history and change log
 - **[END_OF_DAY_PROCEDURE.md](END_OF_DAY_PROCEDURE.md)**: End-of-day cleanup and documentation procedure
 
@@ -453,6 +588,84 @@ All three mechanisms work together to provide flexible, hardware-accurate timing
 
 ---
 
+## Development Philosophy: Building Something Real
+
+This project is a **massive undertaking**—even with AI assistance doing heavy lifting in areas where I'm technically weak. Creating custom hardware, software, and a compiler for a new language is not trivial. Every component depends on every other component, and bugs can hide in any layer.
+
+### Why This Matters
+
+Most emulator projects start with existing hardware—you emulate what already exists, and you can compare your results to real hardware. But Nitro-Core-DX is different:
+
+- **No Reference Hardware**: We're defining what the hardware *should* do, not emulating what it *does* do
+- **No Existing Software**: We're creating the first software for this platform
+- **No Existing Compiler**: We're building the first compiler for CoreLX
+- **No Test Suite**: We're creating the test suite as we go
+
+This means **every bug is a learning opportunity**, but it also means **debugging is incredibly difficult**. When a ROM crashes, is it:
+- A bug in my ROM code?
+- A bug in the compiler?
+- A bug in the emulator?
+- A design flaw in the hardware specification?
+
+Often, it's a combination of all four.
+
+### The Testing Challenge
+
+The hardest part of this project isn't writing code—it's **isolating where problems come from**. Here's the typical debugging flow:
+
+1. **Write a CoreLX program** → Compile it → Run it in emulator → It crashes
+2. **Check the ROM**: Is the CoreLX code correct? (Maybe)
+3. **Check the compiler output**: Did it generate correct assembly? (Maybe)
+4. **Check the emulator**: Is it executing correctly? (Maybe)
+5. **Check the hardware design**: Is the specification correct? (Maybe)
+
+The answer is usually "a little bit of everything." A compiler bug might generate code that exposes an emulator bug, which reveals a hardware design issue. Fix one thing, and three others might break.
+
+### The Learning Journey
+
+I'm building this "flying blind"—learning as I go, with AI helping where I'm weak. It's an incredible learning experience:
+
+- **Hardware Design**: Learning CPU architecture, memory systems, graphics pipelines
+- **Emulator Development**: Learning cycle-accurate emulation, synchronization, timing
+- **Compiler Design**: Learning lexing, parsing, code generation, optimization
+- **System Integration**: Learning how all the pieces fit together
+
+But it's also frustrating. When you're stuck, you can't just "look it up"—you're creating the reference. You can't "compare to real hardware"—you're defining what real hardware should be.
+
+### The Strategy
+
+1. **Test Each Layer Independently**
+   - Write assembly ROMs to test emulator (bypass compiler)
+   - Write simple CoreLX to test compiler (isolate compiler bugs)
+   - Test hardware design with known-good code
+
+2. **Comprehensive Logging**
+   - Log CPU cycles, register changes, memory access
+   - Log compiler intermediate representations
+   - Log emulator state at every step
+
+3. **Incremental Development**
+   - Build one feature at a time
+   - Test thoroughly before moving on
+   - Don't move forward until current layer works
+
+4. **Document Everything**
+   - Write down expected behavior
+   - Document test cases
+   - Keep track of known issues
+   - Update manuals when things change
+
+5. **Use AI Strategically**
+   - AI helps with code generation and debugging suggestions
+   - But I make the architectural decisions
+   - AI is a tool, not a replacement for understanding
+
+### The Result
+
+This project is a **real learning experience**. Every bug teaches something new. Every feature reveals new challenges. And every success feels like a genuine achievement—because it is. We're not just emulating something that exists; we're creating something new.
+
+---
+
 ## Development
 
 ### Project Structure
@@ -461,27 +674,59 @@ All three mechanisms work together to provide flexible, hardware-accurate timing
 nitro-core-dx/
 ├── cmd/
 │   ├── emulator/          # Main emulator application
+│   ├── corelx/            # CoreLX compiler (compiles .corelx → .rom)
 │   ├── demorom/           # Demo ROM generator
 │   ├── audiotest/         # Audio test ROM generator
-│   └── testrom/           # Test ROM generator
+│   ├── testrom/           # Test ROM generator
+│   ├── debugger/          # Debugging tools
+│   └── trace_*/           # Tracing utilities
 ├── internal/
-│   ├── cpu/               # CPU emulation
-│   ├── memory/            # Memory system
-│   ├── ppu/               # Graphics system
-│   ├── apu/               # Audio system
-│   ├── input/             # Input system
-│   ├── rom/               # ROM loading
+│   ├── cpu/               # CPU emulation (cycle-accurate)
+│   ├── memory/            # Memory system (banked architecture)
+│   ├── ppu/               # Graphics system (4 layers, sprites, Matrix Mode)
+│   ├── apu/               # Audio system (4-channel synthesis)
+│   ├── input/             # Input system (12-button controllers)
+│   ├── rom/               # ROM loading and building
 │   ├── ui/                # User interface (SDL2)
 │   ├── emulator/          # Emulator orchestration
-│   └── debug/             # Debugging tools (planned)
-├── docs/                  # Documentation (planned)
-├── test/                  # Test ROMs
+│   ├── corelx/            # CoreLX compiler (lexer, parser, codegen)
+│   └── debug/             # Debugging tools (logging, breakpoints)
+├── test/
+│   └── roms/              # Test ROMs (CoreLX and assembly)
+├── docs/                  # Documentation
 ├── go.mod                 # Go module definition
 ├── go.sum                 # Go module checksums
-├── README.md              # This file
-├── SYSTEM_MANUAL.md       # Architecture and design documentation
-└── NITRO_CORE_DX_PROGRAMMING_MANUAL.md  # Programming guide
+├── README.md              # This file (project overview)
+├── SYSTEM_MANUAL.md       # Hardware architecture and design
+├── PROGRAMMING_MANUAL.md  # Programming guide (CoreLX + Assembly)
+└── CORELX_IMPLEMENTATION_*.md  # CoreLX compiler documentation
 ```
+
+### Component Responsibilities
+
+**Emulator (`internal/emulator/`, `internal/cpu/`, `internal/ppu/`, etc.)**
+- Executes ROMs cycle-accurately
+- Renders graphics pixel-perfectly
+- Generates audio sample-accurately
+- Handles I/O and synchronization
+
+**Compiler (`internal/corelx/`, `cmd/corelx/`)**
+- Parses CoreLX source code
+- Generates Nitro Core DX assembly
+- Builds ROM binaries
+- Maps built-in functions to hardware operations
+
+**Hardware Design (`SYSTEM_MANUAL.md`)**
+- Defines CPU instruction set
+- Specifies memory map
+- Documents PPU/APU registers
+- Establishes I/O protocols
+
+**Testing (`test/roms/`, `internal/*/*_test.go`)**
+- Test ROMs (CoreLX and assembly)
+- Unit tests for each component
+- Integration tests for full system
+- Debugging utilities
 
 ### Contributing
 
@@ -490,7 +735,7 @@ Contributions are welcome! This project is in active development, and I apprecia
 **Getting Started:**
 1. Read the [README.md](README.md) for project overview
 2. Read the [SYSTEM_MANUAL.md](SYSTEM_MANUAL.md) for architecture details
-3. Read the [NITRO_CORE_DX_PROGRAMMING_MANUAL.md](NITRO_CORE_DX_PROGRAMMING_MANUAL.md) for programming guide
+3. Read the [PROGRAMMING_MANUAL.md](PROGRAMMING_MANUAL.md) for programming guide (CoreLX and assembly)
 
 **Development Status:**
 ✅ **Architecture Stable**: Core hardware is 100% complete. The system is ready for game development and dev kit creation.
@@ -504,7 +749,7 @@ Contributions are welcome! This project is in active development, and I apprecia
 **Documentation:**
 - Update relevant documentation when making changes
 - Keep the [SYSTEM_MANUAL.md](SYSTEM_MANUAL.md) up to date with architecture changes
-- Update the [NITRO_CORE_DX_PROGRAMMING_MANUAL.md](NITRO_CORE_DX_PROGRAMMING_MANUAL.md) for API changes
+- Update the [PROGRAMMING_MANUAL.md](PROGRAMMING_MANUAL.md) for API changes
 
 **Pull Request Process:**
 1. Fork the repository

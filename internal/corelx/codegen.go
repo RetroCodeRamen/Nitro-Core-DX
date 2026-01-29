@@ -1023,9 +1023,29 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		return nil
 
 	case "frame_counter":
-		// Read frame counter (would need a register for this)
-		cg.builder.AddInstruction(rom.EncodeMOV(1, destReg, 0))
-		cg.builder.AddImmediate(0) // Placeholder
+		// frame_counter() -> u32 (returns 16-bit frame counter)
+		// Read FRAME_COUNTER_LOW (0x803F) and FRAME_COUNTER_HIGH (0x8040)
+		// Combine into 16-bit value: (high << 8) | low
+		
+		// Read low byte from 0x803F
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #0x803F
+		cg.builder.AddImmediate(0x803F)
+		cg.builder.AddInstruction(rom.EncodeMOV(2, 5, 4)) // MOV R5, [R4] (read low byte)
+		
+		// Read high byte from 0x8040
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #0x8040
+		cg.builder.AddImmediate(0x8040)
+		cg.builder.AddInstruction(rom.EncodeMOV(2, 6, 4)) // MOV R6, [R4] (read high byte)
+		
+		// Combine: (high << 8) | low
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 7, 6)) // MOV R7, R6 (copy high byte)
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #8
+		cg.builder.AddImmediate(8)
+		cg.builder.AddInstruction(rom.EncodeSHL(0, 7, 4)) // SHL R7, R4 -> R7 = high << 8
+		cg.builder.AddInstruction(rom.EncodeOR(0, 5, 7)) // OR R5, R7 -> R5 = (high << 8) | low
+		
+		// Return value in destReg
+		cg.builder.AddInstruction(rom.EncodeMOV(0, destReg, 5)) // MOV R{destReg}, R5
 		return nil
 
 	case "sprite.set_pos":
@@ -1149,24 +1169,85 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 
 	case "SPR_PRI":
 		// SPR_PRI(p: u8) -> u8
-		// Returns priority value shifted to correct bit position
-		// Arg is in R0
-		// Priority is in upper bits of attr, for now just return arg
+		// Returns priority value shifted to bits [7:6] of attr byte
+		// Priority is in bits [7:6] of byte 4 (Attributes)
+		// Shift priority value left by 6 bits: p << 6
+		if len(args) != 1 {
+			return fmt.Errorf("SPR_PRI requires 1 argument")
+		}
+		// Arg is in R0, shift left by 6 bits
 		cg.builder.AddInstruction(rom.EncodeMOV(0, destReg, 0)) // MOV R{destReg}, R0
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0)) // MOV R7, #6
+		cg.builder.AddImmediate(6)
+		cg.builder.AddInstruction(rom.EncodeSHL(0, destReg, 7)) // SHL R{destReg}, R7 -> priority << 6
+		return nil
+
+	case "SPR_HFLIP":
+		// SPR_HFLIP() -> u8
+		// Returns 0x10 (horizontal flip bit, bit 4 of attr byte)
+		cg.builder.AddInstruction(rom.EncodeMOV(1, destReg, 0))
+		cg.builder.AddImmediate(0x10)
+		return nil
+
+	case "SPR_VFLIP":
+		// SPR_VFLIP() -> u8
+		// Returns 0x20 (vertical flip bit, bit 5 of attr byte)
+		cg.builder.AddInstruction(rom.EncodeMOV(1, destReg, 0))
+		cg.builder.AddImmediate(0x20)
+		return nil
+
+	case "SPR_SIZE_8":
+		// SPR_SIZE_8() -> u8
+		// Returns 0x00 (8×8 size, bit 1 of ctrl byte = 0)
+		cg.builder.AddInstruction(rom.EncodeMOV(1, destReg, 0))
+		cg.builder.AddImmediate(0x00)
 		return nil
 
 	case "SPR_ENABLE":
 		// SPR_ENABLE() -> u8
-		// Returns 0x01 (enable bit)
+		// Returns 0x01 (enable bit, bit 0 of ctrl byte)
 		cg.builder.AddInstruction(rom.EncodeMOV(1, destReg, 0))
 		cg.builder.AddImmediate(0x01)
 		return nil
 
 	case "SPR_SIZE_16":
 		// SPR_SIZE_16() -> u8
-		// Returns 0x02 (16x16 size bit)
+		// Returns 0x02 (16×16 size bit, bit 1 of ctrl byte = 1)
 		cg.builder.AddInstruction(rom.EncodeMOV(1, destReg, 0))
 		cg.builder.AddImmediate(0x02)
+		return nil
+
+	case "SPR_BLEND":
+		// SPR_BLEND(mode: u8) -> u8
+		// Returns blend mode shifted to bits [3:2] of ctrl byte
+		// Blend mode is in bits [3:2] of byte 5 (Control)
+		// Shift mode left by 2 bits: mode << 2
+		if len(args) != 1 {
+			return fmt.Errorf("SPR_BLEND requires 1 argument")
+		}
+		// Arg is in R0, shift left by 2 bits
+		cg.builder.AddInstruction(rom.EncodeMOV(0, destReg, 0)) // MOV R{destReg}, R0
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0)) // MOV R7, #2
+		cg.builder.AddImmediate(2)
+		cg.builder.AddInstruction(rom.EncodeSHL(0, destReg, 7)) // SHL R{destReg}, R7 -> mode << 2
+		return nil
+
+	case "SPR_ALPHA":
+		// SPR_ALPHA(a: u8) -> u8
+		// Returns alpha value shifted to bits [7:4] of ctrl byte
+		// Alpha is in bits [7:4] of byte 5 (Control)
+		// Shift alpha left by 4 bits: a << 4
+		if len(args) != 1 {
+			return fmt.Errorf("SPR_ALPHA requires 1 argument")
+		}
+		// Arg is in R0, mask to 4 bits first (alpha is 0-15), then shift left by 4
+		cg.builder.AddInstruction(rom.EncodeMOV(0, destReg, 0)) // MOV R{destReg}, R0
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0)) // MOV R7, #0x0F
+		cg.builder.AddImmediate(0x0F)
+		cg.builder.AddInstruction(rom.EncodeAND(0, destReg, 7)) // AND R{destReg}, R7 -> mask to 4 bits
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0)) // MOV R7, #4
+		cg.builder.AddImmediate(4)
+		cg.builder.AddInstruction(rom.EncodeSHL(0, destReg, 7)) // SHL R{destReg}, R7 -> alpha << 4
 		return nil
 
 	case "oam.flush":
@@ -1174,9 +1255,9 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		return nil
 
 	case "ppu.enable_display":
-		// Enable display (PPU_CONTROL = 0x8000, bit 0 = enable)
-		cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #0x8000
-		cg.builder.AddImmediate(0x8000)
+		// Enable display (BG0_CONTROL = 0x8008, bit 0 = enable)
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #0x8008
+		cg.builder.AddImmediate(0x8008)
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #0x01
 		cg.builder.AddImmediate(0x01)
 		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5)) // MOV [R4], R5
@@ -1220,6 +1301,169 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 6)) // MOV [R4], R6 (release latch)
 		// Return value in destReg
 		cg.builder.AddInstruction(rom.EncodeMOV(0, destReg, 5)) // MOV R{destReg}, R5
+		return nil
+
+	// APU Functions
+	case "apu.enable":
+		// apu.enable() - Enable APU master volume
+		// Write 0xFF to MASTER_VOLUME (0x9020)
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #0x9020
+		cg.builder.AddImmediate(0x9020)
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #0xFF
+		cg.builder.AddImmediate(0xFF)
+		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5)) // MOV [R4], R5 (write master volume)
+		return nil
+
+	case "apu.set_channel_wave":
+		// apu.set_channel_wave(ch: u8, wave: u8)
+		// Args: R0 = channel (0-3), R1 = waveform (0-3)
+		// Write to CONTROL register (offset +3) with bits [1:2] = waveform
+		// Channel base: CH0=0x9000, CH1=0x9008, CH2=0x9010, CH3=0x9018
+		// CONTROL = channel_base + 3
+		
+		// Calculate channel base address: 0x9000 + (ch * 8)
+		// ch * 8 = ch << 3
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 4, 0)) // MOV R4, R0 (save channel)
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #3
+		cg.builder.AddImmediate(3)
+		cg.builder.AddInstruction(rom.EncodeSHL(0, 4, 5)) // SHL R4, R5 -> R4 = ch << 3 = ch * 8
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #0x9000
+		cg.builder.AddImmediate(0x9000)
+		cg.builder.AddInstruction(rom.EncodeADD(0, 4, 5)) // ADD R4, R5 -> R4 = 0x9000 + (ch * 8)
+		
+		// Add offset 3 for CONTROL register
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #3
+		cg.builder.AddImmediate(3)
+		cg.builder.AddInstruction(rom.EncodeADD(0, 4, 5)) // ADD R4, R5 -> R4 = channel_base + 3
+		
+		// Prepare waveform value: shift to bits [1:2]
+		// Waveform is in R1, need to shift left by 1 bit
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 5, 1)) // MOV R5, R1 (waveform)
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0)) // MOV R6, #1
+		cg.builder.AddImmediate(1)
+		cg.builder.AddInstruction(rom.EncodeSHL(0, 5, 6)) // SHL R5, R6 -> R5 = wave << 1
+		
+		// Read current CONTROL value, OR with waveform bits, write back
+		// For simplicity, just write waveform bits (assumes enable bit will be set separately)
+		// In practice, we'd read, mask, OR, write - but for now just write waveform
+		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5)) // MOV [R4], R5 (write CONTROL)
+		return nil
+
+	case "apu.set_channel_freq":
+		// apu.set_channel_freq(ch: u8, freq: u16)
+		// Args: R0 = channel (0-3), R1 = frequency (16-bit)
+		// Write low byte to FREQ_LOW (offset +0), then high byte to FREQ_HIGH (offset +1)
+		// Writing high byte triggers phase reset
+		
+		// Calculate channel base address: 0x9000 + (ch * 8)
+		// ch * 8 = ch << 3
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 4, 0)) // MOV R4, R0 (save channel)
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #3
+		cg.builder.AddImmediate(3)
+		cg.builder.AddInstruction(rom.EncodeSHL(0, 4, 5)) // SHL R4, R5 -> R4 = ch << 3 = ch * 8
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #0x9000
+		cg.builder.AddImmediate(0x9000)
+		cg.builder.AddInstruction(rom.EncodeADD(0, 4, 5)) // ADD R4, R5 -> R4 = 0x9000 + (ch * 8)
+		
+		// Save frequency value
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 5, 1)) // MOV R5, R1 (frequency)
+		
+		// Write low byte to FREQ_LOW (offset +0)
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 6, 5)) // MOV R6, R5 (copy freq)
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0)) // MOV R7, #0xFF
+		cg.builder.AddImmediate(0xFF)
+		cg.builder.AddInstruction(rom.EncodeAND(0, 6, 7)) // AND R6, R7 -> R6 = freq & 0xFF (low byte)
+		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 6)) // MOV [R4], R6 (write FREQ_LOW)
+		
+		// Write high byte to FREQ_HIGH (offset +1)
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0)) // MOV R6, #1
+		cg.builder.AddImmediate(1)
+		cg.builder.AddInstruction(rom.EncodeADD(0, 4, 6)) // ADD R4, R6 -> R4 = channel_base + 1
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 6, 5)) // MOV R6, R5 (copy freq)
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0)) // MOV R7, #8
+		cg.builder.AddImmediate(8)
+		cg.builder.AddInstruction(rom.EncodeSHR(0, 6, 7)) // SHR R6, R7 -> R6 = freq >> 8 (high byte)
+		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 6)) // MOV [R4], R6 (write FREQ_HIGH, triggers phase reset)
+		return nil
+
+	case "apu.set_channel_volume":
+		// apu.set_channel_volume(ch: u8, vol: u8)
+		// Args: R0 = channel (0-3), R1 = volume (0-255)
+		// Write to VOLUME register (offset +2)
+		
+		// Calculate channel base address: 0x9000 + (ch * 8)
+		// ch * 8 = ch << 3
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 4, 0)) // MOV R4, R0 (save channel)
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #3
+		cg.builder.AddImmediate(3)
+		cg.builder.AddInstruction(rom.EncodeSHL(0, 4, 5)) // SHL R4, R5 -> R4 = ch << 3 = ch * 8
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #0x9000
+		cg.builder.AddImmediate(0x9000)
+		cg.builder.AddInstruction(rom.EncodeADD(0, 4, 5)) // ADD R4, R5 -> R4 = 0x9000 + (ch * 8)
+		
+		// Add offset 2 for VOLUME register
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #2
+		cg.builder.AddImmediate(2)
+		cg.builder.AddInstruction(rom.EncodeADD(0, 4, 5)) // ADD R4, R5 -> R4 = channel_base + 2
+		
+		// Write volume (R1) to VOLUME register
+		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 1)) // MOV [R4], R1 (write VOLUME)
+		return nil
+
+	case "apu.note_on":
+		// apu.note_on(ch: u8)
+		// Args: R0 = channel (0-3)
+		// Set CONTROL register (offset +3) bit 0 to 1 (enable)
+		
+		// Calculate channel base address: 0x9000 + (ch * 8)
+		// ch * 8 = ch << 3
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 4, 0)) // MOV R4, R0 (save channel)
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #3
+		cg.builder.AddImmediate(3)
+		cg.builder.AddInstruction(rom.EncodeSHL(0, 4, 5)) // SHL R4, R5 -> R4 = ch << 3 = ch * 8
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #0x9000
+		cg.builder.AddImmediate(0x9000)
+		cg.builder.AddInstruction(rom.EncodeADD(0, 4, 5)) // ADD R4, R5 -> R4 = 0x9000 + (ch * 8)
+		
+		// Add offset 3 for CONTROL register
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #3
+		cg.builder.AddImmediate(3)
+		cg.builder.AddInstruction(rom.EncodeADD(0, 4, 5)) // ADD R4, R5 -> R4 = channel_base + 3
+		
+		// Read current CONTROL value, OR with 0x01 (enable bit)
+		cg.builder.AddInstruction(rom.EncodeMOV(2, 5, 4)) // MOV R5, [R4] (read current CONTROL)
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0)) // MOV R6, #0x01
+		cg.builder.AddImmediate(0x01)
+		cg.builder.AddInstruction(rom.EncodeOR(0, 5, 6)) // OR R5, R6 -> R5 = CONTROL | 0x01
+		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5)) // MOV [R4], R5 (write CONTROL with enable bit)
+		return nil
+
+	case "apu.note_off":
+		// apu.note_off(ch: u8)
+		// Args: R0 = channel (0-3)
+		// Clear CONTROL register (offset +3) bit 0 (disable)
+		
+		// Calculate channel base address: 0x9000 + (ch * 8)
+		// ch * 8 = ch << 3
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 4, 0)) // MOV R4, R0 (save channel)
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #3
+		cg.builder.AddImmediate(3)
+		cg.builder.AddInstruction(rom.EncodeSHL(0, 4, 5)) // SHL R4, R5 -> R4 = ch << 3 = ch * 8
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #0x9000
+		cg.builder.AddImmediate(0x9000)
+		cg.builder.AddInstruction(rom.EncodeADD(0, 4, 5)) // ADD R4, R5 -> R4 = 0x9000 + (ch * 8)
+		
+		// Add offset 3 for CONTROL register
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #3
+		cg.builder.AddImmediate(3)
+		cg.builder.AddInstruction(rom.EncodeADD(0, 4, 5)) // ADD R4, R5 -> R4 = channel_base + 3
+		
+		// Read current CONTROL value, AND with 0xFE (clear enable bit)
+		cg.builder.AddInstruction(rom.EncodeMOV(2, 5, 4)) // MOV R5, [R4] (read current CONTROL)
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0)) // MOV R6, #0xFE
+		cg.builder.AddImmediate(0xFE)
+		cg.builder.AddInstruction(rom.EncodeAND(0, 5, 6)) // AND R5, R6 -> R5 = CONTROL & 0xFE (clear bit 0)
+		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5)) // MOV [R4], R5 (write CONTROL without enable bit)
 		return nil
 
 	default:

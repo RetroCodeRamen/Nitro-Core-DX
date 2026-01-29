@@ -654,7 +654,7 @@ The emulator includes a comprehensive development toolkit for debugging and ROM 
 
 ## Reference
 
-For detailed programming information, see the [Programming Manual](NITRO_CORE_DX_PROGRAMMING_MANUAL.md).
+For detailed programming information, see the [Programming Manual](PROGRAMMING_MANUAL.md).
 
 For project overview and quick start, see the [README](README.md).
 

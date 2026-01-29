@@ -1,0 +1,11 @@
+-- Frame Counter Test
+
+function Start()
+    ppu.enable_display()
+    
+    -- Read frame counter
+    frame := frame_counter()
+    
+    while true
+        wait_vblank()
+        -- Frame counter should increment each frame

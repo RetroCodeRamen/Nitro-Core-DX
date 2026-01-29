@@ -1,0 +1,38 @@
+-- Sprite Helper Functions Test
+
+function Start()
+    ppu.enable_display()
+    
+    -- Test all sprite helpers
+    hero := Sprite()
+    sprite.set_pos(&hero, 120, 80)
+    hero.tile = 0
+    
+    -- Test SPR_PAL (palette 5)
+    hero.attr = SPR_PAL(5)
+    
+    -- Test SPR_PRI (priority 2) - should shift to bits [7:6]
+    hero.attr = hero.attr | SPR_PRI(2)
+    
+    -- Test SPR_HFLIP
+    hero.attr = hero.attr | SPR_HFLIP()
+    
+    -- Test SPR_VFLIP
+    hero.attr = hero.attr | SPR_VFLIP()
+    
+    -- Test SPR_SIZE_8 (8x8)
+    hero.ctrl = SPR_SIZE_8()
+    
+    -- Test SPR_ENABLE
+    hero.ctrl = hero.ctrl | SPR_ENABLE()
+    
+    -- Test SPR_BLEND (mode 1 = alpha)
+    hero.ctrl = hero.ctrl | SPR_BLEND(1)
+    
+    -- Test SPR_ALPHA (alpha 12)
+    hero.ctrl = hero.ctrl | SPR_ALPHA(12)
+    
+    while true
+        wait_vblank()
+        oam.write(0, &hero)
+        oam.flush()

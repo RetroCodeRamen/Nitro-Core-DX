@@ -1,0 +1,19 @@
+-- APU Test Program
+-- Tests all APU functions
+
+function Start()
+    -- Enable APU
+    apu.enable()
+    
+    -- Set up channel 0: Sine wave, 440 Hz (A4), volume 128
+    apu.set_channel_wave(0, 0)  -- Sine wave
+    apu.set_channel_freq(0, 440)  -- 440 Hz
+    apu.set_channel_volume(0, 128)  -- 50% volume
+    
+    -- Start playing
+    apu.note_on(0)
+    
+    -- Main loop
+    while true
+        wait_vblank()
+        -- Note continues playing until note_off() is called
