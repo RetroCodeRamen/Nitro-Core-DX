@@ -82,7 +82,7 @@ The project documentation is organized into four main documents:
 
 ## The Vision: Best of Both Worlds
 
-Nitro-Core-DX started with a simple question: *"What if?"* What if you could take the SNES's beautiful graphics and combine them with the Genesis's raw speed? What if you didn't have to choose between Mode 7 effects and smooth 60 FPS gameplay?
+Nitro-Core-DX started with a simple question: *"What if?"* What if you could take the SNES's beautiful graphics and combine them with the Genesis's raw speed? What if you didn't have to choose between Mode 7 effects and smooth 60 FPS gameplay? (Target: 60 FPS, currently ~30 FPS)
 
 This isn't just another emulator—it's a passion project that's building something genuinely new. I'm not trying to recreate history; I'm trying to create the console that *should have* existed. And I'm doing it the right way: cycle-accurate emulation, proper architecture, comprehensive testing, and documentation that actually makes sense.
 
@@ -106,7 +106,7 @@ The Genesis was fast, and I like fast:
 
 ### The Result?
 
-A fantasy console that gives you SNES-quality visuals running at Genesis-level performance. Smooth 60 FPS with complex graphics, advanced parallax scrolling, and Matrix Mode effects that can handle 3D landscapes and racing games without breaking a sweat.
+A fantasy console that gives you SNES-quality visuals running at Genesis-level performance. Target is smooth 60 FPS (currently ~30 FPS) with complex graphics, advanced parallax scrolling, and Matrix Mode effects that can handle 3D landscapes and racing games.
 
 **My Philosophy:**
 I'm not in a rush. This is a long-term project where doing it right matters more than doing it fast. Every component gets the attention it deserves—from cycle-accurate CPU emulation to hardware-accurate synchronization signals. I'm building something that'll last.
@@ -119,7 +119,7 @@ I didn't just pick Go because it's trendy. I evaluated multiple languages and Go
 
 Here's why Go works so well for Nitro-Core-DX:
 
-- **Performance**: Near-native speed that keeps it at a steady 60 FPS without breaking a sweat
+- **Performance**: Target is 60 FPS (currently achieving ~30 FPS, optimization ongoing)
 - **Developer Experience**: Clean syntax that doesn't make you want to throw your keyboard
 - **Concurrency**: Built-in goroutines that make audio/rendering threading actually pleasant
 - **Cross-Platform**: One binary, runs everywhere (Linux, macOS, Windows—you name it)
@@ -168,7 +168,9 @@ The best part? When I eventually port this to FPGA hardware, the architecture I'
 
 ### Performance (Because Speed Matters)
 
-The emulator targets a steady 60 FPS because anything less feels wrong. Here's how it makes it happen:
+**Performance Status**: The emulator targets a steady 60 FPS, but currently achieves approximately 30 FPS. Performance optimization is an ongoing effort.
+
+Here's how the emulator is designed to achieve 60 FPS:
 
 - **Frame Limiting**: Automatic 60 FPS that actually works
   - High-resolution timers (nanosecond precision, because accuracy matters)
@@ -418,12 +420,13 @@ go fmt ./...
 | **CPU Speed** | ~7.67 MHz (127,820 cycles per frame at 60 FPS, Genesis-like) |
 | **Memory** | 64KB per bank, 256 banks (16MB total address space) |
 | **ROM Size** | Up to 7.8MB (125 banks × 64KB) |
-| **Frame Rate** | 60 FPS target |
+| **Frame Rate** | Target: 60 FPS (Currently: ~30 FPS) |
 
 ### Performance Targets
 
-- **60 FPS**: Steady frame rate, no drops
-- **Frame Time**: < 16.67ms per frame (including rendering)
+- **Target: 60 FPS** - Goal is steady frame rate with no drops
+- **Current: ~30 FPS** - Currently achieving approximately 30 FPS, optimization work in progress
+- **Frame Time Target**: < 16.67ms per frame (including rendering)
 - **CPU Usage**: Reasonable CPU usage (not 100% on one core)
 - **Memory Usage**: Efficient memory usage
 
