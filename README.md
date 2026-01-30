@@ -208,7 +208,9 @@ For detailed status, see the [System Manual](SYSTEM_MANUAL.md).
 The project documentation is organized into four main documents:
 
 - **[README.md](README.md)**: Project overview, quick start, build instructions, and contributing guide
+- **[HARDWARE_SPECIFICATION.md](HARDWARE_SPECIFICATION.md)**: Complete hardware specification for FPGA implementation
 - **[SYSTEM_MANUAL.md](SYSTEM_MANUAL.md)**: Complete system architecture, FPGA compatibility, testing framework, and development tools
+- **[docs/CORELX.md](docs/CORELX.md)**: Complete CoreLX language documentation
 - **[PROGRAMMING_MANUAL.md](PROGRAMMING_MANUAL.md)**: Complete programming guide covering both CoreLX and assembly languages
 - **[CHANGELOG.md](CHANGELOG.md)**: Version history and change log
 - **[END_OF_DAY_PROCEDURE.md](END_OF_DAY_PROCEDURE.md)**: End-of-day cleanup and documentation procedure
@@ -699,7 +701,9 @@ nitro-core-dx/
 ├── README.md              # This file (project overview)
 ├── SYSTEM_MANUAL.md       # Hardware architecture and design
 ├── PROGRAMMING_MANUAL.md  # Programming guide (CoreLX + Assembly)
-└── CORELX_IMPLEMENTATION_*.md  # CoreLX compiler documentation
+└── docs/
+    ├── CORELX.md          # CoreLX language documentation
+    └── archive/corelx/    # Historical CoreLX implementation notes
 ```
 
 ### Component Responsibilities
@@ -735,7 +739,8 @@ Contributions are welcome! This project is in active development, and I apprecia
 **Getting Started:**
 1. Read the [README.md](README.md) for project overview
 2. Read the [SYSTEM_MANUAL.md](SYSTEM_MANUAL.md) for architecture details
-3. Read the [PROGRAMMING_MANUAL.md](PROGRAMMING_MANUAL.md) for programming guide (CoreLX and assembly)
+3. Read the [CoreLX Documentation](docs/CORELX.md) for CoreLX language guide
+4. Read the [PROGRAMMING_MANUAL.md](PROGRAMMING_MANUAL.md) for complete programming guide (CoreLX and assembly)
 
 **Development Status:**
 ✅ **Architecture Stable**: Core hardware is 100% complete. The system is ready for game development and dev kit creation.
