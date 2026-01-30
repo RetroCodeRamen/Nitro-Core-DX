@@ -293,6 +293,10 @@ func (p *PPU) Write8(offset uint16, value uint8) {
 	case 0x0F: // VRAM_ADDR_H
 		p.VRAMAddr = (p.VRAMAddr & 0x00FF) | (uint16(value) << 8)
 	case 0x10: // VRAM_DATA
+		// Only log VRAM writes during initialization (first frame) and only first 32 bytes
+		if p.Logger != nil && p.FrameCounter == 0 && p.VRAMAddr < 32 {
+			p.Logger.LogPPUf(debug.LogLevelDebug, "VRAM_DATA write: addr=0x%04X, value=0x%02X", p.VRAMAddr, value)
+		}
 		p.VRAM[p.VRAMAddr] = value
 		p.VRAMAddr++
 		if p.VRAMAddr > 0xFFFF {
@@ -301,6 +305,12 @@ func (p *PPU) Write8(offset uint16, value uint8) {
 
 	// CGRAM access
 	case 0x12: // CGRAM_ADDR
+		// Only log CGRAM_ADDR during initialization (first frame)
+		if p.Logger != nil && p.FrameCounter == 0 && value < 64 {
+			paletteIndex := value / 32
+			colorIndex := (value / 2) % 16
+			p.Logger.LogPPUf(debug.LogLevelDebug, "CGRAM_ADDR write: 0x%02X (palette %d, color %d)", value, paletteIndex, colorIndex)
+		}
 		p.CGRAMAddr = value
 		p.CGRAMWriteLatch = false
 	case 0x13: // CGRAM_DATA
@@ -314,6 +324,13 @@ func (p *PPU) Write8(offset uint16, value uint8) {
 			// Write to CGRAM
 			addr := uint16(p.CGRAMAddr) * 2
 			if addr < 512 {
+				// Only log CGRAM_DATA during initialization (first frame) and only first 20 colors
+				if p.Logger != nil && p.FrameCounter == 0 && addr < 40 {
+					paletteIndex := p.CGRAMAddr / 32
+					colorIndex := (p.CGRAMAddr / 2) % 16
+					p.Logger.LogPPUf(debug.LogLevelDebug, "CGRAM_DATA write complete: addr=0x%02X (palette %d, color %d), RGB555=0x%04X", 
+						p.CGRAMAddr, paletteIndex, colorIndex, p.CGRAMWriteValue)
+				}
 				// Store in little-endian order: low byte first, high byte second
 				p.CGRAM[addr] = uint8(p.CGRAMWriteValue & 0xFF) // Low byte
 				p.CGRAM[addr+1] = uint8(p.CGRAMWriteValue >> 8) // High byte
@@ -327,8 +344,10 @@ func (p *PPU) Write8(offset uint16, value uint8) {
 
 	// OAM access
 	case 0x14: // OAM_ADDR
-		if p.Logger != nil {
-			p.Logger.LogPPUf(debug.LogLevelDebug, "OAM_ADDR write: 0x%02X (sprite %d), byte index was %d, resetting to 0", value, value, p.OAMByteIndex)
+		// Only log OAM_ADDR writes occasionally (every 60 frames) to reduce performance impact
+		if p.Logger != nil && p.FrameCounter%60 == 0 && value < 4 {
+			p.Logger.LogPPUf(debug.LogLevelDebug, "OAM_ADDR write: 0x%02X (sprite %d), byte index was %d, resetting to 0", 
+				value, value, p.OAMByteIndex)
 		}
 		// OAM writes are only allowed during VBlank period (hardware-accurate)
 		// During visible rendering (scanlines 0-199), OAM is locked
@@ -345,9 +364,7 @@ func (p *PPU) Write8(offset uint16, value uint8) {
 			p.OAMAddr = 127
 		}
 		p.OAMByteIndex = 0 // Reset byte index when setting sprite address
-		if p.Logger != nil {
-			p.Logger.LogPPUf(debug.LogLevelDebug, "OAM_ADDR set: sprite=%d, byte index reset to %d", p.OAMAddr, p.OAMByteIndex)
-		}
+		// Removed frequent logging - only log occasionally above
 	case 0x15: // OAM_DATA
 		// OAM writes are only allowed during VBlank period (hardware-accurate)
 		// During visible rendering (scanlines 0-199), OAM is locked
@@ -359,17 +376,17 @@ func (p *PPU) Write8(offset uint16, value uint8) {
 			}
 			return
 		}
-		if p.Logger != nil {
-			p.Logger.LogPPUf(debug.LogLevelDebug, "OAM_DATA write: sprite=%d, byte=%d, value=0x%02X, calculated addr=%d",
-				p.OAMAddr, p.OAMByteIndex, value, uint16(p.OAMAddr)*6+uint16(p.OAMByteIndex))
+		// Only log OAM_DATA writes occasionally (every 60 frames) and only for first few sprites
+		// Log only when completing a sprite (byte 5 = Ctrl) to reduce verbosity
+		if p.Logger != nil && p.FrameCounter%60 == 0 && p.OAMByteIndex == 5 && p.OAMAddr < 4 {
+			spriteID := p.OAMAddr
+			p.Logger.LogPPUf(debug.LogLevelDebug, "OAM_DATA: sprite=%d complete (Ctrl=0x%02X), addr=%d",
+				spriteID, value, uint16(p.OAMAddr)*6+uint16(p.OAMByteIndex))
 		}
 		addr := uint16(p.OAMAddr)*6 + uint16(p.OAMByteIndex)
 		if addr < 768 {
-			oldValue := p.OAM[addr]
 			p.OAM[addr] = value
-			if p.Logger != nil && oldValue != value {
-				p.Logger.LogPPUf(debug.LogLevelDebug, "OAM[%d] = 0x%02X (was 0x%02X)", addr, value, oldValue)
-			}
+			// Removed frequent logging - only log occasionally above
 			p.OAMByteIndex++
 			if p.OAMByteIndex >= 6 {
 				// Move to next sprite after writing 6 bytes

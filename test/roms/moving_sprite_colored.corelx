@@ -1,0 +1,91 @@
+-- Moving Colored Sprite ROM (CoreLX version)
+-- Recreates the working moving_sprite_colored.rom
+-- Features:
+--   - 16x16 sprite with 4 colored quadrants (Red, Green, Blue, Yellow)
+--   - Sprite moves horizontally across the screen
+--   - Wraps around when it reaches the edge
+--   - Solid color background
+
+-- 16x16 tile with 4 horizontal color lines
+-- Rows 0-3: Red (color 1) = 0x11
+-- Rows 4-7: Red (color 1) = 0x11
+-- Rows 8-11: Blue (color 3) = 0x33
+-- Rows 12-15: Yellow (color 4) = 0x44
+-- Each row is 8 bytes (16 pixels at 4bpp = 2 pixels per byte)
+asset ColoredTile: tiles16
+    hex
+        -- Rows 0-3: Red (8 bytes per row * 4 rows = 32 bytes of 0x11)
+        11 11 11 11 11 11 11 11
+        11 11 11 11 11 11 11 11
+        11 11 11 11 11 11 11 11
+        11 11 11 11 11 11 11 11
+        -- Rows 4-7: Red (32 bytes of 0x11)
+        11 11 11 11 11 11 11 11
+        11 11 11 11 11 11 11 11
+        11 11 11 11 11 11 11 11
+        11 11 11 11 11 11 11 11
+        -- Rows 8-11: Blue (32 bytes of 0x33)
+        33 33 33 33 33 33 33 33
+        33 33 33 33 33 33 33 33
+        33 33 33 33 33 33 33 33
+        33 33 33 33 33 33 33 33
+        -- Rows 12-15: Yellow (32 bytes of 0x44)
+        44 44 44 44 44 44 44 44
+        44 44 44 44 44 44 44 44
+        44 44 44 44 44 44 44 44
+        44 44 44 44 44 44 44 44
+
+function Start()
+    -- Enable display
+    ppu.enable_display()
+    
+    -- Initialize palette 1 with colors
+    -- Color 1 = Red (RGB555: 0x7C00)
+    gfx.set_palette(1, 1, 0x7C00)
+    -- Color 2 = Green (RGB555: 0x03E0)
+    gfx.set_palette(1, 2, 0x03E0)
+    -- Color 3 = Blue (RGB555: 0x001F)
+    gfx.set_palette(1, 3, 0x001F)
+    -- Color 4 = Yellow (RGB555: 0x7FE0)
+    gfx.set_palette(1, 4, 0x7FE0)
+    -- Color 5 = Cyan (RGB555: 0x03FF)
+    gfx.set_palette(1, 5, 0x03FF)
+    -- Color 6 = Magenta (RGB555: 0x7C1F)
+    gfx.set_palette(1, 6, 0x7C1F)
+    -- Color 7 = White (RGB555: 0x7FFF)
+    gfx.set_palette(1, 7, 0x7FFF)
+    
+    -- Load colored tile to VRAM at tile 0
+    tile_base := gfx.load_tiles(ASSET_ColoredTile, 0)
+    
+    -- Initialize sprite position
+    sprite_x := 50
+    sprite_y := 50
+    
+    -- Sprite attributes: palette 1, priority 0
+    sprite_attr := SPR_PAL(1) | SPR_PRI(0)
+    -- Sprite control: enabled, 16x16
+    sprite_ctrl := SPR_ENABLE() | SPR_SIZE_16()
+    
+    -- Wait for VBlank before initializing sprite (OAM writes need VBlank)
+    wait_vblank()
+    
+    -- Write initial sprite to OAM
+    oam.write_sprite_data(0, sprite_x, sprite_y, tile_base, sprite_attr, sprite_ctrl)
+    oam.flush()
+    
+    -- Main loop: move sprite horizontally
+    while true
+        wait_vblank()
+        
+        -- Increment X position
+        sprite_x = sprite_x + 1
+        
+        -- Check if sprite is off-screen on the right (X >= 336, sprite width is 16)
+        if sprite_x >= 336
+            -- Wrap to -16 (off-screen on the left)
+            sprite_x = -16
+        
+        -- Update sprite position in OAM
+        oam.write_sprite_data(0, sprite_x, sprite_y, tile_base, sprite_attr, sprite_ctrl)
+        oam.flush()

@@ -83,10 +83,11 @@ func (a *SemanticAnalyzer) registerBuiltinFunctions() {
 	builtins := []string{
 		"Start", "__Boot", // Entry points
 		"wait_vblank", "frame_counter",
-		"sprite.set_pos", "oam.write", "oam.flush",
+		"sprite.set_pos", "oam.write", "oam.write_sprite_data", "oam.clear_sprite", "oam.flush",
 		"apu.enable", "apu.set_channel_wave", "apu.set_channel_freq",
 		"apu.set_channel_volume", "apu.note_on", "apu.note_off",
-		"ppu.enable_display", "gfx.load_tiles",
+		"ppu.enable_display", "gfx.load_tiles", "gfx.set_palette", "gfx.set_palette_color", "gfx.init_default_palettes",
+		"input.read",
 		"SPR_PAL", "SPR_HFLIP", "SPR_VFLIP", "SPR_PRI",
 		"SPR_ENABLE", "SPR_SIZE_8", "SPR_SIZE_16",
 		"SPR_BLEND", "SPR_ALPHA",

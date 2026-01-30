@@ -35,34 +35,29 @@ type FyneUI struct {
 	// Fyne widgets
 	emulatorImage *canvas.Image
 	statusLabel   *widget.Label
-	toolbar       *fyne.Container
-
-	// Toolbar buttons (for state updates)
-	startBtn  *widget.Button
-	pauseBtn  *widget.Button
-	resumeBtn *widget.Button
-	stopBtn   *widget.Button
-	resetBtn  *widget.Button
-	stepBtn   *widget.Button
 
 	// Debug panels
 	showLogViewer   bool
-	showLogControls bool
 	showRegisters   bool
 	showMemory      bool
 	showTiles       bool
 
 	// Panel containers
 	logViewerPanel   *fyne.Container
-	logControlsPanel *fyne.Container
 	registersPanel   *fyne.Container
 	memoryPanel      *fyne.Container
 	tilesPanel       *fyne.Container
+	
+	// Layout containers (for dynamic updates)
+	splitContent      *container.Split
+	rightPanels       *fyne.Container
+	mainContent       *fyne.Container
 
 	// Panel update functions
 	updateRegisters func()
 	updateMemory    func()
 	updateTiles     func()
+	updateLogs      func()
 }
 
 // NewFyneUI creates a new Fyne-based UI
@@ -96,9 +91,6 @@ func NewFyneUI(emu *emulator.Emulator, scale int) (*FyneUI, error) {
 	// Create status label
 	statusLabel := widget.NewLabel("FPS: 0.0 | CPU: 0 cycles/frame | Frame: 0")
 
-	// Create toolbar (returns container and button references)
-	toolbar, startBtn, pauseBtn, resumeBtn, stopBtn, resetBtn, stepBtn := createToolbar(emu)
-
 	// Create emulator image (will be updated with SDL2 rendering)
 	emulatorImage := canvas.NewImageFromImage(image.NewRGBA(image.Rect(0, 0, 320*scale, 200*scale)))
 	emulatorImage.FillMode = canvas.ImageFillContain
@@ -113,6 +105,14 @@ func NewFyneUI(emu *emulator.Emulator, scale int) (*FyneUI, error) {
 	tilesPanel, updateTilesFunc := panels.TileViewer(emu)
 	tilesPanel.Hide()
 
+	// Create log viewer panel (if logger is available)
+	var logViewerPanel *fyne.Container
+	var updateLogsFunc func()
+	if emu.Logger != nil {
+		logViewerPanel, updateLogsFunc = panels.LogViewerFyne(emu.Logger, window)
+		logViewerPanel.Hide()
+	}
+
 	// Create UI instance first (needed for menu callbacks)
 	ui := &FyneUI{
 		app:             fyneApp,
@@ -124,39 +124,53 @@ func NewFyneUI(emu *emulator.Emulator, scale int) (*FyneUI, error) {
 		audioDev:        audioDev,
 		emulatorImage:   emulatorImage,
 		statusLabel:     statusLabel,
-		toolbar:         toolbar,
-		startBtn:        startBtn,
-		pauseBtn:        pauseBtn,
-		resumeBtn:       resumeBtn,
-		stopBtn:         stopBtn,
-		resetBtn:        resetBtn,
-		stepBtn:         stepBtn,
 		registersPanel:  registersPanel,
 		memoryPanel:     memoryPanel,
 		tilesPanel:      tilesPanel,
+		logViewerPanel:  logViewerPanel,
 		updateRegisters: updateRegistersFunc,
 		updateMemory:    updateMemoryFunc,
 		updateTiles:     updateTilesFunc,
+		updateLogs:      updateLogsFunc,
 	}
 
 	// Create right-side panel container (vertical stack for multiple panels)
-	rightPanels := container.NewVBox(
+	rightPanelsList := []fyne.CanvasObject{
 		registersPanel,
 		memoryPanel,
 		tilesPanel,
-	)
+	}
+	if logViewerPanel != nil {
+		rightPanelsList = append(rightPanelsList, logViewerPanel)
+	}
+	rightPanels := container.NewVBox(rightPanelsList...)
 
-	// Create main content with side panel for debug tools
+	// Create horizontal splitter for resizable panels
+	// Left side: emulator screen, Right side: debug panels
+	splitContent := container.NewHSplit(emulatorImage, rightPanels)
+	// Initially hide panels by setting offset to 1.0 (fully to the right, panels hidden)
+	splitContent.SetOffset(1.0)
+
+	// Create main content with status bar at bottom
+	// Always use splitter, but adjust offset to show/hide panels
 	mainContent := container.NewBorder(
-		toolbar,       // Top
+		nil,           // Top (no toolbar - use menu instead)
 		statusLabel,   // Bottom
 		nil,           // Left
-		rightPanels,   // Right (debug panels)
-		emulatorImage, // Center
+		nil,           // Right
+		splitContent,  // Center (splitter with emulator and panels)
 	)
 
+	// Store references for dynamic layout updates
+	ui.splitContent = splitContent
+	ui.rightPanels = rightPanels
+	ui.mainContent = mainContent
+
 	window.SetContent(mainContent)
-	window.Resize(fyne.NewSize(float32(320*scale)+300, float32(200*scale)+100))
+	// Set initial window size (emulator + panels + status bar)
+	// Window is resizable, so this is just the initial size
+	window.Resize(fyne.NewSize(float32(320*scale)+400, float32(200*scale)+50))
+	window.CenterOnScreen()
 
 	// Create menus (pass UI instance for panel toggling)
 	createMenus(window, emu, ui)
@@ -164,67 +178,21 @@ func NewFyneUI(emu *emulator.Emulator, scale int) (*FyneUI, error) {
 	return ui, nil
 }
 
-// createToolbar creates the toolbar with emulator controls
-// Returns the container and button references for state updates
-func createToolbar(emu *emulator.Emulator) (*fyne.Container, *widget.Button, *widget.Button, *widget.Button, *widget.Button, *widget.Button, *widget.Button) {
-	startBtn := widget.NewButton("Start", func() {
-		emu.Start()
-	})
-	pauseBtn := widget.NewButton("Pause", func() {
-		emu.Pause()
-	})
-	resumeBtn := widget.NewButton("Resume", func() {
-		emu.Resume()
-	})
-	stopBtn := widget.NewButton("Stop", func() {
-		emu.Stop()
-	})
-	resetBtn := widget.NewButton("Reset", func() {
-		emu.Reset()
-	})
-	stepBtn := widget.NewButton("Step", func() {
-		if emu.Paused {
-			emu.RunFrame()
-		}
-	})
-
-	// Initially disable buttons based on state
-	updateToolbarButtons(startBtn, pauseBtn, resumeBtn, stopBtn, resetBtn, stepBtn, emu.Running, emu.Paused)
-
-	return container.NewHBox(
-		startBtn,
-		pauseBtn,
-		resumeBtn,
-		stopBtn,
-		resetBtn,
-		stepBtn,
-	), startBtn, pauseBtn, resumeBtn, stopBtn, resetBtn, stepBtn
-}
-
-// updateToolbarButtons updates button enabled/disabled state
-func updateToolbarButtons(startBtn, pauseBtn, resumeBtn, stopBtn, resetBtn, stepBtn *widget.Button, running, paused bool) {
-	if !running {
-		startBtn.Enable()
-		pauseBtn.Disable()
-		resumeBtn.Disable()
-		stopBtn.Disable()
-		stepBtn.Disable()
-	} else if paused {
-		startBtn.Disable()
-		pauseBtn.Disable()
-		resumeBtn.Enable()
-		stopBtn.Enable()
-		stepBtn.Enable()
+// updateLayout updates the main layout based on which panels are visible
+// If any panels are visible, show the splitter with panels. Otherwise, hide panels by setting offset to 1.0.
+func (ui *FyneUI) updateLayout() {
+	// Check if any panels are visible
+	anyVisible := ui.showLogViewer || ui.showRegisters || ui.showMemory || ui.showTiles
+	
+	if anyVisible {
+		// At least one panel is visible - show splitter with panels (70% emulator, 30% panels)
+		ui.splitContent.SetOffset(0.7)
 	} else {
-		startBtn.Disable()
-		pauseBtn.Enable()
-		resumeBtn.Disable()
-		stopBtn.Enable()
-		stepBtn.Disable()
+		// No panels visible - hide panels by setting offset to 1.0 (fully to the right)
+		ui.splitContent.SetOffset(1.0)
 	}
-	// Reset button is always enabled
-	resetBtn.Enable()
 }
+
 
 // createMenus creates the native Fyne menus
 func createMenus(window fyne.Window, emu *emulator.Emulator, ui *FyneUI) {
@@ -267,11 +235,14 @@ func createMenus(window fyne.Window, emu *emulator.Emulator, ui *FyneUI) {
 	viewMenu := fyne.NewMenu("View",
 		fyne.NewMenuItem("Log Viewer", func() {
 			ui.showLogViewer = !ui.showLogViewer
-			// TODO: Show/hide log viewer panel
-		}),
-		fyne.NewMenuItem("Log Controls", func() {
-			ui.showLogControls = !ui.showLogControls
-			// TODO: Show/hide log controls panel
+			if ui.logViewerPanel != nil {
+				if ui.showLogViewer {
+					ui.logViewerPanel.Show()
+				} else {
+					ui.logViewerPanel.Hide()
+				}
+			}
+			ui.updateLayout()
 		}),
 		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("Registers", func() {
@@ -283,6 +254,7 @@ func createMenus(window fyne.Window, emu *emulator.Emulator, ui *FyneUI) {
 					ui.registersPanel.Hide()
 				}
 			}
+			ui.updateLayout()
 		}),
 		fyne.NewMenuItem("Memory Viewer", func() {
 			ui.showMemory = !ui.showMemory
@@ -293,6 +265,7 @@ func createMenus(window fyne.Window, emu *emulator.Emulator, ui *FyneUI) {
 					ui.memoryPanel.Hide()
 				}
 			}
+			ui.updateLayout()
 		}),
 		fyne.NewMenuItem("Tile Viewer", func() {
 			ui.showTiles = !ui.showTiles
@@ -303,6 +276,7 @@ func createMenus(window fyne.Window, emu *emulator.Emulator, ui *FyneUI) {
 					ui.tilesPanel.Hide()
 				}
 			}
+			ui.updateLayout()
 		}),
 	)
 
@@ -317,6 +291,7 @@ func createMenus(window fyne.Window, emu *emulator.Emulator, ui *FyneUI) {
 					ui.registersPanel.Hide()
 				}
 			}
+			ui.updateLayout()
 		}),
 		fyne.NewMenuItem("Memory Viewer", func() {
 			ui.showMemory = !ui.showMemory
@@ -327,6 +302,7 @@ func createMenus(window fyne.Window, emu *emulator.Emulator, ui *FyneUI) {
 					ui.memoryPanel.Hide()
 				}
 			}
+			ui.updateLayout()
 		}),
 		fyne.NewMenuItem("Tile Viewer", func() {
 			ui.showTiles = !ui.showTiles
@@ -337,6 +313,7 @@ func createMenus(window fyne.Window, emu *emulator.Emulator, ui *FyneUI) {
 					ui.tilesPanel.Hide()
 				}
 			}
+			ui.updateLayout()
 		}),
 		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("Toggle Cycle Logging", func() {
@@ -471,12 +448,8 @@ func (ui *FyneUI) updateLoop() {
 		fps := ui.emulator.GetFPS()
 		cycles := ui.emulator.GetCPUCyclesPerFrame()
 		frameCount := ui.emulator.FrameCount
-		running := ui.emulator.Running
-		paused := ui.emulator.Paused
 		fyne.Do(func() {
 			ui.statusLabel.SetText(fmt.Sprintf("FPS: %.1f | CPU: %d cycles/frame | Frame: %d", fps, cycles, frameCount))
-			// Update toolbar button states
-			updateToolbarButtons(ui.startBtn, ui.pauseBtn, ui.resumeBtn, ui.stopBtn, ui.resetBtn, ui.stepBtn, running, paused)
 			// Update register viewer if visible
 			if ui.showRegisters && ui.updateRegisters != nil {
 				ui.updateRegisters()
@@ -488,6 +461,10 @@ func (ui *FyneUI) updateLoop() {
 			// Update tile viewer if visible
 			if ui.showTiles && ui.updateTiles != nil {
 				ui.updateTiles()
+			}
+			// Update log viewer if visible
+			if ui.showLogViewer && ui.updateLogs != nil {
+				ui.updateLogs()
 			}
 		})
 	}

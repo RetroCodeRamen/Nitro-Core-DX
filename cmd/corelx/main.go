@@ -59,20 +59,38 @@ func main() {
 	builder := rom.NewROMBuilder()
 	codegen := corelx.NewCodeGenerator(program, builder)
 
-	// Find Start() function for entry point
+	// Find entry point function (__Boot takes priority over Start)
 	entryBank := uint8(1)
 	entryOffset := uint16(0x8000)
-
-	// Check for __Boot() function
+	
+	var entryFunction *corelx.FunctionDecl
 	hasBoot := false
+	
+	// Check for __Boot() function first
 	for _, fn := range program.Functions {
 		if fn.Name == "__Boot" {
+			entryFunction = fn
 			hasBoot = true
 			break
 		}
 	}
+	
+	// Fall back to Start() if no __Boot
+	if entryFunction == nil {
+		for _, fn := range program.Functions {
+			if fn.Name == "Start" {
+				entryFunction = fn
+				break
+			}
+		}
+	}
+	
+	if entryFunction == nil {
+		fmt.Fprintf(os.Stderr, "Error: No entry point function found (__Boot or Start required)\n")
+		os.Exit(1)
+	}
 
-	// Generate code
+	// Generate code (functions are generated in order, so entry point will be at 0x8000)
 	if err := codegen.Generate(); err != nil {
 		fmt.Fprintf(os.Stderr, "Code generation error: %v\n", err)
 		os.Exit(1)
@@ -86,6 +104,8 @@ func main() {
 
 	fmt.Printf("Compiled %s -> %s\n", filepath.Base(inputPath), filepath.Base(outputPath))
 	if hasBoot {
-		fmt.Println("Note: __Boot() function detected - boot animation will be skipped")
+		fmt.Println("Note: Using __Boot() as entry point - boot animation will be skipped")
+	} else {
+		fmt.Println("Note: Using Start() as entry point")
 	}
 }

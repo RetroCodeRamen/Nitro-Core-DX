@@ -1,0 +1,56 @@
+-- Simplified version to test if variables are the issue
+-- Hardcode all values instead of using variables
+
+asset ColoredTile: tiles16
+    hex
+        -- Rows 0-3: Red (32 bytes of 0x11)
+        11 11 11 11 11 11 11 11
+        11 11 11 11 11 11 11 11
+        11 11 11 11 11 11 11 11
+        11 11 11 11 11 11 11 11
+        -- Rows 4-7: Red (32 bytes of 0x11)
+        11 11 11 11 11 11 11 11
+        11 11 11 11 11 11 11 11
+        11 11 11 11 11 11 11 11
+        11 11 11 11 11 11 11 11
+        -- Rows 8-11: Blue (32 bytes of 0x33)
+        33 33 33 33 33 33 33 33
+        33 33 33 33 33 33 33 33
+        33 33 33 33 33 33 33 33
+        33 33 33 33 33 33 33 33
+        -- Rows 12-15: Yellow (32 bytes of 0x44)
+        44 44 44 44 44 44 44 44
+        44 44 44 44 44 44 44 44
+        44 44 44 44 44 44 44 44
+        44 44 44 44 44 44 44 44
+
+function Start()
+    -- Enable display
+    ppu.enable_display()
+    
+    -- Initialize palette 1 with colors (just the ones we need)
+    gfx.set_palette(1, 1, 0x7C00)  -- Red
+    gfx.set_palette(1, 3, 0x001F)  -- Blue
+    gfx.set_palette(1, 4, 0x7FE0)  -- Yellow
+    
+    -- Load colored tile to VRAM at tile 0
+    tile_base := gfx.load_tiles(ASSET_ColoredTile, 0)
+    
+    -- Sprite attributes: palette 1, priority 0
+    sprite_attr := SPR_PAL(1) | SPR_PRI(0)
+    -- Sprite control: enabled, 16x16
+    sprite_ctrl := SPR_ENABLE() | SPR_SIZE_16()
+    
+    -- Wait for VBlank before initializing sprite
+    wait_vblank()
+    
+    -- Write initial sprite to OAM with hardcoded position (50, 50)
+    oam.write_sprite_data(0, 50, 50, tile_base, sprite_attr, sprite_ctrl)
+    oam.flush()
+    
+    -- Main loop: just keep writing the same sprite (no movement for now)
+    while true
+        wait_vblank()
+        -- Keep sprite at same position for testing
+        oam.write_sprite_data(0, 50, 50, tile_base, sprite_attr, sprite_ctrl)
+        oam.flush()

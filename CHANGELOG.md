@@ -12,6 +12,76 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **CoreLX Debugging Documentation** - Created `CORELX_DEBUGGING_ISSUES.md` to track compiler bugs and debugging progress
+  - Documents fixed compiler bugs (VRAM address calculation, binary operations)
+  - Tracks ongoing blank screen issue with CoreLX-compiled ROMs
+  - Provides test ROMs and debugging checklist
+  - Location: `CORELX_DEBUGGING_ISSUES.md`
+- **Fyne Log Viewer Panel** - Implemented log viewer panel for Fyne UI
+  - Text selection and copy functionality (Ctrl+C)
+  - Component and log level filtering
+  - Auto-scroll and save logs functionality
+  - Location: `internal/ui/panels/log_viewer_fyne.go`
+- **CoreLX Test ROMs** - Created test ROMs for debugging compiler issues
+  - `moving_sprite_colored.corelx` - Recreation of working Go ROM in CoreLX
+  - `moving_sprite_colored_simple.corelx` - Simplified version with hardcoded values
+  - Location: `test/roms/`
+
+### Fixed
+- **CoreLX Compiler: VRAM Address Calculation** - Fixed `tiles16` VRAM address calculation
+  - Changed from `base * 32` to `base * 128` for 16x16 tiles
+  - Impact: 16x16 tiles now load to correct VRAM addresses
+  - Location: `internal/corelx/codegen.go` - `generateInlineTileLoad()`
+- **CoreLX Compiler: Binary OR Operation** - Fixed register usage in binary OR expressions
+  - Left result was saved to R1 but operation used destReg (R0)
+  - Now correctly uses R1 for OR operation then moves result to destReg
+  - Impact: Expressions like `SPR_PAL(1) | SPR_PRI(0)` now work correctly
+  - Location: `internal/corelx/codegen.go` - `BinaryExpr` case `TOKEN_PIPE`
+- **CoreLX Compiler: Binary AND Operation** - Fixed register usage in binary AND expressions
+  - Same fix as OR operation
+  - Impact: Bitwise AND operations now work correctly
+  - Location: `internal/corelx/codegen.go` - `BinaryExpr` case `TOKEN_AMPERSAND`
+- **CoreLX Compiler: Binary ADD/SUB Operations** - Fixed to restore left result before operation
+  - Left result saved to R1, but operations used destReg directly
+  - Now restores left result from R1 to destReg before performing operation
+  - Impact: Addition and subtraction expressions now work correctly
+  - Location: `internal/corelx/codegen.go` - `BinaryExpr` cases `TOKEN_PLUS` and `TOKEN_MINUS`
+- **PPU Logging Performance** - Optimized PPU logging to reduce performance impact
+  - OAM logging limited to first 4 sprites, every 60 frames
+  - VRAM logging limited to first 32 bytes, first frame only
+  - CGRAM logging limited to first 20 colors, first frame only
+  - Impact: Reduced logging overhead from 30 FPS to 7 FPS back to ~30 FPS
+  - Location: `internal/ppu/ppu.go`
+
+### Changed
+- **UI Consolidation** - Removed all SDL2-based UI code, using Fyne exclusively
+  - Deleted: `internal/ui/ui.go`, `ui_render.go`, `menu.go`, `toolbar.go`, `statusbar.go`, `font.go`
+  - Deleted: `internal/ui/panels/log_viewer.go`, `log_controls.go`
+  - Removed redundant toolbar (controls now only in menu)
+  - Location: `internal/ui/`
+- **Fyne UI Layout** - Improved resizable log viewer and dynamic panel visibility
+  - Log viewer and debug panels now hide when disabled
+  - Splitter adjusts automatically based on panel visibility
+  - Location: `internal/ui/fyne_ui.go`
+- **CoreLX Compiler Entry Point** - Enhanced `__Boot()` function support
+  - Compiler now ensures `__Boot()` is generated first if present
+  - Sets entry point to 0x8000 for `__Boot()` function
+  - Location: `cmd/corelx/main.go`, `internal/corelx/codegen.go`
+
+### Removed
+- **Old CoreLX Documentation Files** - Cleaned up redundant CoreLX documentation
+  - Removed 10 old CoreLX status/implementation/guide files
+  - Consolidated into `docs/CORELX.md` and `CORELX_DEBUGGING_ISSUES.md`
+  - Files: `CORELX_APU_IMPLEMENTATION.md`, `CORELX_COMPILER_STATUS.md`, etc.
+
+### Known Issues
+- **CoreLX Blank Screen Issue** - CoreLX-compiled ROMs show blank screen
+  - Test ROMs: `moving_sprite_colored_corelx.rom`, `moving_sprite_colored_simple.rom`
+  - Possible causes: Variable persistence, `wait_vblank()` loop, OAM writes, tile loading
+  - Status: In progress - see `CORELX_DEBUGGING_ISSUES.md` for details
+  - Date: 2026-01-30
+
+### Added
 - **CoreLX Compiler** - Complete compiler implementation for CoreLX language
   - Lexer, parser, semantic analyzer, and code generator
   - Lua-like syntax compiled to Nitro-Core-DX bytecode
