@@ -20,6 +20,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Simplified README to be concise and reference-based
   - Created README files in each docs subdirectory for navigation
   - Location: Multiple files reorganized
+- **README Improvements** - Restored backstory and vision sections while keeping it clean (2026-01-31)
+  - Restored "Meet Nitro-Core-DX" section with project introduction
+  - Restored "The Vision: Best of Both Worlds" section explaining SNES/Genesis inspiration
+  - Restored "Why Go?" section explaining language choice
+  - Restored console design images section
+  - Kept troubleshooting/problem-solving narrative in `docs/DEVELOPMENT_NOTES.md`
+  - README now has backstory while remaining clean and organized
+  - Location: `README.md`
 
 ### Added
 - **GUI Logging Controls** - Added logging component controls in Debug menu
