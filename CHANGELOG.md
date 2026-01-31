@@ -12,6 +12,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **GUI Logging Controls** - Added logging component controls in Debug menu
+  - Enable/disable logging for CPU, PPU, APU, Memory, Input, UI, System components
+  - "Enable All Logging" and "Disable All Logging" options
+  - Location: `internal/ui/fyne_ui.go` - Debug menu
+- **Input Debug Logging** - Added debug logging for input system
+  - Logs all input reads and writes with offset and value
+  - Helps diagnose input issues and verify latch behavior
+  - Location: `internal/memory/bus.go` - input I/O logging
+- **Input System Unit Tests** - Created comprehensive unit tests for input system
+  - Tests latch behavior, edge-triggered latching, multiple buttons, controller 2
+  - Location: `internal/input/input_test.go`
+- **Test ROM Input Generator** - Created test ROM generator for input testing
+  - Generates ROM that displays sprite moved by arrow keys/WASD
+  - Tests input latching, button reading, and sprite movement
+  - Location: `cmd/testrom_input/main.go`
+- **Input Testing Guide** - Created testing documentation
+  - Manual and automated testing procedures
+  - Expected behavior and controls
+  - Location: `INPUT_TESTING_GUIDE.md`
+
+### Changed
 - **CoreLX Debugging Documentation** - Created `CORELX_DEBUGGING_ISSUES.md` to track compiler bugs and debugging progress
   - Documents fixed compiler bugs (VRAM address calculation, binary operations)
   - Tracks ongoing blank screen issue with CoreLX-compiled ROMs
@@ -27,7 +48,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `moving_sprite_colored_simple.corelx` - Simplified version with hardcoded values
   - Location: `test/roms/`
 
+### Changed
+- **Input System Refactor** - Refactored input system to match FPGA latch-based behavior (2026-01-31)
+  - Changed from direct button state reading to latch-based serial shift register interface
+  - Implements edge-triggered latching (captures on 0->1 transition)
+  - Latched state persists until next latch, matching FPGA behavior
+  - Location: `internal/input/input.go`
+- **Test ROM Wrapping Logic** - Improved sprite position wrapping in test ROM (2026-01-31)
+  - Uses BGT (Branch if Greater Than) for proper X > 319 check
+  - Handles unsigned wrap (65535) and signed comparison (X >= 320)
+  - Location: `cmd/testrom_input/main.go`
+
 ### Fixed
+- **Input System FPGA Compatibility** - Fixed input system to match FPGA specification (2026-01-31)
+  - Input now uses latch mechanism: write 1 to latch register captures button state
+  - Reading input returns latched state, not current state
+  - Edge-triggered latching ensures proper button capture timing
+  - Location: `internal/input/input.go` - `Write8` and `Read8` methods
+- **Savestate Input Fields** - Fixed savestate to use new input system field names (2026-01-31)
+  - Updated from `LatchActive`/`Controller2LatchActive` to `Controller1Latched`/`Controller2Latched`
+  - Added `Controller1LatchState` and `Controller2LatchState` fields
+  - Location: `internal/emulator/savestate.go`
+- **Memory Bus Logger Support** - Added logger support to memory bus for input debugging (2026-01-31)
+  - Bus now has logger field and SetLogger method
+  - Enables input debug logging through bus
+  - Location: `internal/memory/bus.go`
 - **CoreLX Compiler: VRAM Address Calculation** - Fixed `tiles16` VRAM address calculation
   - Changed from `base * 32` to `base * 128` for 16x16 tiles
   - Impact: 16x16 tiles now load to correct VRAM addresses

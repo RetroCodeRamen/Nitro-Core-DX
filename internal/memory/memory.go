@@ -2,6 +2,7 @@ package memory
 
 import (
 	"fmt"
+	"nitro-core-dx/internal/debug"
 )
 
 // MemorySystem represents the complete memory system
@@ -24,6 +25,9 @@ type MemorySystem struct {
 	PPUHandler   IOHandler
 	APUHandler   IOHandler
 	InputHandler IOHandler
+
+	// Logger for debug logging
+	logger *debug.Logger
 }
 
 // NewMemorySystem creates a new memory system
@@ -31,6 +35,11 @@ func NewMemorySystem() *MemorySystem {
 	return &MemorySystem{
 		ROMData: make([]uint8, 0),
 	}
+}
+
+// SetLogger sets the logger for debug logging
+func (m *MemorySystem) SetLogger(logger *debug.Logger) {
+	m.logger = logger
 }
 
 // LoadROM loads ROM data into memory
@@ -185,7 +194,13 @@ func (m *MemorySystem) readIO8(offset uint16) uint8 {
 	// Input registers: 0xA000-0xAFFF
 	if offset >= 0xA000 && offset < 0xB000 {
 		if m.InputHandler != nil {
-			return m.InputHandler.Read8(offset - 0xA000)
+			inputOffset := offset - 0xA000
+			value := m.InputHandler.Read8(inputOffset)
+			// Debug logging for input reads (if logger is available and input logging is enabled)
+			if m.logger != nil && m.logger.IsComponentEnabled(debug.ComponentInput) {
+				m.logger.LogInput(debug.LogLevelDebug, fmt.Sprintf("Input read: offset=0x%04X (0xA000+0x%02X), value=0x%02X", offset, inputOffset, value), nil)
+			}
+			return value
 		}
 		return 0
 	}
@@ -214,7 +229,12 @@ func (m *MemorySystem) writeIO8(offset uint16, value uint8) {
 	// Input registers: 0xA000-0xAFFF
 	if offset >= 0xA000 && offset < 0xB000 {
 		if m.InputHandler != nil {
-			m.InputHandler.Write8(offset-0xA000, value)
+			inputOffset := offset - 0xA000
+			m.InputHandler.Write8(inputOffset, value)
+			// Debug logging for input writes (if logger is available and input logging is enabled)
+			if m.logger != nil && m.logger.IsComponentEnabled(debug.ComponentInput) {
+				m.logger.LogInput(debug.LogLevelDebug, fmt.Sprintf("Input write: offset=0x%04X (0xA000+0x%02X), value=0x%02X", offset, inputOffset, value), nil)
+			}
 		}
 		return
 	}
@@ -233,10 +253,21 @@ func (m *MemorySystem) GetROMEntryPoint() (bank uint8, offset uint16, err error)
 
 	// Validate entry point
 	if entryBank == 0 {
-		return 0, 0, fmt.Errorf("invalid ROM entry point: bank is 0 (ROM must be in bank 1+)")
+		return 0, 0, fmt.Errorf("invalid ROM entry point: bank is 0 (expected bank 1-125, got 0). "+
+			"ROM code must be located in bank 1 or higher. Bank 0 is reserved for WRAM and I/O registers. "+
+			"Please check your ROM header entry point (offsets 0x0A-0x0B) and ensure it specifies a valid ROM bank (1-125).")
+	}
+	if entryBank > 125 {
+		return 0, 0, fmt.Errorf("invalid ROM entry point: bank %d (expected bank 1-125, got %d). "+
+			"ROM banks are limited to 1-125. Banks 126-127 are reserved for extended WRAM. "+
+			"Please check your ROM header entry point (offsets 0x0A-0x0B) and ensure it specifies a valid ROM bank (1-125).",
+			entryBank, entryBank)
 	}
 	if entryOffset < 0x8000 {
-		return 0, 0, fmt.Errorf("invalid ROM entry point: offset 0x%04X (ROM must start at 0x8000+)", entryOffset)
+		return 0, 0, fmt.Errorf("invalid ROM entry point: offset 0x%04X (expected offset 0x8000-0xFFFF, got 0x%04X). "+
+			"ROM code must start at offset 0x8000 or higher within the bank (LoROM mapping). "+
+			"Please check your ROM header entry point (offsets 0x0C-0x0D) and ensure it specifies an offset >= 0x8000.",
+			entryOffset, entryOffset)
 	}
 
 	return uint8(entryBank), entryOffset, nil

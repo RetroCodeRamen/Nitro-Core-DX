@@ -80,6 +80,9 @@ func NewEmulatorWithLogger(logger *debug.Logger) *Emulator {
 	bus.PPUHandler = ppu
 	bus.APUHandler = apu
 	bus.InputHandler = input
+	
+	// Set logger on bus for input debug logging
+	bus.SetLogger(logger)
 
 	// Create CPU logger adapter
 	cpuLogger := cpu.NewCPULoggerAdapter(logger, cpu.CPULogNone)
@@ -166,12 +169,21 @@ func (e *Emulator) LoadROM(data []uint8) error {
 		return fmt.Errorf("failed to get ROM entry point: %w", err)
 	}
 
-	// Verify entry point is valid
+	// Additional validation (entry point should already be validated by GetROMEntryPoint,
+	// but we double-check here for safety)
 	if bank == 0 {
-		return fmt.Errorf("invalid ROM entry point: bank is 0 (should be 1+)")
+		return fmt.Errorf("invalid ROM entry point: bank is 0 (expected bank 1-125, got 0). "+
+			"ROM code must be located in bank 1 or higher. Bank 0 is reserved for WRAM and I/O registers.")
+	}
+	if bank > 125 {
+		return fmt.Errorf("invalid ROM entry point: bank %d (expected bank 1-125, got %d). "+
+			"ROM banks are limited to 1-125. Banks 126-127 are reserved for extended WRAM.",
+			bank, bank)
 	}
 	if offset < 0x8000 {
-		return fmt.Errorf("invalid ROM entry point: offset 0x%04X (should be >= 0x8000)", offset)
+		return fmt.Errorf("invalid ROM entry point: offset 0x%04X (expected offset 0x8000-0xFFFF, got 0x%04X). "+
+			"ROM code must start at offset 0x8000 or higher within the bank (LoROM mapping).",
+			offset, offset)
 	}
 
 	e.CPU.SetEntryPoint(bank, offset)
@@ -343,13 +355,19 @@ func (e *Emulator) Reset() {
 		}
 		if bank == 0 {
 			if e.Logger != nil {
-				e.Logger.LogSystem(debug.LogLevelError, "Invalid ROM entry point: bank is 0 (should be 1+)", nil)
+				e.Logger.LogSystem(debug.LogLevelError, "Invalid ROM entry point: bank is 0 (expected bank 1-125, got 0). ROM code must be located in bank 1 or higher.", nil)
+			}
+			return
+		}
+		if bank > 125 {
+			if e.Logger != nil {
+				e.Logger.LogSystem(debug.LogLevelError, fmt.Sprintf("Invalid ROM entry point: bank %d (expected bank 1-125, got %d). ROM banks are limited to 1-125.", bank, bank), nil)
 			}
 			return
 		}
 		if offset < 0x8000 {
 			if e.Logger != nil {
-				e.Logger.LogSystem(debug.LogLevelError, fmt.Sprintf("Invalid ROM entry point: offset 0x%04X (should be >= 0x8000)", offset), nil)
+				e.Logger.LogSystem(debug.LogLevelError, fmt.Sprintf("Invalid ROM entry point: offset 0x%04X (expected offset 0x8000-0xFFFF, got 0x%04X). ROM code must start at offset 0x8000 or higher.", offset, offset), nil)
 			}
 			return
 		}

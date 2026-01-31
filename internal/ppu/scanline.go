@@ -47,6 +47,11 @@ func (p *PPU) StepPPU(cycles uint64) error {
 
 	cyclesRemaining := cycles
 	for cyclesRemaining > 0 {
+		// Execute DMA (cycle-accurate: one byte per cycle)
+		if p.DMAEnabled {
+			p.stepDMA()
+		}
+
 		// Handle HDMA on scanline start (before processing dots)
 		if p.currentDot == 0 && p.HDMAEnabled && p.currentScanline < VisibleScanlines {
 			p.updateHDMA(p.currentScanline)

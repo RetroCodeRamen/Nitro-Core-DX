@@ -104,11 +104,10 @@ func (c *CPU) executeMOV(mode, reg1, reg2 uint8) error {
 		c.State.Cycles += 2 // Memory access
 		return nil
 
-	case 8: // Reserved - treat as NOP for now (may be used for future addressing modes)
+	case 8: // Reserved - return error
 		// Mode 8 is reserved and not currently implemented
-		// Treating as NOP to prevent crashes, but this indicates a ROM bug
-		c.State.Cycles++
-		return nil
+		// Returning error to catch ROM bugs early
+		return fmt.Errorf("MOV mode 8 is reserved and not implemented (this indicates a ROM bug or invalid instruction encoding)")
 
 	default:
 		return fmt.Errorf("unknown MOV mode: %d (modes 0-7 are valid, 8-15 are reserved)", mode)

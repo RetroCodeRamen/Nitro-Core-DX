@@ -179,6 +179,27 @@ func (a *CPULoggerAdapter) formatOperands(opcode, mode, reg1, reg2 uint8) string
 			return name
 		}
 		return fmt.Sprintf("mode %d", mode)
+	case 0xC: // CMP and branches
+		if mode >= 0x1 && mode <= 0x6 {
+			branchNames := map[uint8]string{
+				0x1: "BEQ",
+				0x2: "BNE",
+				0x3: "BGT",
+				0x4: "BLT",
+				0x5: "BGE",
+				0x6: "BLE",
+			}
+			if name, ok := branchNames[mode]; ok {
+				return fmt.Sprintf("%s offset", name)
+			}
+		}
+		return fmt.Sprintf("CMP R%d, R%d", reg1, reg2)
+	case 0xD: // JMP
+		return "offset" // JMP uses relative offset, not registers
+	case 0xE: // CALL
+		return "offset" // CALL uses relative offset
+	case 0xF: // RET
+		return "" // RET has no operands
 	default:
 		return fmt.Sprintf("R%d, R%d", reg1, reg2)
 	}

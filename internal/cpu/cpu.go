@@ -240,10 +240,15 @@ func (c *CPU) FetchInstruction() uint16 {
 	c.State.PCOffset &^= 1
 	
 	// Use PCBank for instruction fetch (PBR should match, but PCBank is authoritative)
-	// If PBR and PCBank are out of sync, use PCBank
+	// PCBank and PBR should always be in sync. They are updated together in:
+	// - SetEntryPoint: sets both to entry bank
+	// - Interrupt handling: sets both to vector bank
+	// - RET instruction: pops PBR from stack, then syncs PCBank to PBR
+	// The defensive sync below is a safety measure in case they somehow get out of sync
+	// (e.g., due to a bug or future instruction that modifies one but not the other)
 	bank := c.State.PCBank
 	if c.State.PBR != c.State.PCBank {
-		// Sync PBR to PCBank if they're out of sync
+		// Sync PBR to PCBank if they're out of sync (defensive safety measure)
 		c.State.PBR = c.State.PCBank
 	}
 	
@@ -278,8 +283,10 @@ func (c *CPU) FetchImmediate() uint16 {
 	c.State.PCOffset &^= 1
 	
 	// Use PCBank for immediate fetch (same as instruction fetch)
+	// PCBank and PBR should always be in sync (see FetchInstruction for details)
 	bank := c.State.PCBank
 	if c.State.PBR != c.State.PCBank {
+		// Sync PBR to PCBank if they're out of sync (defensive safety measure)
 		c.State.PBR = c.State.PCBank
 	}
 	

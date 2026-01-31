@@ -84,7 +84,12 @@ type PPU struct {
 	DMADestAddr     uint16
 	DMALength       uint16
 	DMAMode         uint8  // 0=copy, 1=fill
-	DMACycles       uint16 // Cycles remaining for DMA transfer
+	DMACycles       uint16 // Cycles remaining for DMA transfer (deprecated, use DMAProgress)
+	// Cycle-accurate DMA state
+	DMAProgress     uint16 // Current byte position in transfer (0 = start, DMALength = complete)
+	DMACurrentSrc   uint16 // Current source offset
+	DMACurrentDest  uint16 // Current destination address
+	DMAFillValue    uint8  // Fill value for fill mode (read once at start)
 	CGRAMWriteValue uint16
 	OAMAddr         uint8
 	OAMByteIndex    uint8 // Current byte index within sprite (0-5)
@@ -233,7 +238,7 @@ func (p *PPU) Read8(offset uint16) uint8 {
 		return uint8(p.FrameCounter >> 8)
 	case 0x60: // DMA_STATUS
 		// Bit 0: DMA active (1=transferring, 0=idle)
-		if p.DMAEnabled && p.DMACycles > 0 {
+		if p.DMAEnabled && p.DMAProgress < p.DMALength {
 			return 0x01
 		}
 		return 0x00
@@ -328,7 +333,7 @@ func (p *PPU) Write8(offset uint16, value uint8) {
 				if p.Logger != nil && p.FrameCounter == 0 && addr < 40 {
 					paletteIndex := p.CGRAMAddr / 32
 					colorIndex := (p.CGRAMAddr / 2) % 16
-					p.Logger.LogPPUf(debug.LogLevelDebug, "CGRAM_DATA write complete: addr=0x%02X (palette %d, color %d), RGB555=0x%04X", 
+					p.Logger.LogPPUf(debug.LogLevelDebug, "CGRAM_DATA write complete: addr=0x%02X (palette %d, color %d), RGB555=0x%04X",
 						p.CGRAMAddr, paletteIndex, colorIndex, p.CGRAMWriteValue)
 				}
 				// Store in little-endian order: low byte first, high byte second
@@ -346,7 +351,7 @@ func (p *PPU) Write8(offset uint16, value uint8) {
 	case 0x14: // OAM_ADDR
 		// Only log OAM_ADDR writes occasionally (every 60 frames) to reduce performance impact
 		if p.Logger != nil && p.FrameCounter%60 == 0 && value < 4 {
-			p.Logger.LogPPUf(debug.LogLevelDebug, "OAM_ADDR write: 0x%02X (sprite %d), byte index was %d, resetting to 0", 
+			p.Logger.LogPPUf(debug.LogLevelDebug, "OAM_ADDR write: 0x%02X (sprite %d), byte index was %d, resetting to 0",
 				value, value, p.OAMByteIndex)
 		}
 		// OAM writes are only allowed during VBlank period (hardware-accurate)
@@ -611,11 +616,19 @@ func (p *PPU) Write8(offset uint16, value uint8) {
 			p.DMAEnabled = true
 			p.DMAMode = (value >> 1) & 0x01
 			p.DMADestType = (value >> 2) & 0x3
-			p.DMACycles = p.DMALength // Initialize cycle counter
-			// Execute DMA transfer immediately (for simplicity, can be made cycle-accurate later)
-			p.executeDMA()
+			// Initialize cycle-accurate DMA state
+			p.DMAProgress = 0
+			p.DMACurrentSrc = p.DMASourceOffset
+			p.DMACurrentDest = p.DMADestAddr
+			// For fill mode, read fill value once at start
+			if p.DMAMode == 1 && p.MemoryReader != nil {
+				p.DMAFillValue = p.MemoryReader(p.DMASourceBank, p.DMASourceOffset)
+			}
+			// Note: DMA will execute incrementally during StepPPU (cycle-accurate)
 		} else {
+			// Disable DMA (abort current transfer)
 			p.DMAEnabled = false
+			p.DMAProgress = 0
 		}
 	case 0x61: // DMA_SOURCE_BANK
 		p.DMASourceBank = value
@@ -636,50 +649,91 @@ func (p *PPU) Write8(offset uint16, value uint8) {
 	}
 }
 
-// executeDMA executes a DMA transfer
+// stepDMA executes one cycle of DMA transfer (transfers one byte per cycle)
+// This is called from StepPPU to make DMA cycle-accurate
+func (p *PPU) stepDMA() {
+	if !p.DMAEnabled || p.DMAProgress >= p.DMALength {
+		// DMA not active or already complete
+		if p.DMAProgress >= p.DMALength {
+			// DMA just completed
+			p.DMAEnabled = false
+			p.DMAProgress = 0
+		}
+		return
+	}
+
+	if p.MemoryReader == nil {
+		// No memory reader, abort DMA
+		p.DMAEnabled = false
+		p.DMAProgress = 0
+		return
+	}
+
+	// Transfer one byte
+	var data uint8
+	if p.DMAMode == 1 {
+		// Fill mode: use fill value for all bytes
+		data = p.DMAFillValue
+	} else {
+		// Copy mode: read from source
+		data = p.MemoryReader(p.DMASourceBank, p.DMACurrentSrc)
+		p.DMACurrentSrc++
+	}
+
+	// Write to destination
+	switch p.DMADestType {
+	case 0: // VRAM
+		destAddr := uint32(p.DMACurrentDest)
+		if destAddr < 65536 {
+			p.VRAM[destAddr] = data
+		}
+		p.DMACurrentDest++
+	case 1: // CGRAM
+		// CGRAM is 16-bit (RGB555), so we need to handle it specially
+		// For simplicity, write as 8-bit (low byte only)
+		addr := p.DMACurrentDest & 0x1FF // Wrap at 512 bytes
+		p.CGRAM[addr] = data
+		p.DMACurrentDest++
+	case 2: // OAM
+		addr := p.DMACurrentDest & 0x2FF // Wrap at 768 bytes
+		p.OAM[addr] = data
+		p.DMACurrentDest++
+	}
+
+	// Advance progress
+	p.DMAProgress++
+
+	// Check if DMA is complete
+	if p.DMAProgress >= p.DMALength {
+		p.DMAEnabled = false
+		p.DMAProgress = 0
+	}
+}
+
+// executeDMA executes a DMA transfer immediately (legacy function, kept for compatibility)
+// This is now a wrapper that calls stepDMA until complete
+// Note: This is used by tests. For cycle-accurate operation, DMA should be stepped
+// incrementally via stepDMA() during StepPPU.
 func (p *PPU) executeDMA() {
 	if !p.DMAEnabled || p.MemoryReader == nil {
 		return
 	}
 
-	// Read fill value once for fill mode
-	var fillValue uint8
-	if p.DMAMode == 1 {
-		fillValue = p.MemoryReader(p.DMASourceBank, p.DMASourceOffset)
-	}
-
-	for i := uint16(0); i < p.DMALength; i++ {
-		var data uint8
-
+	// Initialize DMA state if not already initialized (check if we need to reset)
+	// If DMAProgress is 0 and we haven't started, initialize
+	if p.DMAProgress == 0 {
+		p.DMACurrentSrc = p.DMASourceOffset
+		p.DMACurrentDest = p.DMADestAddr
+		// For fill mode, read fill value once at start
 		if p.DMAMode == 1 {
-			// Fill mode: use fill value for all bytes
-			data = fillValue
-		} else {
-			// Copy mode: read from source
-			data = p.MemoryReader(p.DMASourceBank, p.DMASourceOffset+i)
-		}
-
-		// Write to destination
-		switch p.DMADestType {
-		case 0: // VRAM
-			destAddr := uint32(p.DMADestAddr) + uint32(i)
-			if destAddr < 65536 {
-				p.VRAM[destAddr] = data
-			}
-		case 1: // CGRAM
-			// CGRAM is 16-bit (RGB555), so we need to handle it specially
-			// For simplicity, write as 8-bit (low byte only)
-			addr := (p.DMADestAddr + i) & 0x1FF // Wrap at 512 bytes
-			p.CGRAM[addr] = data
-		case 2: // OAM
-			addr := (p.DMADestAddr + i) & 0x2FF // Wrap at 768 bytes
-			p.OAM[addr] = data
+			p.DMAFillValue = p.MemoryReader(p.DMASourceBank, p.DMASourceOffset)
 		}
 	}
 
-	// DMA complete
-	p.DMAEnabled = false
-	p.DMACycles = 0
+	// Execute all remaining bytes (for compatibility with tests)
+	for p.DMAProgress < p.DMALength {
+		p.stepDMA()
+	}
 }
 
 // Read16 reads a 16-bit value from PPU registers

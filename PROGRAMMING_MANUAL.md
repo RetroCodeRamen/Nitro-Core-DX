@@ -174,6 +174,8 @@ wait_vblank:
 > CoreLX is **compiled-only**, **hardware-first** with **no interpreter**, **no virtual machine**, and **no runtime scripting layer**.  
 > Each CoreLX source file produces **one ROM image** that runs directly on Nitro Core DX.
 
+> **📖 Quick Reference**: For a focused CoreLX language reference with detailed syntax, examples, and built-in function documentation, see [docs/CORELX.md](../docs/CORELX.md). This section provides an overview; the full reference has comprehensive details.
+
 ### Implementation Status
 
 **Current Status**: CoreLX is **functional for basic programs** but has some incomplete features.
@@ -194,8 +196,7 @@ wait_vblank:
 
 **❌ Not Yet Implemented:**
 - User-defined functions (only `Start()` works)
-- Proper struct member access (`hero.tile = base` doesn't work)
-- Proper variable storage and register allocation
+- Proper variable storage and register allocation (simplified implementation exists)
 
 **Workaround**: For unimplemented features, use assembly (see [Assembly: The Low-Level Complement](#assembly-the-low-level-complement)).
 

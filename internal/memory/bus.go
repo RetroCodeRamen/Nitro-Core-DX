@@ -1,5 +1,10 @@
 package memory
 
+import (
+	"fmt"
+	"nitro-core-dx/internal/debug"
+)
+
 // Bus represents the memory bus that routes memory accesses
 // It connects CPU to WRAM, Extended WRAM, Cartridge, and I/O devices
 type Bus struct {
@@ -16,6 +21,9 @@ type Bus struct {
 	PPUHandler   IOHandler
 	APUHandler   IOHandler
 	InputHandler IOHandler
+
+	// Logger for debug logging
+	logger *debug.Logger
 }
 
 // IOHandler defines the interface for I/O register handlers
@@ -31,6 +39,11 @@ func NewBus(cartridge *Cartridge) *Bus {
 	return &Bus{
 		Cartridge: cartridge,
 	}
+}
+
+// SetLogger sets the logger for debug logging
+func (b *Bus) SetLogger(logger *debug.Logger) {
+	b.logger = logger
 }
 
 // Read8 reads an 8-bit value from memory
@@ -51,6 +64,8 @@ func (b *Bus) Read8(bank uint8, offset uint16) uint8 {
 		if b.Cartridge != nil {
 			return b.Cartridge.Read8(bank, offset)
 		}
+		// Unmapped: return 0 (could implement open bus behavior in future if needed)
+		// Open bus would return the previous data bus value, but most ROMs don't rely on this
 		return 0
 	}
 
@@ -60,9 +75,14 @@ func (b *Bus) Read8(bank uint8, offset uint16) uint8 {
 		if extOffset < 131072 {
 			return b.WRAMExtended[extOffset]
 		}
+		// Unmapped: return 0 (could implement open bus behavior in future if needed)
 		return 0
 	}
 
+	// Unmapped bank: return 0
+	// NOTE: Real hardware might have "open bus" behavior (returning previous data bus value),
+	// but most ROMs don't rely on this. If ROM compatibility issues arise, open bus can be
+	// implemented by tracking the last data bus value and returning it for unmapped addresses.
 	return 0
 }
 
@@ -146,7 +166,13 @@ func (b *Bus) readIO8(offset uint16) uint8 {
 	// Input registers: 0xA000-0xAFFF
 	if offset >= 0xA000 && offset < 0xB000 {
 		if b.InputHandler != nil {
-			return b.InputHandler.Read8(offset - 0xA000)
+			inputOffset := offset - 0xA000
+			value := b.InputHandler.Read8(inputOffset)
+			// Debug logging for input reads (if logger is available and input logging is enabled)
+			if b.logger != nil && b.logger.IsComponentEnabled(debug.ComponentInput) {
+				b.logger.LogInput(debug.LogLevelDebug, fmt.Sprintf("Input read: offset=0x%04X (0xA000+0x%02X), value=0x%02X", offset, inputOffset, value), nil)
+			}
+			return value
 		}
 		return 0
 	}
@@ -180,7 +206,12 @@ func (b *Bus) writeIO8(offset uint16, value uint8) {
 	// Input registers: 0xA000-0xAFFF
 	if offset >= 0xA000 && offset < 0xB000 {
 		if b.InputHandler != nil {
-			b.InputHandler.Write8(offset-0xA000, value)
+			inputOffset := offset - 0xA000
+			b.InputHandler.Write8(inputOffset, value)
+			// Debug logging for input writes (if logger is available and input logging is enabled)
+			if b.logger != nil && b.logger.IsComponentEnabled(debug.ComponentInput) {
+				b.logger.LogInput(debug.LogLevelDebug, fmt.Sprintf("Input write: offset=0x%04X (0xA000+0x%02X), value=0x%02X", offset, inputOffset, value), nil)
+			}
 		}
 		return
 	}

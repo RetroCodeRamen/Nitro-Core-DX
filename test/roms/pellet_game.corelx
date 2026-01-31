@@ -40,11 +40,13 @@ asset RedPelletTile: tiles8
         00 00 00 00 00 00 00 00
         00 00 00 00 00 00 00 00
 
--- Note: __Boot() function support may need parser updates
--- For now, using Start() as entry point
+-- Using __Boot() as entry point to bypass default boot screen
 
-function Start()
+function __Boot()
     ppu.enable_display()
+    
+    -- Initialize default palettes
+    gfx.init_default_palettes()
     
     -- Load tiles
     player_base := gfx.load_tiles(ASSET_PlayerTile, 0)
@@ -62,36 +64,39 @@ function Start()
     pellet_active := 0  -- 0 = inactive, 1 = active
     spawn_timer := 0
     
-    -- Create player sprite
-    player := Sprite()
-    sprite.set_pos(&player, player_x, player_y)
-    player.tile = player_base
-    player.attr = SPR_PAL(2) | SPR_PRI(0)  -- Green palette
-    player.ctrl = SPR_ENABLE()  -- 8x8 is default
+    -- Sprite attributes (computed once)
+    player_attr := SPR_PAL(2) | SPR_PRI(0)  -- Green palette
+    player_ctrl := SPR_ENABLE()  -- 8x8 is default
+    blue_pellet_attr := SPR_PAL(1) | SPR_PRI(1)  -- Blue palette
+    red_pellet_attr := SPR_PAL(3) | SPR_PRI(1)  -- Red palette
+    pellet_ctrl := SPR_ENABLE()  -- 8x8 is default
     
-    -- Create pellet sprite
-    pellet := Sprite()
-    pellet.tile = blue_base
-    pellet.attr = SPR_PAL(1) | SPR_PRI(1)  -- Blue palette
-    pellet.ctrl = SPR_ENABLE()  -- 8x8 is default
+    -- Write initial sprites before first frame (so they appear immediately)
+    oam.write_sprite_data(0, player_x, player_y, player_base, player_attr, player_ctrl)
+    oam.clear_sprite(1)  -- Clear pellet sprite initially
+    oam.flush()
     
     -- Main game loop
     while lives > 0
         wait_vblank()
         
         -- Read input
-        -- TODO: Add memory read functions to CoreLX for controller access
-        -- Controller reading would be:
-        --   1. Write 1 to 0xA001 to latch buttons
-        --   2. Read 0xA000 for low byte (UP, DOWN, LEFT, RIGHT, A, B, X, Y)
-        --   3. Read 0xA001 for high byte (L, R, START, Z)
-        --   4. Write 0 to 0xA001 to release latch
-        -- For now, using frame counter to simulate movement for testing
-        frame := frame_counter()
+        buttons := input.read()
         
-        -- Simulate input based on frame counter (for testing)
-        -- Replace this with actual controller reading when memory I/O is available
+        -- Extract input direction from buttons
+        -- Use frame counter as fallback if no buttons pressed
+        frame := frame_counter()
         input_sim := frame & 0x03
+        
+        -- Check for actual button presses
+        if (buttons & 0x01) != 0
+            input_sim = 0  -- UP
+        else if (buttons & 0x02) != 0
+            input_sim = 1  -- DOWN
+        else if (buttons & 0x04) != 0
+            input_sim = 2  -- LEFT
+        else if (buttons & 0x08) != 0
+            input_sim = 3  -- RIGHT
         
         -- UP
         if input_sim == 0
@@ -113,8 +118,7 @@ function Start()
             if player_x < 312
                 player_x = player_x + 2
         
-        -- Update player sprite position
-        sprite.set_pos(&player, player_x, player_y)
+        -- Update player sprite (write directly to OAM)
         
         -- Spawn pellets occasionally
         spawn_timer = spawn_timer + 1
@@ -141,15 +145,6 @@ function Start()
         
         -- Update and render pellets
         if pellet_active == 1
-            -- Update pellet sprite
-            sprite.set_pos(&pellet, pellet_x, pellet_y)
-            if pellet_type == 0
-                pellet.tile = blue_base
-                pellet.attr = SPR_PAL(1) | SPR_PRI(1)  -- Blue palette
-            else
-                pellet.tile = red_base
-                pellet.attr = SPR_PAL(0) | SPR_PRI(1)  -- Red palette
-            
             -- Check collision with player
             dx := player_x - pellet_x
             if dx < 0
@@ -172,18 +167,22 @@ function Start()
                     player_x = 160
                     player_y = 96
             
-            -- Write pellet sprite
-            oam.write(1, &pellet)
+            -- Write pellet sprite directly to OAM
+            if pellet_type == 0
+                oam.write_sprite_data(1, pellet_x, pellet_y, blue_base, blue_pellet_attr, pellet_ctrl)
+            else
+                oam.write_sprite_data(1, pellet_x, pellet_y, red_base, red_pellet_attr, pellet_ctrl)
+        else
+            -- Clear pellet sprite when inactive
+            oam.clear_sprite(1)
         
-        -- Write player sprite
-        oam.write(0, &player)
+        -- Write player sprite directly to OAM
+        oam.write_sprite_data(0, player_x, player_y, player_base, player_attr, player_ctrl)
         
         -- Clear unused sprites
         i := 2
         while i < 128
-            empty := Sprite()
-            empty.ctrl = 0  -- Disabled
-            oam.write(i, &empty)
+            oam.clear_sprite(i)
             i = i + 1
         
         oam.flush()
@@ -191,5 +190,5 @@ function Start()
     -- Game over - keep displaying final state
     while true
         wait_vblank()
-        oam.write(0, &player)
+        oam.write_sprite_data(0, player_x, player_y, player_base, player_attr, player_ctrl)
         oam.flush()

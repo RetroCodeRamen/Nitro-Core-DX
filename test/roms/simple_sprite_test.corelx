@@ -1,0 +1,34 @@
+-- Simple sprite test - just show one sprite with tile and palette
+
+asset TestTile: tiles8
+    hex
+        FF FF FF FF FF FF FF FF
+        FF 00 FF 00 FF 00 FF 00
+        FF FF FF FF FF FF FF FF
+        FF 00 FF 00 FF 00 FF 00
+        FF FF FF FF FF FF FF FF
+        FF 00 FF 00 FF 00 FF 00
+        FF FF FF FF FF FF FF FF
+        FF 00 FF 00 FF 00 FF 00
+
+function Start()
+    ppu.enable_display()
+    
+    -- Initialize palettes
+    gfx.init_default_palettes()
+    
+    -- Load tile
+    tile_base := gfx.load_tiles(ASSET_TestTile, 0)
+    
+    -- Create sprite
+    sprite := Sprite()
+    sprite.set_pos(&sprite, 160, 96)
+    sprite.tile = tile_base
+    sprite.attr = SPR_PAL(2) | SPR_PRI(0)  -- Green palette
+    sprite.ctrl = SPR_ENABLE()
+    
+    -- Main loop
+    while true
+        wait_vblank()
+        oam.write(0, &sprite)
+        oam.flush()

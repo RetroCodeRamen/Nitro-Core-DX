@@ -91,8 +91,10 @@ type MemoryState struct {
 type InputState struct {
 	Controller1Buttons uint16
 	Controller2Buttons uint16
-	LatchActive        bool
-	Controller2LatchActive bool
+	Controller1Latched     uint16
+	Controller2Latched     uint16
+	Controller1LatchState  bool
+	Controller2LatchState  bool
 }
 
 // SaveState saves the current emulator state to a byte slice
@@ -252,10 +254,12 @@ func (e *Emulator) loadMemoryState(state MemoryState) {
 // saveInputState extracts Input state for saving
 func (e *Emulator) saveInputState() InputState {
 	return InputState{
-		Controller1Buttons:     e.Input.Controller1Buttons,
-		Controller2Buttons:     e.Input.Controller2Buttons,
-		LatchActive:             e.Input.LatchActive,
-		Controller2LatchActive: e.Input.Controller2LatchActive,
+		Controller1Buttons:    e.Input.Controller1Buttons,
+		Controller2Buttons:    e.Input.Controller2Buttons,
+		Controller1Latched:    e.Input.Controller1Latched,
+		Controller2Latched:    e.Input.Controller2Latched,
+		Controller1LatchState: e.Input.Controller1LatchState,
+		Controller2LatchState: e.Input.Controller2LatchState,
 	}
 }
 
@@ -263,8 +267,10 @@ func (e *Emulator) saveInputState() InputState {
 func (e *Emulator) loadInputState(state InputState) {
 	e.Input.Controller1Buttons = state.Controller1Buttons
 	e.Input.Controller2Buttons = state.Controller2Buttons
-	e.Input.LatchActive = state.LatchActive
-	e.Input.Controller2LatchActive = state.Controller2LatchActive
+	e.Input.Controller1Latched = state.Controller1Latched
+	e.Input.Controller2Latched = state.Controller2Latched
+	e.Input.Controller1LatchState = state.Controller1LatchState
+	e.Input.Controller2LatchState = state.Controller2LatchState
 }
 
 // SaveStateToFile saves the current emulator state to a file

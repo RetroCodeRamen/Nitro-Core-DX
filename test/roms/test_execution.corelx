@@ -1,0 +1,31 @@
+-- Simple test to verify ROM execution
+-- This should write a sprite immediately without waiting for VBlank
+
+asset TestTile: tiles8
+    hex
+        FF FF FF FF FF FF FF FF
+        FF 00 FF 00 FF 00 FF 00
+        FF FF FF FF FF FF FF FF
+        FF 00 FF 00 FF 00 FF 00
+        FF FF FF FF FF FF FF FF
+        FF 00 FF 00 FF 00 FF 00
+        FF FF FF FF FF FF FF FF
+        FF 00 FF 00 FF 00 FF 00
+
+function __Boot()
+    ppu.enable_display()
+    
+    -- Initialize palettes
+    gfx.init_default_palettes()
+    
+    -- Load a simple tile
+    tile_base := gfx.load_tiles(ASSET_TestTile, 0)
+    
+    -- Write sprite immediately (no wait_vblank)
+    oam.write_sprite_data(0, 160, 96, tile_base, SPR_PAL(2) | SPR_PRI(0), SPR_ENABLE())
+    oam.flush()
+    
+    -- Now wait for VBlank in a loop
+    while true
+        wait_vblank()
+        oam.flush()

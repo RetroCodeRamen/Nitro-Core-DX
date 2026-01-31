@@ -37,33 +37,36 @@ type FyneUI struct {
 	statusLabel   *widget.Label
 
 	// Debug panels
-	showLogViewer   bool
-	showRegisters   bool
-	showMemory      bool
-	showTiles       bool
+	showLogViewer bool
+	showRegisters bool
+	showMemory    bool
+	showTiles     bool
 
 	// Panel containers
-	logViewerPanel   *fyne.Container
-	registersPanel   *fyne.Container
-	memoryPanel      *fyne.Container
-	tilesPanel       *fyne.Container
-	
+	logViewerPanel *fyne.Container
+	registersPanel *fyne.Container
+	memoryPanel    *fyne.Container
+	tilesPanel     *fyne.Container
+
 	// Layout containers (for dynamic updates)
-	splitContent      *container.Split
-	rightPanels       *fyne.Container
-	mainContent       *fyne.Container
+	splitContent *container.Split
+	rightPanels  *fyne.Container
+	mainContent  *fyne.Container
 
 	// Panel update functions
 	updateRegisters func()
 	updateMemory    func()
 	updateTiles     func()
 	updateLogs      func()
+
+	// Keyboard input state
+	keyStates map[fyne.KeyName]bool
 }
 
 // NewFyneUI creates a new Fyne-based UI
 func NewFyneUI(emu *emulator.Emulator, scale int) (*FyneUI, error) {
-	// Initialize SDL2 for audio and rendering
-	if err := sdl.Init(sdl.INIT_AUDIO); err != nil {
+	// Initialize SDL2 for audio, video, and events (needed for keyboard input)
+	if err := sdl.Init(sdl.INIT_AUDIO | sdl.INIT_VIDEO | sdl.INIT_EVENTS); err != nil {
 		return nil, fmt.Errorf("failed to initialize SDL: %w", err)
 	}
 
@@ -132,6 +135,7 @@ func NewFyneUI(emu *emulator.Emulator, scale int) (*FyneUI, error) {
 		updateMemory:    updateMemoryFunc,
 		updateTiles:     updateTilesFunc,
 		updateLogs:      updateLogsFunc,
+		keyStates:       make(map[fyne.KeyName]bool),
 	}
 
 	// Create right-side panel container (vertical stack for multiple panels)
@@ -154,11 +158,11 @@ func NewFyneUI(emu *emulator.Emulator, scale int) (*FyneUI, error) {
 	// Create main content with status bar at bottom
 	// Always use splitter, but adjust offset to show/hide panels
 	mainContent := container.NewBorder(
-		nil,           // Top (no toolbar - use menu instead)
-		statusLabel,   // Bottom
-		nil,           // Left
-		nil,           // Right
-		splitContent,  // Center (splitter with emulator and panels)
+		nil,          // Top (no toolbar - use menu instead)
+		statusLabel,  // Bottom
+		nil,          // Left
+		nil,          // Right
+		splitContent, // Center (splitter with emulator and panels)
 	)
 
 	// Store references for dynamic layout updates
@@ -175,7 +179,79 @@ func NewFyneUI(emu *emulator.Emulator, scale int) (*FyneUI, error) {
 	// Create menus (pass UI instance for panel toggling)
 	createMenus(window, emu, ui)
 
+	// Set up keyboard input handling
+	setupKeyboardInput(window, ui)
+
 	return ui, nil
+}
+
+// setupKeyboardInput sets up keyboard event handling to control the emulator
+func setupKeyboardInput(window fyne.Window, ui *FyneUI) {
+	// Button bit mappings (from HARDWARE_SPECIFICATION.md and test ROM):
+	// Bit 0: UP
+	// Bit 1: DOWN
+	// Bit 2: LEFT
+	// Bit 3: RIGHT
+	// Bit 4: A
+	// Bit 5: B
+
+	// Handle key events - track key states
+	window.Canvas().SetOnTypedKey(func(key *fyne.KeyEvent) {
+		ui.keyStates[key.Name] = true
+		ui.updateInputFromKeys()
+	})
+
+	// Handle key releases using canvas focus
+	// Note: Fyne doesn't have direct key release events, so we'll clear
+	// key states each frame and only set them if keys are currently pressed
+	// This is handled in updateLoop()
+}
+
+// updateInputFromKeys updates the emulator's input state based on current SDL keyboard state
+func (ui *FyneUI) updateInputFromKeys() {
+	// Always start with 0 - only set bits if keys are actually pressed
+	var buttons uint16 = 0
+
+	// Use SDL2 keyboard state for accurate key tracking
+	// Note: GetKeyboardState() may return nil if SDL isn't fully initialized
+	// In that case, buttons stays 0 (no input)
+	keyboardState := sdl.GetKeyboardState()
+	if keyboardState != nil {
+		// Map SDL2 scancodes to controller buttons
+		// Check each key explicitly and only set if actually pressed (value != 0)
+		// Note: SDL keyboard state uses 1 for pressed, 0 for released
+		// UP: W or Up Arrow
+		if keyboardState[sdl.SCANCODE_W] != 0 || keyboardState[sdl.SCANCODE_UP] != 0 {
+			buttons |= 0x01 // UP
+		}
+		// DOWN: S or Down Arrow
+		if keyboardState[sdl.SCANCODE_S] != 0 || keyboardState[sdl.SCANCODE_DOWN] != 0 {
+			buttons |= 0x02 // DOWN
+		}
+		// LEFT: A or Left Arrow
+		// DEBUG: Check if A or Left Arrow is being detected incorrectly
+		aPressed := keyboardState[sdl.SCANCODE_A] != 0
+		leftPressed := keyboardState[sdl.SCANCODE_LEFT] != 0
+		if aPressed || leftPressed {
+			buttons |= 0x04 // LEFT
+		}
+		// RIGHT: D or Right Arrow
+		if keyboardState[sdl.SCANCODE_D] != 0 || keyboardState[sdl.SCANCODE_RIGHT] != 0 {
+			buttons |= 0x08 // RIGHT
+		}
+		// A button: Z
+		if keyboardState[sdl.SCANCODE_Z] != 0 {
+			buttons |= 0x10 // A
+		}
+		// B button: X
+		if keyboardState[sdl.SCANCODE_X] != 0 {
+			buttons |= 0x20 // B
+		}
+	}
+
+	// Always set input, even if 0 (this ensures input is cleared when no keys are pressed)
+	// This also ensures the latched state will be 0 when the ROM next latches
+	ui.emulator.SetInputButtons(buttons)
 }
 
 // updateLayout updates the main layout based on which panels are visible
@@ -183,7 +259,7 @@ func NewFyneUI(emu *emulator.Emulator, scale int) (*FyneUI, error) {
 func (ui *FyneUI) updateLayout() {
 	// Check if any panels are visible
 	anyVisible := ui.showLogViewer || ui.showRegisters || ui.showMemory || ui.showTiles
-	
+
 	if anyVisible {
 		// At least one panel is visible - show splitter with panels (70% emulator, 30% panels)
 		ui.splitContent.SetOffset(0.7)
@@ -192,7 +268,6 @@ func (ui *FyneUI) updateLayout() {
 		ui.splitContent.SetOffset(1.0)
 	}
 }
-
 
 // createMenus creates the native Fyne menus
 func createMenus(window fyne.Window, emu *emulator.Emulator, ui *FyneUI) {
@@ -337,6 +412,75 @@ func createMenus(window fyne.Window, emu *emulator.Emulator, ui *FyneUI) {
 		}),
 	)
 
+	// Create logging submenu
+	if emu.Logger != nil {
+		loggingSubmenu := fyne.NewMenu("Logging",
+			fyne.NewMenuItem("Enable All Logging", func() {
+				emu.Logger.SetComponentEnabled(debug.ComponentCPU, true)
+				emu.Logger.SetComponentEnabled(debug.ComponentPPU, true)
+				emu.Logger.SetComponentEnabled(debug.ComponentAPU, true)
+				emu.Logger.SetComponentEnabled(debug.ComponentMemory, true)
+				emu.Logger.SetComponentEnabled(debug.ComponentInput, true)
+				emu.Logger.SetComponentEnabled(debug.ComponentUI, true)
+				emu.Logger.SetComponentEnabled(debug.ComponentSystem, true)
+			}),
+			fyne.NewMenuItem("Disable All Logging", func() {
+				emu.Logger.SetComponentEnabled(debug.ComponentCPU, false)
+				emu.Logger.SetComponentEnabled(debug.ComponentPPU, false)
+				emu.Logger.SetComponentEnabled(debug.ComponentAPU, false)
+				emu.Logger.SetComponentEnabled(debug.ComponentMemory, false)
+				emu.Logger.SetComponentEnabled(debug.ComponentInput, false)
+				emu.Logger.SetComponentEnabled(debug.ComponentUI, false)
+				emu.Logger.SetComponentEnabled(debug.ComponentSystem, false)
+			}),
+			fyne.NewMenuItemSeparator(),
+			fyne.NewMenuItem("Toggle CPU Logging", func() {
+				enabled := emu.Logger.IsComponentEnabled(debug.ComponentCPU)
+				emu.Logger.SetComponentEnabled(debug.ComponentCPU, !enabled)
+			}),
+			fyne.NewMenuItem("Toggle PPU Logging", func() {
+				enabled := emu.Logger.IsComponentEnabled(debug.ComponentPPU)
+				emu.Logger.SetComponentEnabled(debug.ComponentPPU, !enabled)
+			}),
+			fyne.NewMenuItem("Toggle APU Logging", func() {
+				enabled := emu.Logger.IsComponentEnabled(debug.ComponentAPU)
+				emu.Logger.SetComponentEnabled(debug.ComponentAPU, !enabled)
+			}),
+			fyne.NewMenuItem("Toggle Memory Logging", func() {
+				enabled := emu.Logger.IsComponentEnabled(debug.ComponentMemory)
+				emu.Logger.SetComponentEnabled(debug.ComponentMemory, !enabled)
+			}),
+			fyne.NewMenuItem("Toggle Input Logging", func() {
+				enabled := emu.Logger.IsComponentEnabled(debug.ComponentInput)
+				emu.Logger.SetComponentEnabled(debug.ComponentInput, !enabled)
+			}),
+			fyne.NewMenuItem("Toggle UI Logging", func() {
+				enabled := emu.Logger.IsComponentEnabled(debug.ComponentUI)
+				emu.Logger.SetComponentEnabled(debug.ComponentUI, !enabled)
+			}),
+			fyne.NewMenuItem("Toggle System Logging", func() {
+				enabled := emu.Logger.IsComponentEnabled(debug.ComponentSystem)
+				emu.Logger.SetComponentEnabled(debug.ComponentSystem, !enabled)
+			}),
+		)
+		// Insert the logging submenu before the separator and cycle logging
+		// Find the separator before "Toggle Cycle Logging"
+		for i, item := range debugMenu.Items {
+			if item.Label == "Toggle Cycle Logging" {
+				// Insert logging submenu before this item
+				newItems := make([]*fyne.MenuItem, 0, len(debugMenu.Items)+1)
+				newItems = append(newItems, debugMenu.Items[:i-1]...) // Items before separator
+				// Create menu item with submenu
+				loggingMenuItem := fyne.NewMenuItem("Logging", nil)
+				loggingMenuItem.ChildMenu = loggingSubmenu
+				newItems = append(newItems, loggingMenuItem)
+				newItems = append(newItems, debugMenu.Items[i-1:]...) // Separator and rest
+				debugMenu.Items = newItems
+				break
+			}
+		}
+	}
+
 	// Help menu
 	helpMenu := fyne.NewMenu("Help",
 		fyne.NewMenuItem("About", func() {
@@ -405,6 +549,9 @@ func (ui *FyneUI) Run() error {
 	ui.emulator.Start()
 	ui.running = true
 
+	// Initialize input to 0 (no buttons pressed)
+	ui.emulator.SetInputButtons(0)
+
 	// Update loop
 	go ui.updateLoop()
 
@@ -423,7 +570,14 @@ func (ui *FyneUI) updateLoop() {
 	for ui.running {
 		<-ticker.C
 
-		// Update emulator
+		// Pump SDL events to update keyboard state
+		sdl.PumpEvents()
+
+		// Update input from SDL keyboard state BEFORE running the frame
+		// This ensures the ROM reads the correct input state
+		ui.updateInputFromKeys()
+
+		// Update emulator (this will run one frame, which will read the input we just set)
 		if !ui.emulator.Paused {
 			if err := ui.emulator.RunFrame(); err != nil {
 				if ui.emulator.Logger != nil {
@@ -431,6 +585,9 @@ func (ui *FyneUI) updateLoop() {
 				}
 			}
 		}
+
+		// After frame, ensure input is still set (in case it was modified during frame)
+		// Actually, don't do this - let the ROM read whatever we set before the frame
 
 		// Render emulator screen
 		// Note: RunFrame() completes a full PPU frame (127,820 cycles), so buffer is ready
