@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Documentation Reorganization** - Reorganized and cleaned up documentation structure (2026-01-31)
+  - Moved narrative/bloggy sections from README to `docs/DEVELOPMENT_NOTES.md`
+  - Organized fix/issue documents into `docs/issues/` directory
+  - Organized testing documents into `docs/testing/` directory
+  - Organized specification documents into `docs/specifications/` directory
+  - Simplified README to be concise and reference-based
+  - Created README files in each docs subdirectory for navigation
+  - Location: Multiple files reorganized
+
 ### Added
 - **GUI Logging Controls** - Added logging component controls in Debug menu
   - Enable/disable logging for CPU, PPU, APU, Memory, Input, UI, System components
