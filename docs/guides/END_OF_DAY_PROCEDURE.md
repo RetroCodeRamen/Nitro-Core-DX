@@ -92,7 +92,7 @@ git diff --stat
 - Bug fix description (include file location)
 ```
 
-### 2.5 MASTER_PLAN.md
+### 2.5 MASTER_PLAN.md (docs/planning/MASTER_PLAN.md)
 
 **Check and update:**
 - [ ] **Completed Items**: Move completed items from "In Progress" to "Completed"
@@ -206,7 +206,7 @@ rm <unwanted-file>
 - [ ] System Manual architecture matches code structure
 - [ ] README status matches actual implementation status
 - [ ] CHANGELOG entries match actual changes
-- [ ] MASTER_PLAN status matches reality
+- [ ] docs/planning/MASTER_PLAN.md status matches reality
 
 ### 6.2 Documentation Completeness
 
@@ -343,7 +343,7 @@ Status: Working tree clean
 - [ ] Update System Manual
 - [ ] Update README
 - [ ] Update CHANGELOG
-- [ ] Update MASTER_PLAN
+- [ ] Update docs/planning/MASTER_PLAN.md
 - [ ] Fix linter errors
 - [ ] Verify build
 - [ ] Clean up files
@@ -374,7 +374,7 @@ Status: Working tree clean
 
 ### If build fails:
 - Fix build errors before proceeding
-- Document any known issues in MASTER_PLAN
+- Document any known issues in docs/planning/MASTER_PLAN.md
 
 ### If tests fail:
 - Document failures but don't block
