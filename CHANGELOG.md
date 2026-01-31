@@ -471,5 +471,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - [README.md](README.md) - Project overview
 - [SYSTEM_MANUAL.md](SYSTEM_MANUAL.md) - System architecture
-- [NITRO_CORE_DX_PROGRAMMING_MANUAL.md](NITRO_CORE_DX_PROGRAMMING_MANUAL.md) - Programming guide
-- [MASTER_PLAN.md](MASTER_PLAN.md) - Development planning
+- [PROGRAMMING_MANUAL.md](PROGRAMMING_MANUAL.md) - Programming guide
+- [docs/planning/MASTER_PLAN.md](docs/planning/MASTER_PLAN.md) - Development planning

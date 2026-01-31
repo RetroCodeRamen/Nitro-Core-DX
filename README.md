@@ -273,7 +273,7 @@ The project documentation is organized into several main documents:
 - **[SYSTEM_MANUAL.md](SYSTEM_MANUAL.md)**: Complete system architecture, FPGA compatibility, testing framework, and development tools
 - **[PROGRAMMING_MANUAL.md](PROGRAMMING_MANUAL.md)**: Complete programming guide covering both CoreLX and assembly languages
 - **[docs/CORELX.md](docs/CORELX.md)**: Complete CoreLX language documentation
-- **[HARDWARE_SPECIFICATION.md](HARDWARE_SPECIFICATION.md)**: Complete hardware specification for FPGA implementation
+- **[docs/specifications/HARDWARE_SPECIFICATION.md](docs/specifications/HARDWARE_SPECIFICATION.md)**: Complete hardware specification for FPGA implementation
 
 ### Additional Documentation
 - **[CHANGELOG.md](CHANGELOG.md)**: Version history and change log
@@ -281,7 +281,8 @@ The project documentation is organized into several main documents:
 - **[docs/issues/](docs/issues/)**: Known issues and fixes
 - **[docs/testing/](docs/testing/)**: Testing guides and results
 - **[docs/specifications/](docs/specifications/)**: Hardware specifications and pin definitions
-- **[END_OF_DAY_PROCEDURE.md](END_OF_DAY_PROCEDURE.md)**: End-of-day cleanup and documentation procedure
+- **[docs/guides/](docs/guides/)**: Setup guides, build instructions, and procedures
+- **[docs/planning/](docs/planning/)**: Development plans and roadmaps
 
 ---
 
