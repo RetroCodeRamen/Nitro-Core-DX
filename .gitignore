@@ -14,8 +14,10 @@ trace_vram_loop
 
 # Debug logs and state dumps
 *.log
+logs_*.txt
 register_state_*.txt
 sprite_debug.log
+emulator_log_*.txt
 
 # Embedded git repositories (should be submodules if needed)
 nxbrew-dl/
