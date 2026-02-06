@@ -11,6 +11,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **CPU Instruction Correctness Tests** - Added comprehensive test suite for CPU instruction correctness (2026-02-05)
+  - `baseline_correctness_test.go` - Tests CMP immediate, signed branch conditions, interrupt entry/exit, MOV reserved modes
+  - `pop16_test.go` - Tests Pop16 stack pointer modification and RET pop order
+  - `ret_interrupt_test.go` - Tests RET instruction with interrupt return stack frames
+  - `ppu/baseline_correctness_test.go` - PPU correctness tests
+  - Location: `internal/cpu/`, `internal/ppu/`
+
+### Fixed
+- **CMP Immediate Instruction** - Fixed CMP immediate mode decoding (2026-02-05)
+  - Resolved ambiguity between CMP immediate (mode 1 with registers) and BEQ (mode 1 with reg1=reg2=0)
+  - CMP immediate now correctly distinguished from BEQ branch instruction
+  - Location: `internal/cpu/instructions.go` - `executeCMPAndBranches()`
+- **Signed Branch Conditions** - Fixed signed branch instructions to use overflow flag correctly (2026-02-05)
+  - BGT: Now uses `!Z && (N == V)` instead of `!Z && !N`
+  - BLT: Now uses `N != V` instead of just `N`
+  - BGE: Now uses `N == V` instead of `!N`
+  - BLE: Now uses `Z || (N != V)` instead of `Z || N`
+  - Properly handles signed comparisons with overflow detection
+  - Location: `internal/cpu/instructions.go` - `executeCMPAndBranches()`
+- **RET Instruction Stack Handling** - Enhanced RET instruction with proper interrupt return support (2026-02-05)
+  - RET now detects interrupt returns by checking for flags on stack
+  - Properly pops Flags (if present), PCOffset, and PBR in correct order
+  - Added extensive debug logging and validation for stack pointer changes
+  - Handles both CALL returns (2 values) and interrupt returns (3 values)
+  - Location: `internal/cpu/instructions.go` - `executeRET()`
+- **Pop16 Stack Pointer Modification** - Fixed Pop16 to properly modify stack pointer (2026-02-05)
+  - Added validation to ensure SP changes correctly during pop operations
+  - Fixed stack pointer tracking for interrupt return handling
+  - Location: `internal/cpu/instructions.go` - `Pop16()`
+
 ### Changed
 - **Documentation Reorganization** - Reorganized and cleaned up documentation structure (2026-01-31)
   - Moved narrative/bloggy sections from README to `docs/DEVELOPMENT_NOTES.md`

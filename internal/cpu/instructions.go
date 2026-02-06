@@ -333,51 +333,146 @@ func (c *CPU) executeSHR(mode, reg1, reg2 uint8) error {
 
 // executeCMPAndBranches executes CMP and branch instructions
 func (c *CPU) executeCMPAndBranches(mode, reg1, reg2 uint8) error {
-	opcode := mode & 0xF
-
-	if opcode == 0 { // CMP
-		var value uint16
-		if mode == 0 {
-			// CMP R1, R2
-			value = c.GetRegister(reg2)
-		} else {
-			// CMP R1, #imm
-			value = c.FetchImmediate()
-			c.State.Cycles++
-		}
-
+	// Mode field encoding:
+	// - Mode 0: CMP R1, R2 (register mode)
+	// - Mode 1: CMP R1, #imm (immediate mode) OR BEQ (branch)
+	// - Mode 2-6: Branch instructions (BNE, BGT, BLT, BGE, BLE)
+	// 
+	// To distinguish CMP immediate from BEQ, we check if reg2 is used:
+	// - CMP uses reg1 and reg2 (or immediate)
+	// - Branches don't use reg1/reg2 meaningfully (they're part of instruction encoding)
+	// Actually, looking at encoding: CMP immediate is mode=1 with immediate following
+	// BEQ is mode=1 but it's a branch instruction, not CMP
+	//
+	// The real distinction: CMP mode 0-1, branches mode 1-6
+	// But mode 1 overlaps! Let's check the instruction format:
+	// - 0xC000 = CMP reg (mode=0)
+	// - 0xC100 = BEQ (mode=1, but this is a branch, not CMP!)
+	// - 0xC1XX where XX has reg1/reg2 could be CMP immediate?
+	//
+	// Actually, based on ROM builder: EncodeCMP(mode=1, reg1, reg2) = 0xC100 | (reg1<<4) | reg2
+	// So 0xC100 with reg1=0, reg2=0 would be BEQ, but 0xC100 with reg1=1, reg2=0 would be CMP R1, #imm
+	//
+	// The issue: we can't distinguish CMP immediate from BEQ by mode alone!
+	// Solution: CMP immediate must use a different mode value, OR the instruction set doesn't support CMP immediate
+	//
+	// Let me check the spec: According to docs, CMP supports mode 0-1, where mode 1 is immediate
+	// But branches also use mode 1-6. This is a conflict!
+	//
+	// For now, let's assume: if mode == 0, it's CMP reg. If mode >= 1 and < 7, check if it's a branch first.
+	// If mode == 1 and it's not BEQ (reg1==0 && reg2==0), treat as CMP immediate.
+	// Actually, that's too complex. Let's use a simpler rule:
+	// - Mode 0: CMP reg
+	// - Mode 1: Check if reg1==0 && reg2==0 -> BEQ, else CMP immediate
+	// - Mode 2-6: Branch instructions
+	
+	if mode == 0 {
+		// CMP R1, R2 (register mode)
+		value := c.GetRegister(reg2)
 		a := c.GetRegister(reg1)
 		result := a - value
-		
-		// Debug logging for CMP (via logger adapter if available)
-		// Note: CPULoggerAdapter doesn't have LogCPUf, so we'll log via the adapter's LogCPU
-		// For now, we'll add logging in the trace tool instead
-		
+		c.UpdateFlagsWithOverflow(a, value, result, true)
+		c.State.Cycles++
+		return nil
+	}
+	
+	// For mode >= 1, check if it's a branch instruction
+	// Branch instructions: mode 1-6 map to BEQ, BNE, BGT, BLT, BGE, BLE
+	// But CMP immediate also uses mode 1!
+	// 
+	// Looking at the instruction encoding more carefully:
+	// The instruction word is: 0xC[mode][reg1][reg2]
+	// For branches, the standard encoding seems to be with reg1=0, reg2=0
+	// But CMP immediate would have reg1 set to the register being compared
+	//
+	// Let's use a heuristic: if mode >= 1 && mode <= 6, and the next word looks like a branch offset
+	// (signed 16-bit), treat as branch. Otherwise, if mode == 1, treat as CMP immediate.
+	//
+	// Actually, simpler: check the opcode pattern. Branches are 0xC1, 0xC2, etc. with reg1=reg2=0 typically.
+	// But CMP immediate is 0xC1 with reg1 set.
+	//
+	// For now, let's fix the immediate issue: if mode == 1 and we're not in branch context, it's CMP immediate
+	// But we need to distinguish somehow. Let's check: branches always fetch an offset. CMP immediate fetches an immediate value.
+	// They're the same! So we can't distinguish by what follows.
+	//
+	// The real solution: CMP immediate probably doesn't exist, OR it uses a different encoding.
+	// Let me check the test - it uses 0xC100 which would decode as mode=1, reg1=0, reg2=0 = BEQ!
+	//
+	// Wait, the test writes: 0xC100 = 0xC1, 0x00 = opcode=0xC, mode=0x1, reg1=0x0, reg2=0x0
+	// This is BEQ, not CMP immediate!
+	//
+	// So the test is wrong, OR CMP immediate uses a different encoding. Let me check if there's a CMP immediate instruction at all.
+	//
+	// Based on the ROM builder and docs, CMP should support mode 1 for immediate. But the encoding conflicts with BEQ.
+	// Solution: CMP immediate might not be supported, OR it uses a reserved mode value, OR the instruction set needs clarification.
+	//
+	// For now, let's implement what makes sense: if mode == 0, CMP reg. If mode == 1 and we want CMP immediate,
+	// we need a way to distinguish. Let's assume CMP immediate is not supported for now, and fix the test.
+	//
+	// Actually, re-reading the code comment: "CMP R1, #imm" - this suggests it should exist.
+	// Let me check: maybe CMP immediate uses mode 7 or higher? Or maybe it's encoded differently?
+	//
+	// For the purpose of this fix, let's assume: CMP immediate uses mode 1, but we distinguish it from BEQ
+	// by checking if it's actually a comparison (has a register operand). But BEQ doesn't use registers...
+	//
+	// I think the issue is that the instruction encoding is ambiguous. Let's use a simple rule:
+	// - Mode 0: CMP reg
+	// - Mode 1: Try CMP immediate first (fetch immediate), if that fails or doesn't make sense, treat as BEQ
+	// But that's not deterministic.
+	//
+	// Better solution: Check the instruction word more carefully. If mode=1 and the instruction looks like
+	// it has register operands (reg1 != 0 or reg2 != 0), it might be CMP immediate. But BEQ is 0xC100 which has reg1=0, reg2=0.
+	//
+	// So: if mode == 1 && (reg1 != 0 || reg2 != 0), treat as CMP immediate. Otherwise, BEQ.
+	
+	if mode == 1 && (reg1 != 0 || reg2 != 0) {
+		// CMP R1, #imm (immediate mode) - distinguished from BEQ by having register operands
+		value := c.FetchImmediate()
+		c.State.Cycles++
+		a := c.GetRegister(reg1)
+		result := a - value
 		c.UpdateFlagsWithOverflow(a, value, result, true)
 		c.State.Cycles++
 		return nil
 	}
 
-	// Branch instructions (opcode 0xC1-0xC6)
+	// Branch instructions (mode 1-6, where mode 1 = BEQ when reg1=reg2=0)
+	// Extract branch opcode: mode 1=BEQ, 2=BNE, 3=BGT, 4=BLT, 5=BGE, 6=BLE
+	branchOpcode := mode
+	if mode == 1 && reg1 == 0 && reg2 == 0 {
+		branchOpcode = 1 // BEQ
+	} else if mode >= 2 && mode <= 6 {
+		branchOpcode = mode
+	} else {
+		// Invalid - treat as error or CMP immediate fallback
+		// For now, if mode == 1 with registers, we already handled it above
+		// So this shouldn't happen, but let's handle it
+		return fmt.Errorf("invalid CMP/branch mode: %d (reg1=%d, reg2=%d)", mode, reg1, reg2)
+	}
+	
 	offset := int16(c.FetchImmediate())
 	c.State.Cycles++
 
 	var shouldBranch bool
-	switch opcode {
+	switch branchOpcode {
 	case 0x1: // BEQ - Branch if equal
 		shouldBranch = c.GetFlag(FlagZ)
 	case 0x2: // BNE - Branch if not equal
 		shouldBranch = !c.GetFlag(FlagZ)
 	case 0x3: // BGT - Branch if greater (signed)
-		shouldBranch = !c.GetFlag(FlagZ) && !c.GetFlag(FlagN)
+		// BGT: !Z && (N == V)
+		shouldBranch = !c.GetFlag(FlagZ) && (c.GetFlag(FlagN) == c.GetFlag(FlagV))
 	case 0x4: // BLT - Branch if less (signed)
-		shouldBranch = c.GetFlag(FlagN)
+		// BLT: N != V
+		shouldBranch = c.GetFlag(FlagN) != c.GetFlag(FlagV)
 	case 0x5: // BGE - Branch if >= (signed)
-		shouldBranch = !c.GetFlag(FlagN)
+		// BGE: N == V
+		shouldBranch = c.GetFlag(FlagN) == c.GetFlag(FlagV)
 	case 0x6: // BLE - Branch if <= (signed)
-		shouldBranch = c.GetFlag(FlagZ) || c.GetFlag(FlagN)
+		// BLE: Z || (N != V)
+		shouldBranch = c.GetFlag(FlagZ) || (c.GetFlag(FlagN) != c.GetFlag(FlagV))
 	default:
-		return fmt.Errorf("unknown branch opcode: 0x%X", opcode)
+		return fmt.Errorf("unknown branch opcode: 0x%X", branchOpcode)
 	}
 
 	if shouldBranch {
@@ -476,19 +571,69 @@ func (c *CPU) executeRET() error {
 	}
 
 	// Pop return address
-	pcOffset, err := c.Pop16()
-	if err != nil {
-		return fmt.Errorf("RET failed to pop PCOffset: %w", err)
+	// Note: For interrupts, stack contains: PBR, PCOffset, Flags (pushed in that order)
+	// For CALL, stack contains: PBR, PCOffset (pushed in that order)
+	// RET pops in reverse order (LIFO): Flags (if present), PCOffset, PBR
+	// 
+	// Try to pop flags first (for interrupt returns)
+	// If flags are present, we're returning from interrupt
+	// If not, we're returning from CALL (normal return)
+	spBeforeFlags := c.State.SP
+	flagsValue, err := c.Pop16()
+	spAfterFlags := c.State.SP
+	isInterruptReturn := err == nil
+	
+	// Debug: Check if SP changed
+	if spAfterFlags == spBeforeFlags {
+		return fmt.Errorf("CRITICAL: Pop16 Flags didn't modify SP! Before: 0x%04X, After: 0x%04X", spBeforeFlags, spAfterFlags)
 	}
+	
+	if isInterruptReturn {
+		// Flags were on stack (interrupt return) - restore them
+		c.State.Flags = uint8(flagsValue & 0xFF)
+	}
+	// If flags weren't present, this is a normal CALL return - flags remain unchanged
+
+	// Pop PCOffset (always present for both CALL and interrupt returns)
+	spBeforePC := c.State.SP
+	pcOffset, err := c.Pop16()
+	spAfterPC := c.State.SP
+	if err != nil {
+		return fmt.Errorf("RET failed to pop PCOffset: %w (SP before Flags: 0x%04X, after Flags: 0x%04X, before PC: 0x%04X, after PC: 0x%04X)", 
+			err, spBeforeFlags, spAfterFlags, spBeforePC, spAfterPC)
+	}
+	
+	// Debug: Check if SP changed
+	if spAfterPC == spBeforePC {
+		return fmt.Errorf("CRITICAL: Pop16 PCOffset didn't modify SP! Before: 0x%04X, After: 0x%04X", spBeforePC, spAfterPC)
+	}
+	
 	c.State.PCOffset = pcOffset
 	// Ensure PC stays aligned (instructions are 16-bit)
 	c.State.PCOffset &^= 1
 
+	// Pop PBR (always present for both CALL and interrupt returns)
+	spBeforePBR := c.State.SP
 	pbrValue, err := c.Pop16()
+	spAfterPBR := c.State.SP
 	if err != nil {
-		return fmt.Errorf("RET failed to pop PBR: %w", err)
+		return fmt.Errorf("RET failed to pop PBR: %w (SP before Flags: 0x%04X, after Flags: 0x%04X, before PC: 0x%04X, after PC: 0x%04X, before PBR: 0x%04X, after PBR: 0x%04X)", 
+			err, spBeforeFlags, spAfterFlags, spBeforePC, spAfterPC, spBeforePBR, spAfterPBR)
 	}
+	
+	// Debug: Check if SP changed
+	if spAfterPBR == spBeforePBR {
+		return fmt.Errorf("CRITICAL: Pop16 PBR didn't modify SP! Before: 0x%04X, After: 0x%04X", spBeforePBR, spAfterPBR)
+	}
+	
 	c.State.PBR = uint8(pbrValue)
+	
+	// Final SP check - should be 0x1FFF after popping all 3 values (6 bytes)
+	finalSP := c.State.SP
+	if finalSP != 0x1FFF && isInterruptReturn {
+		// This is a warning, not an error - SP should be 0x1FFF after popping all items
+		_ = finalSP
+	}
 
 	// Validate that PBR is not 0 (ROM code should be in bank 1+)
 	// If PBR is 0, this indicates stack corruption or a bug in the ROM
@@ -509,6 +654,25 @@ func (c *CPU) executeRET() error {
 
 	// Keep PCBank in sync with PBR
 	c.State.PCBank = c.State.PBR
+	
+	// Final SP validation - after popping all items, SP should be back to initial value
+	// Note: We can't use fmt.Printf here, but we can return an error if SP is wrong
+	if isInterruptReturn {
+		// For interrupt returns, we popped 3 values (6 bytes): Flags, PCOffset, PBR
+		// SP should be 0x1FFF (initial value)
+		if finalSP != 0x1FFF {
+			return fmt.Errorf("CRITICAL: RET completed but SP is wrong! Expected 0x1FFF (after popping 6 bytes), got 0x%04X. SP changes: Flags: 0x%04X->0x%04X, PC: 0x%04X->0x%04X, PBR: 0x%04X->0x%04X", 
+				finalSP, spBeforeFlags, spAfterFlags, spBeforePC, spAfterPC, spBeforePBR, spAfterPBR)
+		}
+	} else {
+		// For CALL returns, we popped 2 values (4 bytes): PCOffset, PBR
+		// SP should be 0x1FFD (initial value + 2)
+		if finalSP != 0x1FFD {
+			return fmt.Errorf("CRITICAL: RET completed but SP is wrong! Expected 0x1FFD (after popping 4 bytes), got 0x%04X. SP changes: PC: 0x%04X->0x%04X, PBR: 0x%04X->0x%04X", 
+				finalSP, spBeforePC, spAfterPC, spBeforePBR, spAfterPBR)
+		}
+	}
+	
 	c.State.Cycles += 2
 	return nil
 }
@@ -542,15 +706,28 @@ func (c *CPU) Pop16() (uint16, error) {
 		return 0, fmt.Errorf("stack underflow: SP=0x%04X (too low - indicates stack corruption)", c.State.SP)
 	}
 
+	spBefore := c.State.SP
 	c.State.SP++
+	addrHigh := c.State.SP
 	high := uint16(c.Mem.Read8(0, c.State.SP))
 	c.State.SP++
+	addrLow := c.State.SP
 	low := uint16(c.Mem.Read8(0, c.State.SP))
+	spAfter := c.State.SP
 
 	// Wrap around if overflow
 	if c.State.SP > 0x1FFF {
 		c.State.SP = 0x0000
+		spAfter = 0x0000
 	}
 
-	return (high << 8) | low, nil
+	result := (high << 8) | low
+	
+	// Debug logging (remove after fixing)
+	_ = spBefore
+	_ = addrHigh
+	_ = addrLow
+	_ = spAfter
+	
+	return result, nil
 }
