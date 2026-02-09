@@ -68,6 +68,30 @@
    - Fix: Store InitialDuration, reload on loop
    - Location: `internal/apu/apu.go`
 
+4. **CMP Immediate Instruction Decoding** ✅ FIXED (2026-02-05)
+   - Issue: Ambiguity between CMP immediate (mode 1 with registers) and BEQ (mode 1 with reg1=reg2=0)
+   - Fix: CMP immediate now distinguished from BEQ by checking register operands
+   - Location: `internal/cpu/instructions.go:428-437`
+
+5. **Signed Branch Conditions** ✅ FIXED (2026-02-05)
+   - Issue: Signed branch instructions didn't use overflow flag correctly
+   - Fix: BGT/BLT/BGE/BLE now use correct signed comparison with overflow detection
+     - BGT: `!Z && (N == V)` (was `!Z && !N`)
+     - BLT: `N != V` (was `N`)
+     - BGE: `N == V` (was `!N`)
+     - BLE: `Z || (N != V)` (was `Z || N`)
+   - Location: `internal/cpu/instructions.go:462-473`
+
+6. **RET Instruction Stack Handling** ✅ FIXED (2026-02-05)
+   - Issue: RET didn't properly handle interrupt returns vs normal CALL returns
+   - Fix: RET now detects interrupt returns by checking for flags on stack, properly pops Flags/PCOffset/PBR
+   - Location: `internal/cpu/instructions.go:573-654`
+
+7. **Pop16 Stack Pointer Tracking** ✅ FIXED (2026-02-05)
+   - Issue: Pop16 didn't properly track stack pointer changes
+   - Fix: Added validation to ensure SP changes correctly during pop operations
+   - Location: `internal/cpu/instructions.go:706-730`
+
 ### Technical Debt
 
 1. **Interrupt System** ⏳ NOT IMPLEMENTED
