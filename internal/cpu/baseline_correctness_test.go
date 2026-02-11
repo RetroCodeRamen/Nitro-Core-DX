@@ -310,18 +310,43 @@ func TestInterruptEntryExit(t *testing.T) {
 
 	// Execute RET
 	spBeforeExecute := cpu.State.SP
+	t.Logf("Before ExecuteInstruction: SP=0x%04X", spBeforeExecute)
+	
+	// DEBUG: What instruction will be fetched?
+	fetchedLow := mem.Read8(1, 0x9000)
+	fetchedHigh := mem.Read8(1, 0x9001)
+	fetchedInstruction := uint16(fetchedLow) | (uint16(fetchedHigh) << 8)
+	fetchedOpcode := (fetchedInstruction >> 12) & 0xF
+	t.Logf("Instruction at 1:0x9000: bytes=[0x%02X, 0x%02X], word=0x%04X, opcode=0x%X", fetchedLow, fetchedHigh, fetchedInstruction, fetchedOpcode)
+	
+	// Capture CPU state before RET
+	stateBefore := cpu.State
+	
 	if err := cpu.ExecuteInstruction(); err != nil {
 		t.Fatalf("RET failed: %v", err)
 	}
+	
+	// Immediately check SP after ExecuteInstruction returns
+	spImmediatelyAfter := cpu.State.SP
+	t.Logf("SP immediately after ExecuteInstruction: 0x%04X", spImmediatelyAfter)
+	
+	// Capture CPU state after RET
+	stateAfter := cpu.State
 	spAfterExecute := cpu.State.SP
+	t.Logf("SP after state copy: 0x%04X", spAfterExecute)
 	
 	// Debug: Check stack after RET
-	t.Logf("Before ExecuteInstruction: SP=0x%04X", spBeforeExecute)
 	t.Logf("After RET: SP=0x%04X, PCOffset=0x%04X, PBR=%d, Flags=0x%02X", spAfterExecute, cpu.State.PCOffset, cpu.State.PBR, cpu.State.Flags)
+	t.Logf("State before: SP=0x%04X, State after: SP=0x%04X", stateBefore.SP, stateAfter.SP)
 	
 	// Check if SP changed
 	if spAfterExecute == spBeforeExecute {
 		t.Errorf("RET: SP didn't change! Before: 0x%04X, After: 0x%04X", spBeforeExecute, spAfterExecute)
+	}
+	
+	// Verify stateAfter.SP matches cpu.State.SP
+	if stateAfter.SP != cpu.State.SP {
+		t.Errorf("RET: State copy mismatch! stateAfter.SP=0x%04X, cpu.State.SP=0x%04X", stateAfter.SP, cpu.State.SP)
 	}
 
 	// RET should pop: PCOffset, then PBR, then Flags
@@ -425,8 +450,13 @@ func (m *testMemoryWithROM) Write8(bank uint8, offset uint16, value uint8) {
 			m.ioSpace = make(map[uint16]uint8)
 		}
 		m.ioSpace[offset] = value
+	} else if bank >= 1 && bank <= 125 && offset >= 0x8000 {
+		// Allow ROM writes for testing
+		romOffset := (uint32(bank-1) * 32768) + uint32(offset-0x8000)
+		if romOffset < uint32(len(m.rom)) {
+			m.rom[romOffset] = value
+		}
 	}
-	// ROM writes ignored
 }
 
 func (m *testMemoryWithROM) Read16(bank uint8, offset uint16) uint16 {

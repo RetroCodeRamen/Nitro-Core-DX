@@ -550,129 +550,80 @@ func (c *CPU) executeCALL() error {
 }
 
 // executeRET executes RET instruction
+
+// executeRET executes RET instruction
 func (c *CPU) executeRET() error {
-	// Check if we're currently at an invalid address (shouldn't happen, but safety check)
-	if c.State.PCOffset < 0x8000 && c.State.PCBank >= 1 {
+	// Safety check: If PCBank is 0, we're in bank 0 (WRAM/I/O)
+	// RET should only be called from ROM (bank 1+)
+	if c.State.PCBank == 0 {
+		return fmt.Errorf("CRITICAL: RET called from bank 0 (PCOffset=0x%04X). RET should only be called from ROM (bank 1+). This indicates PCBank was incorrectly set or Reset() was called after LoadROM",
+			c.State.PCOffset)
+	}
+
+	// Safety check: If PCBank is 1+ but PCOffset is < 0x8000, this is invalid
+	// ROM code must be at offset 0x8000+ within a bank
+	if c.State.PCBank >= 1 && c.State.PCBank <= 125 && c.State.PCOffset < 0x8000 {
 		return fmt.Errorf("CRITICAL: RET called from invalid address 0x%04X (ROM code must be at 0x8000+). This indicates PC was corrupted before RET",
 			c.State.PCOffset)
 	}
 
-	// Check if stack is empty (SP at initial value means nothing has been pushed)
-	// Stack starts at 0x1FFF and grows downward, so valid SP after pushes is < 0x1FFF
+	// Check if stack is empty
 	if c.State.SP >= 0x1FFF {
-		return fmt.Errorf("CRITICAL: RET called with empty stack (SP=0x%04X, stack is empty - no CALL was made). This indicates RET was called without a matching CALL",
-			c.State.SP)
+		return fmt.Errorf("stack underflow: RET called with empty stack (SP=0x%04X)", c.State.SP)
 	}
 
-	// Check if stack is corrupted (SP too low indicates underflow)
+	// Check if stack is corrupted
 	if c.State.SP < 0x0100 {
-		return fmt.Errorf("CRITICAL: RET called with corrupted stack (SP=0x%04X, too low - indicates stack underflow). This indicates stack corruption",
-			c.State.SP)
+		return fmt.Errorf("stack underflow: RET called with corrupted stack (SP=0x%04X)", c.State.SP)
 	}
 
 	// Pop return address
-	// Note: For interrupts, stack contains: PBR, PCOffset, Flags (pushed in that order)
+	// For interrupts, stack contains: PBR, PCOffset, Flags (pushed in that order)
 	// For CALL, stack contains: PBR, PCOffset (pushed in that order)
 	// RET pops in reverse order (LIFO): Flags (if present), PCOffset, PBR
-	// 
+
 	// Try to pop flags first (for interrupt returns)
-	// If flags are present, we're returning from interrupt
-	// If not, we're returning from CALL (normal return)
-	spBeforeFlags := c.State.SP
 	flagsValue, err := c.Pop16()
-	spAfterFlags := c.State.SP
 	isInterruptReturn := err == nil
-	
-	// Debug: Check if SP changed
-	if spAfterFlags == spBeforeFlags {
-		return fmt.Errorf("CRITICAL: Pop16 Flags didn't modify SP! Before: 0x%04X, After: 0x%04X", spBeforeFlags, spAfterFlags)
-	}
-	
+
 	if isInterruptReturn {
 		// Flags were on stack (interrupt return) - restore them
 		c.State.Flags = uint8(flagsValue & 0xFF)
 	}
-	// If flags weren't present, this is a normal CALL return - flags remain unchanged
 
 	// Pop PCOffset (always present for both CALL and interrupt returns)
-	spBeforePC := c.State.SP
 	pcOffset, err := c.Pop16()
-	spAfterPC := c.State.SP
 	if err != nil {
-		return fmt.Errorf("RET failed to pop PCOffset: %w (SP before Flags: 0x%04X, after Flags: 0x%04X, before PC: 0x%04X, after PC: 0x%04X)", 
-			err, spBeforeFlags, spAfterFlags, spBeforePC, spAfterPC)
+		return fmt.Errorf("RET failed to pop PCOffset: %w", err)
 	}
-	
-	// Debug: Check if SP changed
-	if spAfterPC == spBeforePC {
-		return fmt.Errorf("CRITICAL: Pop16 PCOffset didn't modify SP! Before: 0x%04X, After: 0x%04X", spBeforePC, spAfterPC)
-	}
-	
+
 	c.State.PCOffset = pcOffset
 	// Ensure PC stays aligned (instructions are 16-bit)
 	c.State.PCOffset &^= 1
 
 	// Pop PBR (always present for both CALL and interrupt returns)
-	spBeforePBR := c.State.SP
 	pbrValue, err := c.Pop16()
-	spAfterPBR := c.State.SP
 	if err != nil {
-		return fmt.Errorf("RET failed to pop PBR: %w (SP before Flags: 0x%04X, after Flags: 0x%04X, before PC: 0x%04X, after PC: 0x%04X, before PBR: 0x%04X, after PBR: 0x%04X)", 
-			err, spBeforeFlags, spAfterFlags, spBeforePC, spAfterPC, spBeforePBR, spAfterPBR)
-	}
-	
-	// Debug: Check if SP changed
-	if spAfterPBR == spBeforePBR {
-		return fmt.Errorf("CRITICAL: Pop16 PBR didn't modify SP! Before: 0x%04X, After: 0x%04X", spBeforePBR, spAfterPBR)
-	}
-	
-	c.State.PBR = uint8(pbrValue)
-	
-	// Final SP check - should be 0x1FFF after popping all 3 values (6 bytes)
-	finalSP := c.State.SP
-	if finalSP != 0x1FFF && isInterruptReturn {
-		// This is a warning, not an error - SP should be 0x1FFF after popping all items
-		_ = finalSP
+		return fmt.Errorf("RET failed to pop PBR: %w", err)
 	}
 
+	c.State.PBR = uint8(pbrValue)
+
 	// Validate that PBR is not 0 (ROM code should be in bank 1+)
-	// If PBR is 0, this indicates stack corruption or a bug in the ROM
 	if c.State.PBR == 0 {
-		// This is a critical error - ROM code should never be in bank 0
-		// This likely means the stack was corrupted or RET was called without a matching CALL
-		// Also check if PCOffset is valid (should be >= 0x8000 for ROM)
-		return fmt.Errorf("CRITICAL: RET popped PBR=0 from stack (PCOffset=0x%04X, SP=0x%04X). This indicates stack corruption or RET called without matching CALL. PCBank should be 1+ for ROM execution",
+		return fmt.Errorf("RET popped PBR=0 from stack (PCOffset=0x%04X, SP=0x%04X). This indicates stack corruption",
 			c.State.PCOffset, c.State.SP)
 	}
 
 	// Validate that PCOffset is in valid ROM range (>= 0x8000)
-	// ROM code should always be at offset 0x8000+ within a bank
 	if c.State.PCOffset < 0x8000 {
-		return fmt.Errorf("CRITICAL: RET popped invalid PCOffset=0x%04X (should be >= 0x8000 for ROM). This indicates stack corruption or invalid return address",
+		return fmt.Errorf("RET popped invalid PCOffset=0x%04X (should be >= 0x8000 for ROM). This indicates stack corruption",
 			c.State.PCOffset)
 	}
 
 	// Keep PCBank in sync with PBR
 	c.State.PCBank = c.State.PBR
-	
-	// Final SP validation - after popping all items, SP should be back to initial value
-	// Note: We can't use fmt.Printf here, but we can return an error if SP is wrong
-	if isInterruptReturn {
-		// For interrupt returns, we popped 3 values (6 bytes): Flags, PCOffset, PBR
-		// SP should be 0x1FFF (initial value)
-		if finalSP != 0x1FFF {
-			return fmt.Errorf("CRITICAL: RET completed but SP is wrong! Expected 0x1FFF (after popping 6 bytes), got 0x%04X. SP changes: Flags: 0x%04X->0x%04X, PC: 0x%04X->0x%04X, PBR: 0x%04X->0x%04X", 
-				finalSP, spBeforeFlags, spAfterFlags, spBeforePC, spAfterPC, spBeforePBR, spAfterPBR)
-		}
-	} else {
-		// For CALL returns, we popped 2 values (4 bytes): PCOffset, PBR
-		// SP should be 0x1FFD (initial value + 2)
-		if finalSP != 0x1FFD {
-			return fmt.Errorf("CRITICAL: RET completed but SP is wrong! Expected 0x1FFD (after popping 4 bytes), got 0x%04X. SP changes: PC: 0x%04X->0x%04X, PBR: 0x%04X->0x%04X", 
-				finalSP, spBeforePC, spAfterPC, spBeforePBR, spAfterPBR)
-		}
-	}
-	
+
 	c.State.Cycles += 2
 	return nil
 }
@@ -714,6 +665,11 @@ func (c *CPU) Pop16() (uint16, error) {
 	addrLow := c.State.SP
 	low := uint16(c.Mem.Read8(0, c.State.SP))
 	spAfter := c.State.SP
+	
+	// Debug: Verify SP was actually modified
+	if spAfter == spBefore {
+		panic(fmt.Sprintf("CRITICAL: Pop16 didn't modify SP! Before: 0x%04X, After: 0x%04X", spBefore, spAfter))
+	}
 
 	// Wrap around if overflow
 	if c.State.SP > 0x1FFF {

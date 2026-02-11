@@ -80,27 +80,51 @@
 
 ### Execution Model
 
+#### Clock-Driven Scheduler Architecture
+
+The emulator uses a **master clock scheduler** that coordinates all subsystems (CPU, PPU, APU) on a unified cycle timeline. This ensures cycle-accurate synchronization and FPGA-ready design.
+
+**Execution Modes:**
+
+1. **Debug Mode** (Cycle-by-Cycle):
+   - Steps scheduler one cycle at a time
+   - Enables cycle-by-cycle logging and debugging
+   - Maximum accuracy for debugging and verification
+
+2. **Optimized Mode** (Chunk-Based):
+   - Steps scheduler in chunks of 1000 cycles
+   - CPU and PPU advance together on the same timeline
+   - APU steps at its sample rate (~174 cycles per sample)
+   - Maintains cycle-accurate synchronization while improving performance
+
+**Key Properties:**
+- Both modes produce identical results (verified via determinism tests)
+- CPU always executes before PPU within each chunk, ensuring writes are visible
+- All components advance on the same master clock cycle timeline
+- Synchronization is maintained at chunk boundaries
+
 #### Frame Execution Order (Synchronized)
 
 ```
-Frame Start:
-  1. APU.UpdateFrame()
-     - Decrements channel durations
-     - Sets completion flags (if channels finished)
+Frame Start (127,820 cycles per frame):
+  Master Clock coordinates all components:
   
-  2. PPU.RenderFrame()
-     - Sets VBlank flag = true (at START of frame, before CPU runs)
-     - Increments FrameCounter
-     - Renders frame using state from previous frame's CPU execution
+  1. CPU steps for N cycles (via scheduler)
+     - Executes ROM instructions
+     - Can write to PPU/APU registers (immediate, synchronous)
   
-  3. CPU.ExecuteCycles(166667)
-     - ROM can read:
-       * VBlank flag (0x803E) - will see 1, then cleared
-       * Frame counter (0x803F/0x8040) - current frame number
-       * Completion status (0x9021) - will see flags, then cleared
+  2. PPU steps for N cycles (via scheduler, same N as CPU)
+     - Renders scanlines dot-by-dot
+     - Reads PPU registers (sees CPU writes from step 1)
+     - Sets VBlank flag at scanline 200
+     - Triggers VBlank interrupt
   
-  4. APU.GenerateSamples(735)
-     - Generate audio for this frame
+  3. APU steps at sample rate (~174 cycles per sample)
+     - Generates audio samples
+     - Updates channel state
+  
+  All components advance together on unified cycle timeline
+  CPU writes are immediately visible to PPU/APU
 ```
 
 ### Component Synchronization

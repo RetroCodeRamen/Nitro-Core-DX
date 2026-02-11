@@ -12,10 +12,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Determinism Test Harness** - Added comprehensive determinism testing framework (2026-02-05)
+  - Tests that debug mode (cycle-by-cycle) and optimized mode (chunk-based) produce identical results
+  - Per-frame state hashing (CPU registers, WRAM, framebuffer) for verification
+  - Location: `internal/emulator/determinism_test.go`
+- **Audio Timing Tests** - Added long-run audio timing tests (2026-02-05)
+  - Tests verify fractional accumulator prevents timing drift over extended runs
+  - Tests run for 60 frames and 1000 frames to verify accuracy
+  - Location: `internal/emulator/audio_timing_test.go`
 - **CPU Instruction Correctness Tests** - Added comprehensive test suite for CPU instruction correctness (2026-02-05)
   - `baseline_correctness_test.go` - Tests CMP immediate, signed branch conditions, interrupt entry/exit, MOV reserved modes
-  - `pop16_test.go` - Tests Pop16 stack pointer modification and RET pop order
-  - `ret_interrupt_test.go` - Tests RET instruction with interrupt return stack frames
   - `ppu/baseline_correctness_test.go` - PPU correctness tests
   - Location: `internal/cpu/`, `internal/ppu/`
 
@@ -42,7 +48,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Fixed stack pointer tracking for interrupt return handling
   - Location: `internal/cpu/instructions.go` - `Pop16()`
 
+### Fixed
+- **Audio Timing Drift** - Fixed audio timing drift by replacing integer division with fractional accumulator (2026-02-05)
+  - Replaced `apuCyclesPerSample := uint64(c.CPUSpeed / c.APUSpeed)` with fixed-point fractional accumulator
+  - Uses 32-bit fractional part to track exact cycles per sample (7670000 / 44100 ≈ 173.923 cycles)
+  - Prevents timing drift over long runs (verified via 1000-frame test)
+  - Location: `internal/clock/scheduler.go` - Added `APUFractionalAccumulator` field
+
 ### Changed
+- **Scheduler-Driven Execution Model** - Restored scheduler authority in optimized mode (2026-02-05)
+  - Optimized mode now uses scheduler-driven chunk-based stepping (1000 cycles per chunk)
+  - Both debug and optimized modes use the same scheduler, ensuring CPU, PPU, and APU advance on the same cycle timeline
+  - Removed "CPU full frame then PPU full frame" execution pattern that bypassed scheduler
+  - Maintains cycle-accurate synchronization while improving performance
+  - Verified via determinism test: debug and optimized modes produce identical results
+  - Location: `internal/emulator/emulator.go` - `RunFrame()`
 - **Documentation Reorganization** - Reorganized and cleaned up documentation structure (2026-01-31)
   - Moved narrative/bloggy sections from README to `docs/DEVELOPMENT_NOTES.md`
   - Organized fix/issue documents into `docs/issues/` directory

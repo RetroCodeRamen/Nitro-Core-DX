@@ -676,6 +676,12 @@ func (p *PPU) stepDMA() {
 		data = p.DMAFillValue
 	} else {
 		// Copy mode: read from source
+		if p.MemoryReader == nil {
+			// No memory reader, abort DMA
+			p.DMAEnabled = false
+			p.DMAProgress = 0
+			return
+		}
 		data = p.MemoryReader(p.DMASourceBank, p.DMACurrentSrc)
 		p.DMACurrentSrc++
 	}

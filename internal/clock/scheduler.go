@@ -20,6 +20,11 @@ type MasterClock struct {
 	PPUNextCycle uint64
 	APUNextCycle uint64
 
+	// APU fractional accumulator for accurate timing
+	// Fixed-point: 32-bit fractional part (0-2^32 represents 0-1.0 cycles)
+	// Tracks fractional cycles to avoid drift from integer division
+	APUFractionalAccumulator uint64 // Fixed-point fractional cycles (32-bit fractional part)
+
 	// Component step functions
 	CPUStep func(cycles uint64) error
 	PPUStep func(cycles uint64) error
@@ -29,13 +34,14 @@ type MasterClock struct {
 // NewMasterClock creates a new master clock scheduler
 func NewMasterClock(cpuSpeed, ppuSpeed, apuSpeed uint32) *MasterClock {
 	return &MasterClock{
-		Cycle:        0,
-		CPUSpeed:     cpuSpeed,
-		PPUSpeed:     ppuSpeed,
-		APUSpeed:     apuSpeed,
-		CPUNextCycle: 0,
-		PPUNextCycle: 0,
-		APUNextCycle: 0,
+		Cycle:                   0,
+		CPUSpeed:                cpuSpeed,
+		PPUSpeed:                ppuSpeed,
+		APUSpeed:                apuSpeed,
+		CPUNextCycle:            0,
+		PPUNextCycle:            0,
+		APUNextCycle:            0,
+		APUFractionalAccumulator: 0,
 	}
 }
 
@@ -63,14 +69,30 @@ func (c *MasterClock) Step() (uint64, error) {
 	}
 
 	// Check APU (runs at sample rate: 44,100 Hz = every ~174 cycles at ~7.67 MHz)
+	// Use fractional accumulator for accurate timing
 	if c.APUStep != nil && c.Cycle >= c.APUNextCycle {
 		cyclesToRun := c.Cycle - c.APUNextCycle + 1
 		if err := c.APUStep(cyclesToRun); err != nil {
 			return 0, fmt.Errorf("APU step error: %w", err)
 		}
-		// APU runs every ~174 cycles (7,670,000 / 44,100 ≈ 173.92)
-		apuCyclesPerSample := uint64(c.CPUSpeed / c.APUSpeed)
-		c.APUNextCycle = c.Cycle + apuCyclesPerSample
+		
+		// Calculate exact cycles per sample using fixed-point arithmetic
+		// CPUSpeed / APUSpeed = cycles per sample (may be fractional)
+		// Use 32-bit fractional part for precision
+		// Formula: (CPUSpeed * 2^32) / APUSpeed gives us fixed-point cycles per sample
+		exactCyclesPerSampleFixed := (uint64(c.CPUSpeed) << 32) / uint64(c.APUSpeed)
+		
+		// Add fractional cycles to accumulator
+		c.APUFractionalAccumulator += exactCyclesPerSampleFixed
+		
+		// Extract integer part (cycles until next sample)
+		integerCycles := c.APUFractionalAccumulator >> 32
+		
+		// Keep fractional part in accumulator
+		c.APUFractionalAccumulator &= 0xFFFFFFFF
+		
+		// Schedule next APU step
+		c.APUNextCycle = c.Cycle + integerCycles
 	}
 
 	// Advance master clock
@@ -102,22 +124,50 @@ func (c *MasterClock) StepCycles(cycles uint64) error {
 	}
 	
 	// APU runs at sample rate - step it for each sample that occurs in this batch
+	// Use fractional accumulator for accurate timing
 	if c.APUStep != nil {
-		apuCyclesPerSample := uint64(c.CPUSpeed / c.APUSpeed)
 		cycleAtStart := c.Cycle
 		cycleAtEnd := c.Cycle + cycles
+		
+		// Calculate exact cycles per sample using fixed-point arithmetic
+		exactCyclesPerSampleFixed := (uint64(c.CPUSpeed) << 32) / uint64(c.APUSpeed)
 		
 		// Step APU for each sample that occurs during this batch
 		for c.APUNextCycle < cycleAtEnd {
 			if c.APUNextCycle >= cycleAtStart {
 				// APU sample occurs during this batch - step it
-				if err := c.APUStep(apuCyclesPerSample); err != nil {
+				cyclesToRun := c.APUNextCycle - cycleAtStart + 1
+				if cyclesToRun > cycles {
+					cyclesToRun = cycles
+				}
+				if err := c.APUStep(cyclesToRun); err != nil {
 					return fmt.Errorf("APU step error: %w", err)
 				}
-				c.APUNextCycle += apuCyclesPerSample
+				
+				// Add fractional cycles to accumulator
+				c.APUFractionalAccumulator += exactCyclesPerSampleFixed
+				
+				// Extract integer part (cycles until next sample)
+				integerCycles := c.APUFractionalAccumulator >> 32
+				
+				// Keep fractional part in accumulator
+				c.APUFractionalAccumulator &= 0xFFFFFFFF
+				
+				// Schedule next APU step
+				c.APUNextCycle += integerCycles
 			} else {
 				// APU sample was before this batch, advance to next
-				c.APUNextCycle += apuCyclesPerSample
+				// Add fractional cycles to accumulator
+				c.APUFractionalAccumulator += exactCyclesPerSampleFixed
+				
+				// Extract integer part
+				integerCycles := c.APUFractionalAccumulator >> 32
+				
+				// Keep fractional part
+				c.APUFractionalAccumulator &= 0xFFFFFFFF
+				
+				// Advance to next sample
+				c.APUNextCycle += integerCycles
 			}
 		}
 	}
@@ -138,4 +188,5 @@ func (c *MasterClock) Reset() {
 	c.CPUNextCycle = 0
 	c.PPUNextCycle = 0
 	c.APUNextCycle = 0
+	c.APUFractionalAccumulator = 0
 }

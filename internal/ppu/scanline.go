@@ -47,11 +47,6 @@ func (p *PPU) StepPPU(cycles uint64) error {
 
 	cyclesRemaining := cycles
 	for cyclesRemaining > 0 {
-		// Execute DMA (cycle-accurate: one byte per cycle)
-		if p.DMAEnabled {
-			p.stepDMA()
-		}
-
 		// Handle HDMA on scanline start (before processing dots)
 		if p.currentDot == 0 && p.HDMAEnabled && p.currentScanline < VisibleScanlines {
 			p.updateHDMA(p.currentScanline)
@@ -67,6 +62,10 @@ func (p *PPU) StepPPU(cycles uint64) error {
 		if p.currentScanline < VisibleScanlines {
 			// Render all visible dots in this batch
 			for p.currentDot < VisibleDots && cyclesUntilScanlineEnd > 0 {
+				// Execute DMA (cycle-accurate: one byte per cycle)
+				if p.DMAEnabled {
+					p.stepDMA()
+				}
 				p.renderDot(p.currentScanline, p.currentDot)
 				p.currentDot++
 				cyclesUntilScanlineEnd--
@@ -76,21 +75,27 @@ func (p *PPU) StepPPU(cycles uint64) error {
 			// Skip HBlank dots (just advance counter)
 			if p.currentDot >= VisibleDots && cyclesUntilScanlineEnd > 0 {
 				// We're in HBlank, just advance
-				advance := int(cyclesUntilScanlineEnd)
-				if advance > DotsPerScanline-p.currentDot {
-					advance = DotsPerScanline - p.currentDot
+				// Execute DMA for each HBlank cycle
+				for cyclesUntilScanlineEnd > 0 {
+					if p.DMAEnabled {
+						p.stepDMA()
+					}
+					p.currentDot++
+					cyclesUntilScanlineEnd--
+					cyclesRemaining--
 				}
-				p.currentDot += advance
-				cyclesRemaining -= uint64(advance)
 			}
 		} else {
 			// VBlank scanline - just advance counters
-			advance := int(cyclesUntilScanlineEnd)
-			if advance > DotsPerScanline-p.currentDot {
-				advance = DotsPerScanline - p.currentDot
+			// Execute DMA for each VBlank cycle
+			for cyclesUntilScanlineEnd > 0 {
+				if p.DMAEnabled {
+					p.stepDMA()
+				}
+				p.currentDot++
+				cyclesUntilScanlineEnd--
+				cyclesRemaining--
 			}
-			p.currentDot += advance
-			cyclesRemaining -= uint64(advance)
 		}
 
 		// Check if we've reached end of scanline
@@ -266,7 +271,8 @@ func (p *PPU) renderDot(scanline, dot int) {
 
 	// Collect sprites that overlap this pixel
 	sprites := p.collectSpritesAtPixel(x, y)
-	for _, sprite := range sprites {
+	for i := range sprites {
+		sprite := sprites[i] // Copy to avoid pointer bug (taking address of loop variable)
 		elements = append(elements, renderElement{
 			priority:    sprite.priority,
 			elementType: 1,

@@ -213,15 +213,18 @@ func (e *Emulator) RunFrame() error {
 
 	// Generate audio samples during frame execution
 	// At 44,100 Hz sample rate and 60 FPS, we need 735 samples per frame
-	// APU runs every ~174 cycles (7,670,000 / 44,100 ≈ 173.92)
-	apuCyclesPerSample := uint64(7670000 / 44100) // ~174 cycles per sample
+	// Use fractional accumulator for accurate timing (matches scheduler)
+	// Exact cycles per sample: 7670000 / 44100 ≈ 173.923 cycles per sample
+	exactCyclesPerSampleFixed := (uint64(7670000) << 32) / uint64(44100) // Fixed-point: 32-bit fractional part
 	samplesGenerated := 0
 
-	// Optimized clock stepping: step CPU/PPU directly for full frame when cycle logging disabled
-	// Since CPU and PPU run at same speed (unified clock), we can step them for the entire frame
-	// APU needs fine-grained timing (every ~174 cycles), handle separately
-
-	// Step in batches for performance (only cycle-by-cycle if cycle logging enabled)
+	// Use scheduler-driven execution for both debug and optimized modes
+	// This ensures CPU, PPU, and APU always advance on the same cycle timeline
+	// Debug mode: step cycle-by-cycle for logging accuracy
+	// Optimized mode: step in chunks for performance while maintaining synchronization
+	
+	const chunkSize = uint64(1000) // Step in chunks of 1000 cycles for optimized mode
+	
 	if e.CycleLogger != nil && e.CycleLogger.IsEnabled() {
 		// Cycle logging enabled: step cycle-by-cycle for accuracy
 		for cyclesStepped := uint64(0); cyclesStepped < e.CyclesPerFrame; cyclesStepped++ {
@@ -250,8 +253,56 @@ func (e *Emulator) RunFrame() error {
 			}
 			e.CycleLogger.LogCycle(snapshot)
 
-			// Generate audio sample when it's time
-			if cyclesStepped%apuCyclesPerSample == 0 && samplesGenerated < 735 {
+			// Generate audio sample when it's time (using fractional accumulator)
+			// Calculate expected sample count using fractional arithmetic
+			expectedSamplesFixed := (cyclesStepped * exactCyclesPerSampleFixed) >> 32
+			if expectedSamplesFixed > uint64(samplesGenerated) && samplesGenerated < 735 {
+				// Generate samples up to expected count
+				for samplesGenerated < int(expectedSamplesFixed) && samplesGenerated < 735 {
+					sampleFixed := e.APU.GenerateSampleFixed()
+					if samplesGenerated < len(e.AudioSampleBuffer) {
+						e.AudioSampleBuffer[samplesGenerated] = sampleFixed
+					}
+					samplesGenerated++
+				}
+			}
+		}
+	} else {
+		// Optimized mode: use scheduler-driven chunk-based stepping
+		// This ensures CPU, PPU, and APU advance together on the same cycle timeline
+		// Stepping in chunks maintains synchronization while improving performance
+		cyclesRemaining := e.CyclesPerFrame
+		cycleAtStart := e.Clock.Cycle
+		
+		for cyclesRemaining > 0 {
+			// Step in chunks, but ensure we don't exceed the frame boundary
+			chunk := chunkSize
+			if chunk > cyclesRemaining {
+				chunk = cyclesRemaining
+			}
+			
+			// Use scheduler to step all components together
+			// The scheduler handles APU stepping internally based on sample rate
+			if err := e.Clock.StepCycles(chunk); err != nil {
+				return fmt.Errorf("clock step cycles error: %w", err)
+			}
+			
+			cyclesRemaining -= chunk
+			
+			// Generate audio samples for any samples that occurred during this chunk
+			// Use fractional accumulator for accurate timing (matches scheduler)
+			currentCycle := e.Clock.Cycle
+			cyclesElapsed := currentCycle - cycleAtStart
+			
+			// Calculate expected sample count using fractional arithmetic
+			// This matches the scheduler's fractional accumulator approach
+			expectedSamplesFixed := (cyclesElapsed * exactCyclesPerSampleFixed) >> 32
+			if expectedSamplesFixed > 735 {
+				expectedSamplesFixed = 735
+			}
+			
+			// Generate any missing samples
+			for samplesGenerated < int(expectedSamplesFixed) && samplesGenerated < 735 {
 				sampleFixed := e.APU.GenerateSampleFixed()
 				if samplesGenerated < len(e.AudioSampleBuffer) {
 					e.AudioSampleBuffer[samplesGenerated] = sampleFixed
@@ -259,36 +310,15 @@ func (e *Emulator) RunFrame() error {
 				samplesGenerated++
 			}
 		}
-	} else {
-		// No cycle logging: optimize by stepping CPU/PPU for full frame directly
-		// This bypasses clock scheduler overhead for better performance
-		// Step CPU for entire frame
-		if err := e.CPU.StepCPU(e.CyclesPerFrame); err != nil {
-			return fmt.Errorf("CPU step error: %w", err)
-		}
-
-		// Step PPU for entire frame
-		if err := e.PPU.StepPPU(e.CyclesPerFrame); err != nil {
-			return fmt.Errorf("PPU step error: %w", err)
-		}
-
-		// Step APU for each sample in the frame (735 samples per frame at 44.1kHz, 60 FPS)
+		
+		// Generate any remaining audio samples (should be exactly 735 total)
 		for samplesGenerated < 735 {
-			if err := e.APU.StepAPU(apuCyclesPerSample); err != nil {
-				return fmt.Errorf("APU step error: %w", err)
-			}
 			sampleFixed := e.APU.GenerateSampleFixed()
 			if samplesGenerated < len(e.AudioSampleBuffer) {
 				e.AudioSampleBuffer[samplesGenerated] = sampleFixed
 			}
 			samplesGenerated++
 		}
-
-		// Update clock cycle counters to keep them in sync
-		e.Clock.Cycle += e.CyclesPerFrame
-		e.Clock.CPUNextCycle += e.CyclesPerFrame
-		e.Clock.PPUNextCycle += e.CyclesPerFrame
-		e.Clock.APUNextCycle += uint64(735 * apuCyclesPerSample)
 	}
 
 	// Calculate CPU cycles used this frame
