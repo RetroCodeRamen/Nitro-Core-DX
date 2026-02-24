@@ -177,7 +177,7 @@ For detailed status and documentation navigation, see [docs/README.md](docs/READ
 
 ### Prerequisites
 
-- **Go 1.18 or later** ([Download Go](https://golang.org/dl/))
+- **Go 1.22 or later** ([Download Go](https://golang.org/dl/))
 - **SDL2 Development Libraries**
   - **Ubuntu/Debian**: `sudo apt-get install libsdl2-dev`
   - **Fedora/RHEL**: `sudo dnf install SDL2-devel`
@@ -320,7 +320,7 @@ Note: Test ROMs can map controls differently. Use the ROM-specific docs/comments
 3. If using a custom SDL2 installation, set `PKG_CONFIG_PATH` environment variable
 
 **Build Errors:**
-- Make sure Go is properly installed: `go version` (should show 1.18 or later)
+- Make sure Go is properly installed: `go version` (should show 1.22 or later)
 - Make sure all dependencies are downloaded: `go mod download`
 - If SDL2_ttf is not installed, use `-tags no_sdl_ttf` for emulator/UI builds and tests
 - Clean and rebuild (no SDL2_ttf): `go clean -cache && go build -tags no_sdl_ttf ./...`

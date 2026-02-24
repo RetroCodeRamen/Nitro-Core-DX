@@ -5,7 +5,7 @@
 ## Prerequisites
 
 ### Go Installation
-- Go 1.18 or later is required
+- Go 1.22 or later is required
 - Download from: https://golang.org/dl/
 
 ### SDL2 Development Libraries
@@ -120,5 +120,4 @@ If you get an error about SDL2 not being found:
 - Check that the ROM file exists and is readable
 - Verify the ROM file is a valid Nitro-Core-DX ROM (magic number "RMCF")
 - Check console output for specific error messages
-
 
