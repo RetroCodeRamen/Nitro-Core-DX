@@ -191,7 +191,24 @@ For detailed status and documentation navigation, see [docs/README.md](docs/READ
   
   *Note: The emulator works fine without SDL2_ttf—it has a built-in bitmap font.*
 
-### Installation
+### Option A: Download a Release (Recommended)
+
+Download the latest prebuilt package for your platform:
+
+- Releases: https://github.com/RetroCodeRamen/Nitro-Core-DX/releases
+- Latest release: https://github.com/RetroCodeRamen/Nitro-Core-DX/releases/latest
+
+Package names:
+- **Linux**: `nitrocoredx-<version>-linux-amd64.tar.gz`
+- **Windows**: `nitrocoredx-<version>-windows-amd64.zip`
+
+After extracting:
+- **Linux**: run `./nitrocoredx`
+- **Windows**: run `nitrocoredx.exe`
+
+Use **Emulator Only** view inside the app if you just want to load and play/test ROMs.
+
+### Option B: Build from Source (Developer Workflow)
 
 1. **Clone the repository:**
    ```bash
@@ -249,7 +266,7 @@ See `test/roms/README_TEST_ROMS.md` for generator commands (`testrom_tools` buil
 
 ### Release Downloads (GitHub Releases)
 
-If you publish a release, users should download the prebuilt archive for their platform from the **Releases** page:
+Users can download the prebuilt archive for their platform from the **Releases** page:
 
 - Releases: https://github.com/RetroCodeRamen/Nitro-Core-DX/releases
 - Latest release: https://github.com/RetroCodeRamen/Nitro-Core-DX/releases/latest
