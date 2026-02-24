@@ -14,7 +14,7 @@
 1. [Welcome](#welcome)
 2. [What You Can Build Today](#what-you-can-build-today)
 3. [Two Ways to Program Nitro Core DX](#two-ways-to-program-nitro-core-dx)
-4. [The Dev Kit (Recommended Starting Point)](#the-dev-kit-recommended-starting-point)
+4. [Nitro-Core-DX App (Recommended Starting Point)](#nitro-core-dx-app-recommended-starting-point)
 5. [CoreLX Quick Start](#corelx-quick-start)
 6. [CoreLX Basics (Beginner-Friendly)](#corelx-basics-beginner-friendly)
 7. [Game Loop Basics (Frames, VBlank, Input)](#game-loop-basics-frames-vblank-input)
@@ -57,7 +57,7 @@ You will see short side notes like these:
 
 You can already build and run:
 
-- CoreLX ROMs (`.corelx`) in the Dev Kit and emulator
+- CoreLX ROMs (`.corelx`) in the Nitro-Core-DX app and emulator
 - low-level ROMs written directly in Go using ROM builders (machine-code emitters)
 - text assembly ROMs (`.asm`) using the new assembler v1 (separate from CoreLX)
 
@@ -82,7 +82,7 @@ CoreLX is the main language for game and app development.
 - indentation-based syntax
 - hardware-oriented built-ins (`ppu.*`, `gfx.*`, `sprite.*`, `oam.*`, `input.*`, `apu.*`)
 - compiles directly to machine code ROMs
-- integrated into the Dev Kit `Build` / `Build + Run` flow
+- integrated into the Nitro-Core-DX app `Build` / `Build + Run` flow
 
 ### 2. Assembly (Advanced / Low-Level)
 
@@ -99,11 +99,11 @@ Use assembly when you want:
 
 ---
 
-## The Dev Kit (Recommended Starting Point)
+## Nitro-Core-DX App (Recommended Starting Point)
 
-The Nitro Core DX Dev Kit is the current best way to work day-to-day.
+Nitro-Core-DX (the integrated app / Dev Kit) is the current best way to work day-to-day.
 
-### What the Dev Kit Does Today
+### What Nitro-Core-DX Does Today
 
 - CoreLX editor pane
 - integrated emulator (embedded in the same app)
@@ -114,7 +114,7 @@ The Nitro Core DX Dev Kit is the current best way to work day-to-day.
 - `Build + Run`
 - `Load ROM` (for prebuilt `.rom` files, including assembly ROMs)
 
-### Run the Dev Kit
+### Run Nitro-Core-DX
 
 ```bash
 go run ./cmd/corelx_devkit
@@ -486,11 +486,11 @@ The compiler now has a normalized asset pipeline and manifest reporting, but the
 
 ## Build and Run Workflows
 
-## Workflow A: Dev Kit (Recommended)
+## Workflow A: Nitro-Core-DX App (Recommended)
 
 ### CoreLX Build + Run
 
-1. Open Dev Kit
+1. Open Nitro-Core-DX
 2. Open a `.corelx` file
 3. Click `Build + Run`
 4. The ROM is compiled and loaded into the embedded emulator
@@ -525,8 +525,8 @@ go run ./cmd/asm mygame.asm mygame.rom
 
 Then either:
 
-- use the standalone emulator, or
-- use Dev Kit `Load ROM`
+- use Nitro-Core-DX `Load ROM` (recommended), or
+- use the standalone emulator CLI (optional)
 
 ---
 
@@ -683,7 +683,7 @@ go run ./cmd/asm tiny.asm tiny.rom
 - fast iteration
 - readable gameplay logic
 - easier onboarding
-- Dev Kit `Build + Run`
+- Nitro-Core-DX `Build + Run`
 - fewer hardware details in your face
 
 ## Use Assembly When You Want...
@@ -699,7 +699,7 @@ Since mixed-mode inline assembly is not implemented yet, the practical workflow 
 
 - write gameplay in CoreLX (`.corelx`)
 - write low-level experiments/tests in assembly (`.asm`)
-- load both types of ROMs in the Dev Kit (CoreLX via `Build + Run`, assembly via `Load ROM`)
+- load both types of ROMs in Nitro-Core-DX (CoreLX via `Build + Run`, assembly via `Load ROM`)
 
 ---
 
@@ -720,7 +720,7 @@ This is a common pre-alpha CoreLX pattern issue.
 
 Use the frame-edge loop pattern with `frame_counter()` (see [Game Loop Basics](#game-loop-basics-frames-vblank-input)).
 
-## "Input does nothing in the Dev Kit"
+## "Input does nothing in Nitro-Core-DX"
 
 - Make sure `Capture Game Input` is enabled
 - Click the emulator pane once
@@ -752,7 +752,7 @@ These are active directions, not promises of exact syntax.
 - more complete runtime APIs
 - eventual mixed CoreLX + assembly support
 
-### Dev Kit
+### Nitro-Core-DX App
 
 - Sprite Lab
 - Tilemap Editor
@@ -779,10 +779,10 @@ Use these for deeper details after you finish this manual.
 - `docs/README.md` - docs map / source-of-truth guide
 - `docs/CORELX.md` - language reference and examples (still being updated alongside compiler changes)
 - `docs/CORELX_DATA_MODEL_PLAN.md` - compiler/data model plan for the SDK/dev kit
-- `docs/DEVKIT_ARCHITECTURE.md` - backend/frontend split for the Dev Kit
+- `docs/DEVKIT_ARCHITECTURE.md` - backend/frontend split for Nitro-Core-DX (Dev Kit architecture)
 - `docs/specifications/COMPLETE_HARDWARE_SPECIFICATION_V2.1.md` - current hardware spec reference
 - `docs/specifications/APU_FM_OPM_EXTENSION_SPEC.md` - FM extension architecture/status
-- `test/roms/devkit_moving_box_test.corelx` - current CoreLX Dev Kit input/sprite validation example
+- `test/roms/devkit_moving_box_test.corelx` - current CoreLX Nitro-Core-DX input/sprite validation example
 
 ---
 

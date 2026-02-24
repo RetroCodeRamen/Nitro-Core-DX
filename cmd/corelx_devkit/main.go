@@ -164,7 +164,7 @@ func main() {
 	}
 
 	a := app.New()
-	w := a.NewWindow("Nitro-Core-DX Dev Kit")
+	w := a.NewWindow("Nitro-Core-DX")
 	w.Resize(fyne.NewSize(1500, 920))
 
 	state := &devKitState{
@@ -354,7 +354,7 @@ func (s *devKitState) initUI() {
 	s.fullLayout = fullSplit
 
 	s.emulatorOnlyLayout = container.NewBorder(
-		container.NewVBox(widget.NewLabel("Emulator (Integrated Dev Kit View)"), s.emuLabel),
+		container.NewVBox(widget.NewLabel("Emulator (Nitro-Core-DX Integrated View)"), s.emuLabel),
 		nil, nil, nil,
 		emuSurface,
 	)
@@ -576,7 +576,7 @@ func (s *devKitState) refreshTitle() {
 	if s.currentView == viewModeEmulatorOnly {
 		viewLabel = "Emulator Only"
 	}
-	s.window.SetTitle("Nitro-Core-DX Dev Kit - " + name + " [" + viewLabel + "]")
+	s.window.SetTitle("Nitro-Core-DX - " + name + " [" + viewLabel + "]")
 }
 
 func (s *devKitState) runBuild(runAfter bool) {

@@ -42,7 +42,7 @@ The Genesis was fast, and I like fast:
 
 ### The Result?
 
-A fantasy console that gives you SNES-quality visuals running at Genesis-level performance. Target is smooth 60 FPS (currently ~30 FPS) with complex graphics, advanced parallax scrolling, and Matrix Mode effects that can handle 3D landscapes and racing games.
+A fantasy console that gives you SNES-quality visuals running at Genesis-level performance. Target is smooth 60 FPS (now achieving steady 60 FPS on the current desktop emulator build) with complex graphics, advanced parallax scrolling, and Matrix Mode effects that can handle 3D landscapes and racing games.
 
 **My Philosophy:**
 I'm not in a rush. This is a long-term project where doing it right matters more than doing it fast. Every component gets the attention it deserves—from cycle-accurate CPU emulation to hardware-accurate synchronization signals. I'm building something that'll last.
@@ -55,7 +55,7 @@ I didn't just pick Go because it's trendy. I evaluated multiple languages and Go
 
 Here's why Go works so well for Nitro-Core-DX:
 
-- **Performance**: Target is 60 FPS (currently achieving ~30 FPS, optimization ongoing)
+- **Performance**: Target is 60 FPS (now achieving steady 60 FPS on the current desktop emulator build, with optimization ongoing for more headroom)
 - **Developer Experience**: Clean syntax that doesn't make you want to throw your keyboard
 - **Concurrency**: Built-in goroutines that make audio/rendering threading actually pleasant
 - **Cross-Platform**: One binary, runs everywhere (Linux, macOS, Windows—you name it)
@@ -90,11 +90,13 @@ Here's what the console will look like when I build the first prototype:
 
 ## Project Components
 
-Nitro-Core-DX is a complete fantasy console system built from scratch, consisting of three major components:
+Nitro-Core-DX is a complete fantasy console system built from scratch, consisting of five major pieces that work together:
 
 1. **Hardware Architecture** - Custom 16-bit CPU, memory map, PPU (graphics), APU (audio), and I/O systems
-2. **Emulator** - Cycle-accurate CPU emulation, pixel-perfect PPU rendering, sample-accurate audio synthesis
+2. **Emulator** - Hardware-model-focused CPU/PPU/APU emulation with deterministic frame stepping and debug tooling
 3. **CoreLX Compiler** - Custom compiled language with Lua-like syntax for hardware-first programming
+4. **Nitro-Core-DX App (Dev Kit)** - Integrated editor/build/run environment with embedded emulator pane
+5. **Assembler v1** - Text assembly (`.asm`) -> ROM pipeline for lower-level workflows
 
 For detailed information about the development process and challenges, see [Development Notes](docs/DEVELOPMENT_NOTES.md).
 
@@ -102,33 +104,37 @@ For detailed information about the development process and challenges, see [Deve
 
 ## Project Status
 
-**Validation Snapshot (2026-02-23):**
-- `go test -tags no_sdl_ttf ./... -timeout 120s` passes in a local environment without SDL2_ttf development libraries.
+**Validation Snapshot (2026-02-24):**
+- `go build -tags no_sdl_ttf -o nitro-core-dx ./cmd/emulator` passes locally.
+- `go test -tags no_sdl_ttf ./... -timeout 180s` passes in a local environment without SDL2_ttf development libraries.
 - Some ROM generator helper programs are intentionally gated behind the `testrom_tools` build tag to avoid multiple-`main` conflicts during normal test runs.
 
 ### ✅ Currently Implemented
 
-- **Core Emulation**: CPU, Memory, PPU, APU, Input systems (100% complete)
+- **Core Emulation**: CPU, Memory, PPU, APU, Input systems implemented and under active validation
 - **Synchronization**: One-shot completion status, frame counter, VBlank flag
 - **Graphics System**: Complete PPU with all features
   - Sprite system with priority, blending, and alpha transparency
   - 4 background layers with per-layer Matrix Mode transformations
   - Matrix Mode with outside-screen handling and direct color mode
   - Mosaic effect, DMA transfers, sprite-to-background priority
-- **Audio System**: 4-channel audio synthesis with PCM playback support
+- **Audio System**: 4-channel legacy audio synthesis with PCM playback support
   - Waveform generation (sine, square, saw, noise)
   - PCM sample playback with loop and one-shot modes
   - Volume control and duration management
-  - Experimental FM/OPM extension host interface + audible OPM-lite synthesis path (in progress)
+  - FM/OPM extension host interface + audible OPM-lite synthesis path (in progress)
 - **Interrupt System**: Complete IRQ/NMI handling with vector table
 - **ROM Loading**: Complete ROM header parsing and execution
-- **Debugging Tools**: Register viewer, memory viewer, cycle-by-cycle logger, GUI logging controls
+- **Developer Tooling Baseline**: Nitro-Core-DX integrated app (editor + embedded emulator), optional standalone emulator UI, structured compiler diagnostics, manifest output, register/memory viewers, cycle logger
 - **Test Suite**: Broad regression coverage across CPU/PPU/APU/emulator paths (includes some long-running timing tests)
+- **Assembly Toolchain v1**: text assembler (`.asm` -> `.rom`) for advanced low-level workflows
+- **Nitro-Core-DX App MVP**: integrated CoreLX editor + Build/Build+Run + diagnostics + embedded emulator
 
 ### 🚧 In Progress
 
-- **Development Tools**: Advanced debugging features, tile viewer panel
-- **Language Design**: NitroLang compiler design (documentation phase)
+- **Nitro-Core-DX App Expansion**: Sprite Lab, Tilemap Editor, Sound Studio, richer editor UX
+- **CoreLX Toolchain**: unified asset model, packaging flow, structured assets, banked linker integration
+- **FM Audio**: moving from OPM-lite subset toward fuller YM2151-style behavior
 
 ### ❌ Optional Enhancements (Not Required)
 
@@ -149,18 +155,18 @@ For detailed status and documentation navigation, see [docs/README.md](docs/READ
 | **Tile Size** | 8×8 or 16×16 pixels (configurable per layer) |
 | **Max Sprites** | 128 sprites |
 | **Background Layers** | 4 independent layers (BG0, BG1, BG2, BG3) |
-| **Matrix Mode** | Mode 7-style effects with large world support, vertical sprites |
+| **Matrix Mode** | Mode 7-style effects with large world support |
 | **Audio Channels** | 4 legacy channels + experimental FM extension (OPM-lite/YM2151-style MMIO) |
 | **Audio Sample Rate** | 44,100 Hz |
 | **CPU Speed** | ~7.67 MHz (127,820 cycles per frame at 60 FPS, Genesis-like) |
 | **Memory** | 64KB per bank, 256 banks (16MB total address space) |
 | **ROM Size** | Up to 7.8MB (125 banks × 64KB) |
-| **Frame Rate** | Target: 60 FPS (Currently: ~30 FPS) |
+| **Frame Rate** | Target: 60 FPS (Currently: steady 60 FPS on current desktop build) |
 
 ### Performance Targets
 
 - **Target: 60 FPS** - Goal is steady frame rate with no drops
-- **Current: ~30 FPS** - Currently achieving approximately 30 FPS, optimization work in progress
+- **Current: Steady 60 FPS** - Currently holding 60 FPS on the current desktop emulator build; optimization work continues for headroom and consistency across heavier scenes/platforms
 - **Frame Time Target**: < 16.67ms per frame (including rendering)
 - **CPU Usage**: Reasonable CPU usage (not 100% on one core)
 - **Memory Usage**: Efficient memory usage
@@ -193,7 +199,13 @@ For detailed status and documentation navigation, see [docs/README.md](docs/READ
    cd Nitro-Core-DX
    ```
 
-2. **Build the emulator:**
+2. **Run Nitro-Core-DX (recommended integrated app):**
+
+   ```bash
+   go run ./cmd/corelx_devkit
+   ```
+
+3. **Optional: build the standalone emulator UI:**
    
    **Without SDL2_ttf (recommended if SDL2_ttf is not installed):**
    ```bash
@@ -205,25 +217,59 @@ For detailed status and documentation navigation, see [docs/README.md](docs/READ
    go build -o nitro-core-dx ./cmd/emulator
    ```
 
-3. **Build a test ROM (optional):**
+4. **Build a test ROM (optional):**
    ```bash
    go build -o testrom ./cmd/testrom
    ./testrom test.rom
    ```
 
-4. **Run the emulator:**
+5. **Optional: run the standalone emulator UI directly:**
    ```bash
    ./nitro-core-dx -rom test.rom
    ```
 
-### Command Line Options
+### Nitro-Core-DX App Quick Start (Recommended)
+
+```bash
+go run ./cmd/corelx_devkit
+```
+
+- Use `Load ROM` to run a known-good `.rom` directly in the embedded emulator
+- Use `Open` + `Build + Run` for CoreLX files (`.corelx`)
+- Use `Emulator Only` view when you want a play/test-focused layout in the same app
+- Use `Capture Game Input` when you want keyboard input routed to the embedded emulator while editing
+- Example CoreLX validation file: `test/roms/devkit_moving_box_test.corelx`
+
+Known-good ROMs for embedded emulator testing (after generating them locally):
+- `test/roms/input_visual_diagnostic.rom`
+- `test/roms/fm_opmlite_showcase.rom`
+- `test/roms/apu_fm_showcase.rom`
+
+See `test/roms/README_TEST_ROMS.md` for generator commands (`testrom_tools` build tag).
+
+### Release Downloads (GitHub Releases)
+
+If you publish a release, users should download the prebuilt archive for their platform from the **Releases** page:
+
+- Releases: https://github.com/RetroCodeRamen/Nitro-Core-DX/releases
+- Latest release: https://github.com/RetroCodeRamen/Nitro-Core-DX/releases/latest
+
+- Linux: `nitrocoredx-<version>-linux-amd64.tar.gz`
+- Windows: `nitrocoredx-<version>-windows-amd64.zip`
+
+See `docs/guides/RELEASE_BINARIES.md` for the release build workflow and packaging details.
+
+### Standalone Emulator Command Line Options (Optional)
 
 - `-rom <path>`: Path to ROM file (required)
 - `-unlimited`: Run at unlimited speed (no frame limit)
 - `-scale <1-6>`: Display scale multiplier (default: 3)
 - `-log`: Enable logging (disabled by default)
+- `-cyclelog <file>`: Enable cycle-by-cycle logging to a file
+- `-maxcycles <N>`: Maximum cycles to log (default `100000`, `0` = unlimited)
+- `-cyclestart <N>`: Start cycle logging after cycle `N`
 
-### Example Usage
+### Standalone Emulator Example Usage
 
 ```bash
 # Run with default 3x scale
@@ -239,15 +285,15 @@ For detailed status and documentation navigation, see [docs/README.md](docs/READ
 ./nitro-core-dx -rom test.rom -log
 ```
 
-### Controls
+### Emulator Input Mapping (Integrated App and Standalone Emulator)
 
-- **Arrow Keys / WASD**: Move/control
-- **Z**: A button
-- **X**: B button
-- **Space**: Pause/Resume
-- **Ctrl+R**: Reset emulator
-- **Alt+F**: Toggle fullscreen
-- **ESC**: Quit
+- **Arrow Keys / WASD**: D-pad (move/control)
+- **Z / X / V / C**: A / B / X / Y buttons
+- **Q / E**: L / R buttons
+- **Enter**: Start
+- **Backspace**: Extra diagnostic/test button (used by some test ROMs)
+
+Note: Test ROMs can map controls differently. Use the ROM-specific docs/comments for expected behavior.
 
 ### Troubleshooting
 
@@ -261,6 +307,7 @@ For detailed status and documentation navigation, see [docs/README.md](docs/READ
 - Make sure all dependencies are downloaded: `go mod download`
 - If SDL2_ttf is not installed, use `-tags no_sdl_ttf` for emulator/UI builds and tests
 - Clean and rebuild (no SDL2_ttf): `go clean -cache && go build -tags no_sdl_ttf ./...`
+- Fast regression suite: `make test-fast` (recommended before longer test runs)
 
 **ROM Generator Utilities (multiple mains):**
 - Some helper generators in `cmd/testrom` and `test/roms` are excluded from default builds/tests with the `testrom_tools` build tag
@@ -270,6 +317,10 @@ For detailed status and documentation navigation, see [docs/README.md](docs/READ
 - Check that the ROM file exists and is readable
 - Verify the ROM file is a valid Nitro-Core-DX ROM (magic number "RMCF")
 - Check console output for specific error messages
+
+**Nitro-Core-DX App Input Seems Ignored:**
+- Click the embedded emulator pane to give it keyboard focus
+- Make sure `Capture Game Input` is enabled in the Dev Kit when testing controls
 
 For more detailed troubleshooting, see [docs/issues/](docs/issues/) for known issues and fixes.
 
@@ -284,13 +335,14 @@ The project documentation is organized into several main documents:
 - **[SYSTEM_MANUAL.md](SYSTEM_MANUAL.md)**: System architecture manual (under revision; verify against current specs)
 - **[PROGRAMMING_MANUAL.md](PROGRAMMING_MANUAL.md)**: Programming manual (under revision; pre-alpha APIs may change)
 - **[docs/CORELX.md](docs/CORELX.md)**: Current CoreLX language reference (implementation-aware)
-- **[docs/CORELX_DATA_MODEL_PLAN.md](docs/CORELX_DATA_MODEL_PLAN.md)**: Current CoreLX/Dev Kit Phase 1 plan
+- **[docs/CORELX_DATA_MODEL_PLAN.md](docs/CORELX_DATA_MODEL_PLAN.md)**: Current CoreLX / Nitro-Core-DX app Phase 1 plan
 - **[docs/specifications/COMPLETE_HARDWARE_SPECIFICATION_V2.1.md](docs/specifications/COMPLETE_HARDWARE_SPECIFICATION_V2.1.md)**: Current evidence-based hardware specification
 - **[docs/specifications/APU_FM_OPM_EXTENSION_SPEC.md](docs/specifications/APU_FM_OPM_EXTENSION_SPEC.md)**: FM extension design + implementation status
 
 ### Additional Documentation
 - **[CHANGELOG.md](CHANGELOG.md)**: Version history and change log
 - **[docs/DEVELOPMENT_NOTES.md](docs/DEVELOPMENT_NOTES.md)**: Development process, challenges, and philosophy
+- **[docs/DEVKIT_ARCHITECTURE.md](docs/DEVKIT_ARCHITECTURE.md)**: Dev Kit backend/frontend split and invariants
 - **[docs/issues/](docs/issues/)**: Known issues and fixes
 - **[docs/testing/](docs/testing/)**: Testing guides and results
 - **[docs/specifications/](docs/specifications/)**: Hardware specs, pin definitions, FPGA docs (with current-vs-historical notes)
@@ -303,23 +355,24 @@ The project documentation is organized into several main documents:
 
 ### Core Emulation
 
-- **100% Cycle-Accurate CPU Emulation**
+- **Cycle-Counted CPU Emulation**
   - Custom 16-bit CPU with banked 24-bit addressing
   - 8 general-purpose registers (R0-R7)
   - Complete instruction set with precise cycle counting
 
-- **Pixel-Perfect PPU Rendering**
+- **Feature-Complete PPU Rendering (under continued timing/perf validation)**
   - 4 independent background layers (BG0-BG3)
   - 128 sprites with priorities and blending modes
   - Matrix Mode (Mode 7-style effects on multiple layers)
   - Windowing system with proper logic
   - HDMA for per-scanline effects
 
-- **Sample-Accurate APU**
-  - 4 audio channels with waveforms (sine, square, saw, noise)
+- **Legacy APU + FM Extension Path**
+  - 4 legacy audio channels with waveforms (sine, square, saw, noise)
   - 44,100 Hz sample rate
   - PCM playback support
   - Master volume control
+  - FM extension MMIO + timer/IRQ path with audible OPM-lite subset (in progress)
 
 - **Precise Memory Mapping**
   - Banked memory architecture (256 banks × 64KB = 16MB)
@@ -331,13 +384,13 @@ The project documentation is organized into several main documents:
   - Entry point handling
   - LoROM-style memory mapping
 
-### Development Tools
+### Tooling
 
-- **Logging System**: Component-based logging with filtering and export
-- **CPU Debugging**: Register viewer, instruction tracer, breakpoints, watchpoints
-- **PPU Debugging**: Layer viewer, sprite viewer, tile viewer, palette viewer
-- **Memory Tools**: Hex editor, memory map, memory dump
-- **GUI Logging Controls**: Enable/disable logging per component from Debug menu
+- **Nitro-Core-DX App (MVP)**: CoreLX editor, Build/Build+Run, structured diagnostics panel, manifest/build output panels, embedded emulator
+- **CoreLX Compiler**: structured diagnostics, manifest JSON, compile bundle JSON, asset normalization groundwork
+- **Assembler v1 (`cmd/asm`)**: text assembly to ROM for low-level workflows
+- **Logging & Debug Support**: component logging, cycle logger, register/memory viewers, debugger CLI components
+- **ROM Test Tooling**: Go-based ROM builders and test generators (some gated by `testrom_tools`)
 
 For detailed information about debugging tools, see [SYSTEM_MANUAL.md](SYSTEM_MANUAL.md) and [docs/README.md](docs/README.md) for current doc routing.
 
@@ -348,8 +401,10 @@ For detailed information about debugging tools, see [SYSTEM_MANUAL.md](SYSTEM_MA
 ```
 nitro-core-dx/
 ├── cmd/
-│   ├── emulator/          # Main emulator application
-│   ├── corelx/            # CoreLX compiler
+│   ├── emulator/          # Standalone emulator application
+│   ├── corelx/            # CoreLX compiler CLI
+│   ├── corelx_devkit/     # Integrated Dev Kit (editor + embedded emulator)
+│   ├── asm/               # v1 text assembler CLI
 │   ├── testrom/           # Test ROM generator
 │   ├── testrom_input/     # Input test ROM generator
 │   └── ...
@@ -362,6 +417,8 @@ nitro-core-dx/
 │   ├── ui/                # User interface
 │   ├── emulator/          # Emulator orchestration
 │   ├── corelx/            # CoreLX compiler
+│   ├── asm/               # Assembler implementation
+│   ├── devkit/            # UI-agnostic Dev Kit backend
 │   └── debug/             # Debugging tools
 ├── test/
 │   └── roms/              # Test ROMs

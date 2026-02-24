@@ -1,0 +1,188 @@
+name: Build Nitro-Core-DX Release Binaries
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    name: Linux amd64
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install native deps (Fyne + SDL2)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            pkg-config \
+            libsdl2-dev \
+            libgl1-mesa-dev \
+            xorg-dev \
+            libxkbcommon-dev
+
+      - name: Compute version
+        id: meta
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            VER="${GITHUB_REF_NAME}"
+          else
+            VER="dev-${GITHUB_SHA::7}"
+          fi
+          echo "version=${VER}" >> "$GITHUB_OUTPUT"
+
+      - name: Build integrated app
+        run: |
+          mkdir -p dist
+          go build -tags no_sdl_ttf -o dist/nitrocoredx ./cmd/corelx_devkit
+
+      - name: Package linux archive
+        run: |
+          set -euo pipefail
+          PKG_DIR="dist/nitrocoredx-${{ steps.meta.outputs.version }}-linux-amd64"
+          mkdir -p "$PKG_DIR"
+          cp dist/nitrocoredx "$PKG_DIR/"
+          cp LICENSE README.md "$PKG_DIR/"
+          cat > "$PKG_DIR/README_RELEASE.txt" <<'EOF'
+          Nitro-Core-DX (Integrated App) - Linux amd64
+
+          Run:
+            ./nitrocoredx
+
+          Notes:
+          - Built with no_sdl_ttf (SDL2_ttf not required).
+          - SDL2 runtime libraries are still required on the host system.
+          - Use "Emulator Only" view for a play/test-focused layout.
+          EOF
+          tar -C dist -czf "dist/nitrocoredx-${{ steps.meta.outputs.version }}-linux-amd64.tar.gz" "$(basename "$PKG_DIR")"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nitrocoredx-linux-amd64
+          path: dist/nitrocoredx-*.tar.gz
+
+  windows:
+    name: Windows amd64
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Setup MSYS2 (SDL2 + GCC)
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-pkgconf
+            mingw-w64-x86_64-SDL2
+
+      - name: Compute version
+        id: meta
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF_TYPE -eq "tag") {
+            $ver = $env:GITHUB_REF_NAME
+          } else {
+            $ver = "dev-$($env:GITHUB_SHA.Substring(0,7))"
+          }
+          "version=$ver" >> $env:GITHUB_OUTPUT
+
+      - name: Build integrated app (Windows)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          $env:Path = "C:\msys64\mingw64\bin;$env:Path"
+          $env:CC = "gcc"
+          go build -tags no_sdl_ttf -o dist\nitrocoredx.exe ./cmd/corelx_devkit
+          Copy-Item C:\msys64\mingw64\bin\SDL2.dll dist\SDL2.dll
+
+      - name: Package windows archive
+        shell: pwsh
+        run: |
+          $pkgDir = "dist\nitrocoredx-${{ steps.meta.outputs.version }}-windows-amd64"
+          New-Item -ItemType Directory -Force $pkgDir | Out-Null
+          Copy-Item dist\nitrocoredx.exe $pkgDir\
+          Copy-Item dist\SDL2.dll $pkgDir\
+          Copy-Item LICENSE, README.md $pkgDir\
+          @"
+          Nitro-Core-DX (Integrated App) - Windows amd64
+
+          Run:
+            nitrocoredx.exe
+
+          Notes:
+          - SDL2.dll is included in this package.
+          - Built with no_sdl_ttf (SDL2_ttf.dll not required).
+          - Use "Emulator Only" view for a play/test-focused layout.
+          "@ | Set-Content -Path "$pkgDir\README_RELEASE.txt"
+
+          $zipPath = "dist\nitrocoredx-${{ steps.meta.outputs.version }}-windows-amd64.zip"
+          if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
+          Compress-Archive -Path "$pkgDir\*" -DestinationPath $zipPath
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nitrocoredx-windows-amd64
+          path: dist/nitrocoredx-*.zip
+
+  publish-release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs: [linux, windows]
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: nitrocoredx-linux-amd64
+          path: dist/linux
+
+      - name: Download windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: nitrocoredx-windows-amd64
+          path: dist/windows
+
+      - name: Create release notes intro
+        run: |
+          cat > RELEASE_BODY.md <<'EOF'
+          Nitro-Core-DX integrated app release.
+
+          Includes:
+          - Linux amd64 package (`.tar.gz`)
+          - Windows amd64 package (`.zip`)
+
+          Open the app and use **Emulator Only** view if you want a play/test-focused layout.
+          EOF
+
+      - name: Create / update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          body_path: RELEASE_BODY.md
+          files: |
+            dist/linux/*.tar.gz
+            dist/windows/*.zip

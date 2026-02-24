@@ -1,4 +1,4 @@
-.PHONY: test-fast test-full test-long test-emulator test-commands
+.PHONY: test-fast test-full test-long test-emulator test-commands release-linux
 
 GO ?= go
 GO_TEST_TAGS ?= no_sdl_ttf
@@ -23,3 +23,7 @@ test-full:
 # Explicit long-running timing tests
 test-long:
 	$(GO_TEST_COMMON) ./internal/emulator -run 'TestAudioTimingLongRun|TestAudioTimingFractionalAccumulator' -v -timeout 180s
+
+# Package Nitro-Core-DX integrated app (Linux archive for Releases)
+release-linux:
+	bash scripts/package_release.sh

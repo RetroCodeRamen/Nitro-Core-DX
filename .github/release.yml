@@ -1,0 +1,28 @@
+changelog:
+  exclude:
+    labels:
+      - skip-changelog
+  categories:
+    - title: "Nitro-Core-DX App"
+      labels:
+        - devkit
+        - ui
+        - tooling
+    - title: "CoreLX Compiler"
+      labels:
+        - corelx
+        - compiler
+    - title: "Emulator Core"
+      labels:
+        - emulator
+        - cpu
+        - ppu
+        - apu
+        - audio
+    - title: "Assembly Toolchain"
+      labels:
+        - asm
+        - assembler
+    - title: "Documentation"
+      labels:
+        - docs

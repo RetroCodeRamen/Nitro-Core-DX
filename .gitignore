@@ -55,5 +55,8 @@ Thumbs.db
 *.bak
 *.orig
 
+# Release/build artifact staging
+dist/
+
 # Local agent coordination (Codex/Cursor handoff notes)
 .agent-handoff/
