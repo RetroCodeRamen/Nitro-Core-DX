@@ -54,3 +54,6 @@ Thumbs.db
 *.tmp
 *.bak
 *.orig
+
+# Local agent coordination (Codex/Cursor handoff notes)
+.agent-handoff/

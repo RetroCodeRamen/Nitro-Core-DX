@@ -2,6 +2,19 @@
 
 This directory contains testing guides, test results, and testing procedures.
 
+## Quick Commands
+
+Recommended local test targets (repo root):
+
+```bash
+make test-fast    # Fast core regression checks
+make test-emulator
+make test-full    # Full local baseline (uses -tags no_sdl_ttf)
+make test-long    # Expensive emulator audio timing tests
+```
+
+These targets default to `-tags no_sdl_ttf` for environments without SDL2_ttf development libraries.
+
 ## Files
 
 - **TEST_ROM_FIXES.md** - Test ROM fixes and improvements

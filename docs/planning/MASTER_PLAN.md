@@ -3,6 +3,8 @@
 **Last Updated:** January 27, 2026  
 **Purpose:** Consolidated planning, reviews, and implementation status
 
+> **Historical Snapshot Note (2026-02-23):** This document contains consolidated historical reviews/plans. Some status items below are stale relative to the current codebase and tests (especially older review sections). Verify against recent test runs/docs before using this as present-state status.
+
 ---
 
 ## Table of Contents
@@ -93,6 +95,8 @@
    - Location: `internal/cpu/instructions.go:706-730`
 
 ### Technical Debt
+
+> Note: The items below reflect an older review snapshot and are not all current implementation status.
 
 1. **Interrupt System** ⏳ NOT IMPLEMENTED
    - Status: Stubbed with TODO
@@ -261,6 +265,8 @@
 ---
 
 ## Testing Framework
+
+> Note (2026-02-23): In local environments without SDL2_ttf development libraries, use `-tags no_sdl_ttf` for emulator/UI-related test runs. Some emulator timing tests are intentionally long-running.
 
 ### Unit Tests ✅
 

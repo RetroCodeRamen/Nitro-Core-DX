@@ -51,6 +51,10 @@ func (p *PPU) StepPPU(cycles uint64) error {
 		if p.currentDot == 0 && p.HDMAEnabled && p.currentScanline < VisibleScanlines {
 			p.updateHDMA(p.currentScanline)
 		}
+		// Hardware-like sprite evaluation stage at scanline start.
+		if p.currentDot == 0 && p.currentScanline < VisibleScanlines {
+			p.evaluateSpritesForScanline(p.currentScanline)
+		}
 
 		// Calculate cycles until end of current scanline
 		cyclesUntilScanlineEnd := uint64(DotsPerScanline - p.currentDot)
@@ -154,6 +158,10 @@ func (p *PPU) stepDot() error {
 	if p.currentDot == 0 && p.HDMAEnabled {
 		p.updateHDMA(p.currentScanline)
 	}
+	// Hardware-like sprite evaluation stage at scanline start.
+	if p.currentDot == 0 && p.currentScanline < VisibleScanlines {
+		p.evaluateSpritesForScanline(p.currentScanline)
+	}
 
 	// Advance dot counter
 	p.currentDot++
@@ -229,15 +237,9 @@ func (p *PPU) renderDot(scanline, dot int) {
 	x := dot
 	y := scanline
 
-	// Collect all renderable elements (backgrounds and sprites) with their priorities
-	type renderElement struct {
-		priority    uint8
-		elementType int         // 0=background, 1=sprite
-		layerNum    int         // for backgrounds
-		spriteInfo  *spriteInfo // for sprites
-	}
-
-	var elements []renderElement
+	// Collect all renderable elements (backgrounds and sprites) with their priorities.
+	// Reuse scratch storage to avoid per-pixel allocations.
+	elements := p.renderElementScratch[:0]
 
 	// Add background layers with their implicit priority (BG3=3, BG2=2, BG1=1, BG0=0)
 	if p.BG3.Enabled {
@@ -270,13 +272,12 @@ func (p *PPU) renderDot(scanline, dot int) {
 	}
 
 	// Collect sprites that overlap this pixel
-	sprites := p.collectSpritesAtPixel(x, y)
-	for i := range sprites {
-		sprite := sprites[i] // Copy to avoid pointer bug (taking address of loop variable)
+	spriteCount := p.collectSpritesAtPixel(x, y, p.spriteScratch[:])
+	for i := 0; i < spriteCount; i++ {
 		elements = append(elements, renderElement{
-			priority:    sprite.priority,
+			priority:    p.spriteScratch[i].priority,
 			elementType: 1,
-			spriteInfo:  &sprite,
+			spriteIndex: i,
 		})
 	}
 
@@ -292,7 +293,7 @@ func (p *PPU) renderDot(scanline, dot int) {
 				if elements[i].elementType == 1 && elements[j].elementType == 0 {
 					swap = true // sprite should render after background
 				} else if elements[i].elementType == 1 && elements[j].elementType == 1 {
-					if elements[i].spriteInfo.index > elements[j].spriteInfo.index {
+					if p.spriteScratch[elements[i].spriteIndex].index > p.spriteScratch[elements[j].spriteIndex].index {
 						swap = true
 					}
 				}
@@ -327,19 +328,47 @@ func (p *PPU) renderDot(scanline, dot int) {
 			}
 		} else {
 			// Render sprite
-			p.renderDotSpritePixel(x, y, elem.spriteInfo)
+			p.renderDotSpritePixel(x, y, &p.spriteScratch[elem.spriteIndex])
 		}
 	}
 }
 
 // collectSpritesAtPixel collects all sprites that overlap the given pixel
-func (p *PPU) collectSpritesAtPixel(x, y int) []spriteInfo {
-	var sprites []spriteInfo
+func (p *PPU) collectSpritesAtPixel(x, y int, sprites []spriteInfo) int {
+	count := 0
+	active := p.activeScanlineSprites[:p.activeScanlineSpriteCount]
+	// Fallback for non-sequential callers (tests/debug helpers) that invoke renderDot
+	// without stepping through the scanline pipeline first.
+	if p.activeScanlineY != y {
+		p.evaluateSpritesForScanline(y)
+		active = p.activeScanlineSprites[:p.activeScanlineSpriteCount]
+	}
 
+	for i := range active {
+		s := active[i]
+
+		// Scanline membership is already pre-evaluated. Only X bounds need per-pixel check.
+		if x < s.x || x >= s.x+s.size {
+			continue
+		}
+
+		// Add to sprite list
+		if count >= len(sprites) {
+			break
+		}
+		sprites[count] = s
+		count++
+	}
+	return count
+}
+
+// evaluateSpritesForScanline builds the list of enabled sprites overlapping a scanline.
+// This mirrors a hardware sprite evaluation stage and avoids per-pixel full OAM scans.
+func (p *PPU) evaluateSpritesForScanline(y int) {
+	count := 0
 	for spriteIndex := 0; spriteIndex < 128; spriteIndex++ {
 		oamAddr := spriteIndex * 6
 
-		// Read sprite data
 		xLow := uint8(p.OAM[oamAddr])
 		xHigh := uint8(p.OAM[oamAddr+1])
 		spriteX := int(xLow)
@@ -352,56 +381,53 @@ func (p *PPU) collectSpritesAtPixel(x, y int) []spriteInfo {
 		attributes := uint8(p.OAM[oamAddr+4])
 		control := uint8(p.OAM[oamAddr+5])
 		enabled := (control & 0x01) != 0
-		tileSize16 := (control & 0x02) != 0
-
 		if !enabled {
 			continue
 		}
 
 		spriteSize := 8
-		if tileSize16 {
+		if (control & 0x02) != 0 {
 			spriteSize = 16
 		}
-
-		// Check if this pixel is within sprite bounds
-		if x < spriteX || x >= spriteX+spriteSize || y < spriteY || y >= spriteY+spriteSize {
+		if y < spriteY || y >= spriteY+spriteSize {
 			continue
 		}
+		if count >= len(p.activeScanlineSprites) {
+			break
+		}
 
-		// Extract priority (bits [7:6] of attributes)
-		priority := (attributes >> 6) & 0x3
-
-		// Add to sprite list
-		sprites = append(sprites, spriteInfo{
+		p.activeScanlineSprites[count] = spriteInfo{
 			index:      spriteIndex,
-			priority:   priority,
+			priority:   (attributes >> 6) & 0x3,
 			x:          spriteX,
 			y:          spriteY,
 			size:       spriteSize,
 			tileIndex:  tileIndex,
 			attributes: attributes,
 			control:    control,
-		})
+		}
+		count++
 	}
-
-	return sprites
+	p.activeScanlineSpriteCount = count
+	p.activeScanlineY = y
 }
 
 // blendColor blends two colors based on blend mode and alpha
 func (p *PPU) blendColor(foreground, background uint32, blendMode uint8, alpha uint8) uint32 {
-	// Extract RGB components (RGB555 format: 0xRRRRRGGGGGBBBBB)
-	fgR := uint8((foreground >> 10) & 0x1F)
-	fgG := uint8((foreground >> 5) & 0x1F)
-	fgB := uint8(foreground & 0x1F)
+	// OutputBuffer stores RGB888 (0xRRGGBB), so blending must operate in 8-bit channels.
+	fgR := uint8((foreground >> 16) & 0xFF)
+	fgG := uint8((foreground >> 8) & 0xFF)
+	fgB := uint8(foreground & 0xFF)
 
-	bgR := uint8((background >> 10) & 0x1F)
-	bgG := uint8((background >> 5) & 0x1F)
-	bgB := uint8(background & 0x1F)
+	bgR := uint8((background >> 16) & 0xFF)
+	bgG := uint8((background >> 8) & 0xFF)
+	bgB := uint8(background & 0xFF)
 
 	var outR, outG, outB uint8
 
-	// Normalize alpha from 0-15 to 0-31 (for better precision)
-	alphaNorm := uint16(alpha) * 2 // 0-30
+	// Normalize alpha from 0-15 to 0-255 for RGB888 blending.
+	alphaNum := uint16(alpha) * 17 // 0..255
+	alphaDenom := uint16(255)
 
 	switch blendMode {
 	case 0: // Normal (opaque)
@@ -411,9 +437,6 @@ func (p *PPU) blendColor(foreground, background uint32, blendMode uint8, alpha u
 
 	case 1: // Alpha blending
 		// Alpha blend: out = fg * alpha + bg * (1 - alpha)
-		// alphaNorm is 0-30, so we use it as numerator with denominator 31
-		alphaNum := uint16(alphaNorm)
-		alphaDenom := uint16(31)
 		invAlphaNum := alphaDenom - alphaNum
 
 		outR = uint8((uint16(fgR)*alphaNum + uint16(bgR)*invAlphaNum) / alphaDenom)
@@ -422,29 +445,29 @@ func (p *PPU) blendColor(foreground, background uint32, blendMode uint8, alpha u
 
 	case 2: // Additive
 		// Additive: out = bg + fg * alpha
-		// Clamp to max (31 for 5-bit)
-		fgRAdd := uint16(fgR) * uint16(alphaNorm) / 31
-		fgGAdd := uint16(fgG) * uint16(alphaNorm) / 31
-		fgBAdd := uint16(fgB) * uint16(alphaNorm) / 31
+		// Clamp to max 255 for 8-bit channels.
+		fgRAdd := uint16(fgR) * alphaNum / alphaDenom
+		fgGAdd := uint16(fgG) * alphaNum / alphaDenom
+		fgBAdd := uint16(fgB) * alphaNum / alphaDenom
 
-		outR = uint8(min(31, uint16(bgR)+fgRAdd))
-		outG = uint8(min(31, uint16(bgG)+fgGAdd))
-		outB = uint8(min(31, uint16(bgB)+fgBAdd))
+		outR = uint8(min(255, uint16(bgR)+fgRAdd))
+		outG = uint8(min(255, uint16(bgG)+fgGAdd))
+		outB = uint8(min(255, uint16(bgB)+fgBAdd))
 
 	case 3: // Subtractive
 		// Subtractive: out = bg - fg * alpha
 		// Clamp to min (0)
-		fgRSub := uint16(fgR) * uint16(alphaNorm) / 31
-		fgGSub := uint16(fgG) * uint16(alphaNorm) / 31
-		fgBSub := uint16(fgB) * uint16(alphaNorm) / 31
+		fgRSub := uint16(fgR) * alphaNum / alphaDenom
+		fgGSub := uint16(fgG) * alphaNum / alphaDenom
+		fgBSub := uint16(fgB) * alphaNum / alphaDenom
 
 		outR = uint8(max(0, int16(bgR)-int16(fgRSub)))
 		outG = uint8(max(0, int16(bgG)-int16(fgGSub)))
 		outB = uint8(max(0, int16(bgB)-int16(fgBSub)))
 	}
 
-	// Reconstruct RGB555 color
-	return uint32(outR)<<10 | uint32(outG)<<5 | uint32(outB)
+	// Reconstruct RGB888 color
+	return uint32(outR)<<16 | uint32(outG)<<8 | uint32(outB)
 }
 
 // min returns the minimum of two uint16 values
@@ -633,8 +656,16 @@ func (p *PPU) renderDotBackgroundLayer(layerNum, x, y int) {
 		colorIndex = tileByte & 0x0F
 	}
 
-	// Look up color in CGRAM
+	// Look up color in CGRAM, or synthesize direct color if enabled.
 	color := p.getColorFromCGRAM(paletteIndex, colorIndex)
+	if layer.MatrixDirectColor {
+		// Synthesize RGB from palette+pixel index to bypass CGRAM.
+		combined := (uint16(paletteIndex&0x0F) << 4) | uint16(colorIndex&0x0F)
+		r5 := uint32(combined&0x07) * 31 / 7
+		g5 := uint32((combined>>3)&0x07) * 31 / 7
+		b5 := uint32((combined>>6)&0x03) * 31 / 3
+		color = ((r5 * 255 / 31) << 16) | ((g5 * 255 / 31) << 8) | (b5 * 255 / 31)
+	}
 
 	// Apply mosaic effect if enabled
 	if layer.MosaicEnabled && layer.MosaicSize > 1 {
@@ -815,8 +846,16 @@ func (p *PPU) renderDotMatrixMode(layerNum, x, y int) {
 		colorIndex = tileByte & 0x0F
 	}
 
-	// Look up color in CGRAM
+	// Look up color in CGRAM, or synthesize direct color if enabled.
 	color := p.getColorFromCGRAM(paletteIndex, colorIndex)
+	if layer.MatrixDirectColor {
+		// Synthesize RGB from palette+pixel index to bypass CGRAM.
+		combined := (uint16(paletteIndex&0x0F) << 4) | uint16(colorIndex&0x0F)
+		r5 := uint32(combined&0x07) * 31 / 7
+		g5 := uint32((combined>>3)&0x07) * 31 / 7
+		b5 := uint32((combined>>6)&0x03) * 31 / 3
+		color = ((r5 * 255 / 31) << 16) | ((g5 * 255 / 31) << 8) | (b5 * 255 / 31)
+	}
 
 	// Apply mosaic effect if enabled
 	if layer.MosaicEnabled && layer.MosaicSize > 1 {
@@ -846,6 +885,15 @@ type spriteInfo struct {
 	tileIndex  uint8
 	attributes uint8
 	control    uint8
+}
+
+// renderElement is a sortable render item (background layer or sprite).
+// spriteIndex indexes into PPU.spriteScratch when elementType == 1.
+type renderElement struct {
+	priority    uint8
+	elementType int // 0=background, 1=sprite
+	layerNum    int // for backgrounds
+	spriteIndex int // for sprites (index into PPU scratch)
 }
 
 // renderDotSprites renders sprites for a single dot with proper priority handling

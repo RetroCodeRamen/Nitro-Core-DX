@@ -12,6 +12,9 @@ type PPU struct {
 
 	// CGRAM (512 bytes, 256 colors × 2 bytes)
 	CGRAM [512]uint8
+	// Cached RGB888 conversions of CGRAM entries (derived from CGRAM, software optimization only).
+	cgramRGBCache   [256]uint32
+	cgramCacheValid [256]bool
 
 	// OAM (768 bytes, 128 sprites × 6 bytes)
 	OAM [768]uint8
@@ -97,6 +100,16 @@ type PPU struct {
 	// Output buffer (320×200, RGB888)
 	OutputBuffer [320 * 200]uint32
 
+	// Scratch buffers used by dot renderer to avoid per-pixel allocations.
+	// PPU rendering is single-threaded, so reusing these buffers is safe.
+	spriteScratch        [128]spriteInfo
+	renderElementScratch [132]renderElement
+	// Hardware-like sprite evaluation cache: sprites active on the current scanline.
+	// Evaluated once at scanline start, consumed by per-pixel rendering.
+	activeScanlineSprites     [128]spriteInfo
+	activeScanlineSpriteCount int
+	activeScanlineY           int
+
 	// Scanline/dot stepping state (for clock-driven operation)
 	currentScanline     int
 	currentDot          int
@@ -151,13 +164,14 @@ type Window struct {
 // NewPPU creates a new PPU instance
 func NewPPU(logger *debug.Logger) *PPU {
 	return &PPU{
-		BG0:     BackgroundLayer{},
-		BG1:     BackgroundLayer{},
-		BG2:     BackgroundLayer{},
-		BG3:     BackgroundLayer{},
-		Window0: Window{},
-		Window1: Window{},
-		Logger:  logger,
+		BG0:             BackgroundLayer{},
+		BG1:             BackgroundLayer{},
+		BG2:             BackgroundLayer{},
+		BG3:             BackgroundLayer{},
+		Window0:         Window{},
+		Window1:         Window{},
+		Logger:          logger,
+		activeScanlineY: -1,
 	}
 }
 
@@ -329,16 +343,18 @@ func (p *PPU) Write8(offset uint16, value uint8) {
 			// Write to CGRAM
 			addr := uint16(p.CGRAMAddr) * 2
 			if addr < 512 {
+				cgramIndex := p.CGRAMAddr
 				// Only log CGRAM_DATA during initialization (first frame) and only first 20 colors
 				if p.Logger != nil && p.FrameCounter == 0 && addr < 40 {
-					paletteIndex := p.CGRAMAddr / 32
-					colorIndex := (p.CGRAMAddr / 2) % 16
+					paletteIndex := cgramIndex / 32
+					colorIndex := (cgramIndex / 2) % 16
 					p.Logger.LogPPUf(debug.LogLevelDebug, "CGRAM_DATA write complete: addr=0x%02X (palette %d, color %d), RGB555=0x%04X",
-						p.CGRAMAddr, paletteIndex, colorIndex, p.CGRAMWriteValue)
+						cgramIndex, paletteIndex, colorIndex, p.CGRAMWriteValue)
 				}
 				// Store in little-endian order: low byte first, high byte second
 				p.CGRAM[addr] = uint8(p.CGRAMWriteValue & 0xFF) // Low byte
 				p.CGRAM[addr+1] = uint8(p.CGRAMWriteValue >> 8) // High byte
+				p.updateCGRAMCacheEntry(cgramIndex)
 				p.CGRAMAddr++
 				if p.CGRAMAddr > 255 {
 					p.CGRAMAddr = 0
@@ -699,6 +715,7 @@ func (p *PPU) stepDMA() {
 		// For simplicity, write as 8-bit (low byte only)
 		addr := p.DMACurrentDest & 0x1FF // Wrap at 512 bytes
 		p.CGRAM[addr] = data
+		p.invalidateCGRAMCacheByByteAddr(addr)
 		p.DMACurrentDest++
 	case 2: // OAM
 		addr := p.DMACurrentDest & 0x2FF // Wrap at 768 bytes
@@ -714,6 +731,34 @@ func (p *PPU) stepDMA() {
 		p.DMAEnabled = false
 		p.DMAProgress = 0
 	}
+}
+
+func (p *PPU) invalidateCGRAMCacheByByteAddr(addr uint16) {
+	p.cgramCacheValid[(addr>>1)&0xFF] = false
+}
+
+func (p *PPU) updateCGRAMCacheEntry(cgramIndex uint8) {
+	p.cgramRGBCache[cgramIndex] = p.decodeCGRAMColor(cgramIndex)
+	p.cgramCacheValid[cgramIndex] = true
+}
+
+func (p *PPU) decodeCGRAMColor(cgramIndex uint8) uint32 {
+	addr := uint16(cgramIndex) * 2
+	if addr >= 512 {
+		return 0x000000
+	}
+	low := p.CGRAM[addr]
+	high := p.CGRAM[addr+1]
+
+	r := uint32((high & 0x7C) >> 2)
+	g := uint32(((high & 0x03) << 3) | ((low & 0xE0) >> 5))
+	b := uint32(low & 0x1F)
+
+	r = (r * 255) / 31
+	g = (g * 255) / 31
+	b = (b * 255) / 31
+
+	return (r << 16) | (g << 8) | b
 }
 
 // executeDMA executes a DMA transfer immediately (legacy function, kept for compatibility)
@@ -736,8 +781,10 @@ func (p *PPU) executeDMA() {
 		}
 	}
 
-	// Execute all remaining bytes (for compatibility with tests)
-	for p.DMAProgress < p.DMALength {
+	// Execute until DMA disables itself on completion/abort.
+	// stepDMA() resets DMAProgress to 0 when complete, so looping on
+	// DMAProgress < DMALength can spin forever.
+	for p.DMAEnabled {
 		p.stepDMA()
 	}
 }
@@ -1164,30 +1211,13 @@ func (p *PPU) isPixelInWindow(x, y, layerNum int) bool {
 
 // getColorFromCGRAM gets a color from CGRAM
 func (p *PPU) getColorFromCGRAM(paletteIndex, colorIndex uint8) uint32 {
-	addr := (uint16(paletteIndex)*16 + uint16(colorIndex)) * 2
-	if addr >= 512 {
+	fullIndex := uint16(paletteIndex)*16 + uint16(colorIndex)
+	if fullIndex >= 256 {
 		return 0x000000
 	}
-
-	// Read RGB555 color
-	// CGRAM stores colors in little-endian order: low byte first, high byte second
-	low := p.CGRAM[addr]    // Low byte is stored first
-	high := p.CGRAM[addr+1] // High byte is stored second
-
-	// Convert RGB555 to RGB888
-	// RGB555 format: Low byte = GGGGG BBBBB, High byte = 0 RRRRR GG
-	// Extract components
-	// R: bits 10-14 from high byte (bits 2-6)
-	r := uint32((high & 0x7C) >> 2)
-	// G: bits 5-9, split between high (bits 0-1) and low (bits 5-7)
-	g := uint32(((high & 0x03) << 3) | ((low & 0xE0) >> 5))
-	// B: bits 0-4 from low byte
-	b := uint32(low & 0x1F)
-
-	// Scale to 8 bits
-	r = (r * 255) / 31
-	g = (g * 255) / 31
-	b = (b * 255) / 31
-
-	return (r << 16) | (g << 8) | b
+	cgramIndex := uint8(fullIndex)
+	if !p.cgramCacheValid[cgramIndex] {
+		p.updateCGRAMCacheEntry(cgramIndex)
+	}
+	return p.cgramRGBCache[cgramIndex]
 }

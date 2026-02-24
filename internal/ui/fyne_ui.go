@@ -11,6 +11,7 @@ import (
 	"nitro-core-dx/internal/ui/panels"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
@@ -194,17 +195,70 @@ func setupKeyboardInput(window fyne.Window, ui *FyneUI) {
 	// Bit 3: RIGHT
 	// Bit 4: A
 	// Bit 5: B
+	// Bit 6: X
+	// Bit 7: Y
+	// Bit 8: L
+	// Bit 9: R
+	// Bit 10: START
+	// Bit 11: Z (used as "Stop" in diagnostics)
 
-	// Handle key events - track key states
+	// Handle typed key events (fallback path)
 	window.Canvas().SetOnTypedKey(func(key *fyne.KeyEvent) {
 		ui.keyStates[key.Name] = true
 		ui.updateInputFromKeys()
 	})
 
-	// Handle key releases using canvas focus
-	// Note: Fyne doesn't have direct key release events, so we'll clear
-	// key states each frame and only set them if keys are currently pressed
-	// This is handled in updateLoop()
+	// Desktop platforms provide key down/up callbacks; use them for reliable key state tracking.
+	if c, ok := window.Canvas().(desktop.Canvas); ok {
+		c.SetOnKeyDown(func(key *fyne.KeyEvent) {
+			ui.keyStates[key.Name] = true
+			ui.updateInputFromKeys()
+		})
+		c.SetOnKeyUp(func(key *fyne.KeyEvent) {
+			ui.keyStates[key.Name] = false
+			ui.updateInputFromKeys()
+		})
+	}
+}
+
+func (ui *FyneUI) applyFyneKeyStates(buttons uint16) uint16 {
+	if ui.keyStates[fyne.KeyW] || ui.keyStates[fyne.KeyUp] {
+		buttons |= 0x01 // UP
+	}
+	if ui.keyStates[fyne.KeyS] || ui.keyStates[fyne.KeyDown] {
+		buttons |= 0x02 // DOWN
+	}
+	if ui.keyStates[fyne.KeyA] || ui.keyStates[fyne.KeyLeft] {
+		buttons |= 0x04 // LEFT
+	}
+	if ui.keyStates[fyne.KeyD] || ui.keyStates[fyne.KeyRight] {
+		buttons |= 0x08 // RIGHT
+	}
+	if ui.keyStates[fyne.KeyZ] {
+		buttons |= 0x10 // A
+	}
+	if ui.keyStates[fyne.KeyX] {
+		buttons |= 0x20 // B
+	}
+	if ui.keyStates[fyne.KeyV] {
+		buttons |= 0x40 // X
+	}
+	if ui.keyStates[fyne.KeyC] {
+		buttons |= 0x80 // Y
+	}
+	if ui.keyStates[fyne.KeyQ] {
+		buttons |= 0x100 // L
+	}
+	if ui.keyStates[fyne.KeyE] {
+		buttons |= 0x200 // R
+	}
+	if ui.keyStates[fyne.KeyReturn] {
+		buttons |= 0x400 // START
+	}
+	if ui.keyStates[fyne.KeyBackspace] {
+		buttons |= 0x800 // Z (used as STOP in diagnostics)
+	}
+	return buttons
 }
 
 // updateInputFromKeys updates the emulator's input state based on current SDL keyboard state
@@ -247,7 +301,35 @@ func (ui *FyneUI) updateInputFromKeys() {
 		if keyboardState[sdl.SCANCODE_X] != 0 {
 			buttons |= 0x20 // B
 		}
+		// X button: V
+		if keyboardState[sdl.SCANCODE_V] != 0 {
+			buttons |= 0x40 // X
+		}
+		// Y button: C
+		if keyboardState[sdl.SCANCODE_C] != 0 {
+			buttons |= 0x80 // Y
+		}
+		// L button: Q
+		if keyboardState[sdl.SCANCODE_Q] != 0 {
+			buttons |= 0x100 // L
+		}
+		// R button: E
+		if keyboardState[sdl.SCANCODE_E] != 0 {
+			buttons |= 0x200 // R
+		}
+		// START: Enter/Return
+		if keyboardState[sdl.SCANCODE_RETURN] != 0 {
+			buttons |= 0x400 // START
+		}
+		// Z button (used as STOP in diagnostics): Backspace
+		if keyboardState[sdl.SCANCODE_BACKSPACE] != 0 {
+			buttons |= 0x800 // Z
+		}
 	}
+
+	// Merge Fyne key state tracking. This is the primary path for the Fyne window and
+	// also acts as a fallback when SDL keyboard state does not reflect Fyne focus/input.
+	buttons = ui.applyFyneKeyStates(buttons)
 
 	// Always set input, even if 0 (this ensures input is cleared when no keys are pressed)
 	// This also ensures the latched state will be 0 when the ROM next latches

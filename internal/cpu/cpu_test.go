@@ -43,21 +43,42 @@ func TestResetPreservesPC(t *testing.T) {
 	}
 }
 
-// Mock memory for testing
-type mockMemory struct{}
+// Mock memory for testing (stores bytes so tests can define vectors/program data)
+type mockMemory struct {
+	data map[uint32]uint8
+}
+
+func (m *mockMemory) key(bank uint8, offset uint16) uint32 {
+	return (uint32(bank) << 16) | uint32(offset)
+}
+
+func (m *mockMemory) ensure() {
+	if m.data == nil {
+		m.data = make(map[uint32]uint8)
+	}
+}
 
 func (m *mockMemory) Read8(bank uint8, offset uint16) uint8 {
-	return 0
+	if m.data == nil {
+		return 0
+	}
+	return m.data[m.key(bank, offset)]
 }
 
 func (m *mockMemory) Write8(bank uint8, offset uint16, value uint8) {
+	m.ensure()
+	m.data[m.key(bank, offset)] = value
 }
 
 func (m *mockMemory) Read16(bank uint8, offset uint16) uint16 {
-	return 0
+	low := m.Read8(bank, offset)
+	high := m.Read8(bank, offset+1)
+	return uint16(low) | (uint16(high) << 8)
 }
 
 func (m *mockMemory) Write16(bank uint8, offset uint16, value uint16) {
+	m.Write8(bank, offset, uint8(value&0xFF))
+	m.Write8(bank, offset+1, uint8(value>>8))
 }
 
 // Mock logger for testing
@@ -65,4 +86,3 @@ type mockLogger struct{}
 
 func (m *mockLogger) LogCPU(instruction uint16, state CPUState, cycles uint32) {
 }
-

@@ -4,7 +4,7 @@
 
 A custom 16-bit fantasy console emulator inspired by classic 8/16-bit consoles, designed to combine the best features of the SNES and Sega Genesis into a single, powerful platform.
 
-> **✅ Architecture Stable**: The core hardware architecture is complete and stable. All hardware features are implemented and tested. The system is ready for game development. Optional enhancements may be added in the future, but they won't break compatibility with existing ROMs.
+> **✅ Architecture Stable**: The core hardware architecture is complete and stable. The emulator and tooling are actively maintained, and tests/documentation continue to be refined as clock-driven behavior and debug tooling evolve.
 
 ---
 
@@ -102,6 +102,10 @@ For detailed information about the development process and challenges, see [Deve
 
 ## Project Status
 
+**Validation Snapshot (2026-02-23):**
+- `go test -tags no_sdl_ttf ./... -timeout 120s` passes in a local environment without SDL2_ttf development libraries.
+- Some ROM generator helper programs are intentionally gated behind the `testrom_tools` build tag to avoid multiple-`main` conflicts during normal test runs.
+
 ### ✅ Currently Implemented
 
 - **Core Emulation**: CPU, Memory, PPU, APU, Input systems (100% complete)
@@ -118,7 +122,7 @@ For detailed information about the development process and challenges, see [Deve
 - **Interrupt System**: Complete IRQ/NMI handling with vector table
 - **ROM Loading**: Complete ROM header parsing and execution
 - **Debugging Tools**: Register viewer, memory viewer, cycle-by-cycle logger, GUI logging controls
-- **Test Suite**: Comprehensive tests for all hardware features
+- **Test Suite**: Broad regression coverage across CPU/PPU/APU/emulator paths (includes some long-running timing tests)
 
 ### 🚧 In Progress
 
@@ -254,7 +258,12 @@ For detailed status, see the [System Manual](SYSTEM_MANUAL.md).
 **Build Errors:**
 - Make sure Go is properly installed: `go version` (should show 1.18 or later)
 - Make sure all dependencies are downloaded: `go mod download`
-- Clean and rebuild: `go clean -cache && go build ./...`
+- If SDL2_ttf is not installed, use `-tags no_sdl_ttf` for emulator/UI builds and tests
+- Clean and rebuild (no SDL2_ttf): `go clean -cache && go build -tags no_sdl_ttf ./...`
+
+**ROM Generator Utilities (multiple mains):**
+- Some helper generators in `cmd/testrom` and `test/roms` are excluded from default builds/tests with the `testrom_tools` build tag
+- Run explicitly with `go run -tags testrom_tools <path-to-generator.go>`
 
 **Runtime Errors:**
 - Check that the ROM file exists and is readable
@@ -376,7 +385,7 @@ Contributions are welcome! This project is in active development.
 4. Read the [PROGRAMMING_MANUAL.md](PROGRAMMING_MANUAL.md) for complete programming guide
 
 **Development Status:**
-✅ **Architecture Stable**: Core hardware is 100% complete. The system is ready for game development.
+✅ **Architecture Stable**: Core hardware architecture is stable; active work continues on tooling, tests, and documentation alignment.
 
 **Code Style:**
 - Follow Go conventions and best practices

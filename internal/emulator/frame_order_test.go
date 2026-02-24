@@ -2,6 +2,8 @@ package emulator
 
 import (
 	"testing"
+
+	"nitro-core-dx/internal/ppu"
 )
 
 // TestFrameExecutionOrder tests clock-driven frame execution order.
@@ -19,8 +21,8 @@ func TestFrameExecutionOrder(t *testing.T) {
 	initialFrameCounter := emu.PPU.FrameCounter
 	
 	// In clock-driven mode, we can test PPU directly without ROM
-	// Step PPU for one full frame (79,200 cycles = 220 scanlines × 360 dots)
-	cyclesPerFrame := uint64(220 * 360)
+	// Step PPU for one full frame using current timing constants.
+	cyclesPerFrame := uint64(ppu.TotalScanlines * ppu.DotsPerScanline)
 	if err := emu.PPU.StepPPU(cyclesPerFrame); err != nil {
 		t.Fatalf("StepPPU error: %v", err)
 	}
@@ -40,4 +42,3 @@ func TestFrameExecutionOrder(t *testing.T) {
 	// We can't test it directly without reading it, but we know it's set
 	// because startFrame() sets it at the start of each frame
 }
-

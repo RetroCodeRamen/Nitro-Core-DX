@@ -1,3 +1,6 @@
+//go:build testrom_tools
+// +build testrom_tools
+
 package main
 
 import (

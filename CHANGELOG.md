@@ -12,6 +12,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Local Test Tier Workflow** (2026-02-23)
+  - Added root `Makefile` targets for repeatable test runs (`test-fast`, `test-emulator`, `test-commands`, `test-full`, `test-long`)
+  - Updated testing docs for local `no_sdl_ttf` workflows and generator build tags
+  - Location: `Makefile`, `docs/testing/README.md`, `docs/testing/TEST_SUMMARY.md`
+- **Input Visual Diagnostic ROM (v2)** (2026-02-23)
+  - Added a robust manual diagnostic ROM generator for input/sprite/background/audio verification
+  - Includes button-driven sprite movement, palette/background toggles, reset, and note start/stop controls
+  - Location: `test/roms/build_input_visual_diagnostic.go`, `test/roms/README_TEST_ROMS.md`
+- **CoreLX Nitro Core 8 Compiler Design Doc** (2026-02-23)
+  - Added target-profile-based CoreLX compiler design for Nitro Core 8 with implementation prompt
+  - Location: `docs/specifications/CORELX_NITRO_CORE_8_COMPILER_DESIGN.md`
+
+### Changed
+- **Status/Testing Documentation Alignment** (2026-02-23)
+  - Reconciled README/testing/planning docs with verified local baseline and current test commands
+  - Clarified `no_sdl_ttf` usage and historical-plan caveats
+  - Location: `README.md`, `docs/planning/MASTER_PLAN.md`, `docs/testing/*`
+- **PPU Render Path Performance (Hardware-Safe Refactors)** (2026-02-23)
+  - Reduced per-pixel allocations using reusable scratch buffers
+  - Added scanline sprite evaluation cache (hardware-style sprite pipeline stage)
+  - Added CGRAM RGB888 conversion cache (derived software cache, behavior-preserving)
+  - Location: `internal/ppu/ppu.go`, `internal/ppu/scanline.go`
+
+### Fixed
+- **PPU DMA Legacy Execution Loop Hang** (2026-02-23)
+  - Fixed compatibility `executeDMA()` loop to terminate correctly when DMA completes
+  - Location: `internal/ppu/ppu.go`
+- **CPU Interrupt Tests False Failures** (2026-02-23)
+  - Replaced stateless test memory mock with in-memory backing storage so interrupt vector tests validate real behavior
+  - Location: `internal/cpu/cpu_test.go`
+- **Interrupt Vector Bus Mapping** (2026-02-23)
+  - Fixed bus handling for system vectors at `bank0:0xFFE0-0xFFFF`, preventing invalid VBlank IRQ vector failures in ROMs
+  - Location: `internal/memory/bus.go`
+- **Fyne UI Input Passthrough** (2026-02-23)
+  - Added reliable Fyne key down/up handling and merged Fyne key state into emulator input bitmask
+  - Location: `internal/ui/fyne_ui.go`
+- **PPU Feature/Test Issues** (2026-02-23)
+  - Fixed sprite blending RGB888 behavior and Matrix Mode direct-color rendering
+  - Updated/repair PPU feature tests and emulator timing assumptions for current constants
+  - Location: `internal/ppu/scanline.go`, `internal/ppu/features_test.go`, `internal/emulator/frame_order_test.go`
+- **Test Build Structure for `go test ./...`** (2026-02-23)
+  - Added build tags to ROM/test generator helper binaries to avoid multi-`main` package test failures
+  - Location: `cmd/testrom/*`, `test/roms/*.go`
+
+### Added
 - **Determinism Test Harness** - Added comprehensive determinism testing framework (2026-02-05)
   - Tests that debug mode (cycle-by-cycle) and optimized mode (chunk-based) produce identical results
   - Per-frame state hashing (CPU registers, WRAM, framebuffer) for verification

@@ -11,6 +11,10 @@ type Bus struct {
 	// WRAM (Work RAM) - Bank 0, 0x0000-0x7FFF (32KB)
 	WRAM [32768]uint8
 
+	// System vector storage in bank 0 high address space (0xFFE0-0xFFFF).
+	// These are used by CPU interrupt/reset vectors and are not routed to PPU/APU/Input I/O.
+	SystemVectors [32]uint8
+
 	// Extended WRAM - Banks 126-127 (128KB)
 	WRAMExtended [131072]uint8
 
@@ -53,6 +57,10 @@ func (b *Bus) Read8(bank uint8, offset uint16) uint8 {
 		if offset < 0x8000 {
 			// WRAM
 			return b.WRAM[offset]
+		}
+		// System vectors live in the top 32 bytes of bank 0.
+		if offset >= 0xFFE0 {
+			return b.SystemVectors[offset-0xFFE0]
 		} else {
 			// I/O registers
 			return b.readIO8(offset)
@@ -93,6 +101,9 @@ func (b *Bus) Write8(bank uint8, offset uint16, value uint8) {
 		if offset < 0x8000 {
 			// WRAM
 			b.WRAM[offset] = value
+		} else if offset >= 0xFFE0 {
+			// System vectors
+			b.SystemVectors[offset-0xFFE0] = value
 		} else {
 			// I/O registers
 			b.writeIO8(offset, value)

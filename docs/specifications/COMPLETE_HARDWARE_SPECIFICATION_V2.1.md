@@ -180,7 +180,7 @@
 
 **Register Layout (Evidence):**
 - Channels: 8 bytes per channel (`apu.go:130-131`)
-- Channel 0: 0x9000, Channel 1: 0x9010, Channel 2: 0x9020, Channel 3: 0x9030
+- Channel 0: 0x9000, Channel 1: 0x9008, Channel 2: 0x9010, Channel 3: 0x9018 (8 bytes per channel)
 - Master Volume: 0x9020 (`apu.go:331`)
 - Completion Status: 0x9021 (`apu.go:108`)
 
@@ -686,20 +686,24 @@ All instructions are 16-bit words:
 
 | Address | Name | Size | Description | Evidence |
 |---------|------|------|-------------|----------|
-| 0x8060 | DMA_CONTROL | 8-bit | Bit 0=enable, bit 1=mode, bits [3:2]=dest type | `ppu.go:605-619` |
-| 0x8061 | DMA_SOURCE_BANK | 8-bit | Source bank (1-125 for ROM) | `ppu.go:620-621` |
-| 0x8062 | DMA_SOURCE_OFFSET_L | 8-bit | Source offset low byte | `ppu.go:622-623` |
-| 0x8063 | DMA_SOURCE_OFFSET_H | 8-bit | Source offset high byte | `ppu.go:624-625` |
-| 0x8064 | DMA_DEST_ADDR_L | 8-bit | Destination address low byte | `ppu.go:626-627` |
-| 0x8065 | DMA_DEST_ADDR_H | 8-bit | Destination address high byte | `ppu.go:628-629` |
-| 0x8066 | DMA_LENGTH_L | 8-bit | Transfer length low byte | `ppu.go:630-631` |
-| 0x8067 | DMA_LENGTH_H | 8-bit | Transfer length high byte | `ppu.go:632-633` |
+| 0x8060 | DMA_CONTROL | 8-bit | Bit 0=enable, bit 1=mode, bits [3:2]=dest type (write-only) | `ppu.go:610-632` |
+| 0x8060 | DMA_STATUS | 8-bit | Bit 0=DMA active (read-only) | `ppu.go:239-244` |
+| 0x8061 | DMA_SOURCE_BANK | 8-bit | Source bank (1-125 for ROM) (write-only) | `ppu.go:633-634` |
+| 0x8062 | DMA_SOURCE_OFFSET_L | 8-bit | Source offset low byte (write-only) | `ppu.go:635-636` |
+| 0x8063 | DMA_SOURCE_OFFSET_H | 8-bit | Source offset high byte (write-only) | `ppu.go:637-638` |
+| 0x8064 | DMA_DEST_ADDR_L | 8-bit | Destination address low byte (write-only) | `ppu.go:639-640` |
+| 0x8065 | DMA_DEST_ADDR_H | 8-bit | Destination address high byte (write-only) | `ppu.go:641-642` |
+| 0x8066 | DMA_LENGTH_L | 8-bit | Transfer length low byte (read/write) | `ppu.go:643-644` |
+| 0x8067 | DMA_LENGTH_H | 8-bit | Transfer length high byte (read/write) | `ppu.go:645-646` |
 
-**DMA Behavior (Evidence: `ppu.go:639-683`):**
+**DMA Behavior (Evidence: `ppu.go:652-717, scanline.go:66-93`):**
 - Mode 0: Copy (read from source, write to destination)
 - Mode 1: Fill (read fill value once, write to all destinations)
 - Destination types: 0=VRAM, 1=CGRAM, 2=OAM
-- DMA executes immediately when enabled (not cycle-accurate)
+- **Cycle-Accurate**: DMA executes one byte per cycle via `stepDMA()` during `StepPPU()` (`scanline.go:67, 81, 93`)
+- **Timing**: One byte transferred per CPU/PPU cycle (~7.67 MHz)
+- **Status**: DMA_STATUS (0x8060 read) returns 0x01 when active, 0x00 when idle
+- **Progress**: DMA completes when DMAProgress >= DMALength
 
 ### APU Registers (0x9000-0x9FFF)
 
@@ -718,11 +722,11 @@ All instructions are 16-bit words:
 | +0x06 | DURATION_MODE | 8-bit | Duration mode (bit 0: 0=stop, 1=loop) | `apu.go:163-164, 322-325` |
 | +0x07 | Reserved | 8-bit | Reserved | `apu.go:166-169` |
 
-**Channel Base Addresses:**
-- Channel 0: 0x9000
-- Channel 1: 0x9010
-- Channel 2: 0x9020
-- Channel 3: 0x9030
+**Channel Base Addresses (Evidence: `apu.go:130-131`):**
+- Channel 0: 0x9000 (offsets 0x00-0x07)
+- Channel 1: 0x9008 (offsets 0x08-0x0F)
+- Channel 2: 0x9010 (offsets 0x10-0x17)
+- Channel 3: 0x9018 (offsets 0x18-0x1F)
 
 #### Master Control Registers
 
@@ -947,27 +951,32 @@ end
    - Evidence: `apu.go:130-131`
    - Added: DURATION_LOW, DURATION_HIGH, DURATION_MODE registers
 
-5. **APU Master Volume Address**: Changed from 0x9040 to 0x9020
+5. **APU Channel Base Addresses**: Corrected to 8-byte spacing (not 16-byte)
+   - Evidence: `apu.go:130-131` (channel = (offset / 8) & 0x3)
+   - Correct addresses: Channel 0: 0x9000, Channel 1: 0x9008, Channel 2: 0x9010, Channel 3: 0x9018
+   - Previous spec incorrectly listed: 0x9000, 0x9010, 0x9020, 0x9030 (16-byte spacing)
+
+6. **APU Master Volume Address**: Changed from 0x9040 to 0x9020
    - Evidence: `apu.go:331`
    - Impact: Register map correction
 
-6. **Input Latch Address**: Changed from 0xA004 to 0xA001 (Controller 1) and 0xA003 (Controller 2)
+7. **Input Latch Address**: Changed from 0xA004 to 0xA001 (Controller 1) and 0xA003 (Controller 2)
    - Evidence: `input.go:41-52`
    - Impact: Separate latch registers per controller
 
-7. **VBlank Flag Timing**: Clarified to set at end of scanline 199, not start of scanline 200
+8. **VBlank Flag Timing**: Clarified to set at end of scanline 199, not start of scanline 200
    - Evidence: `scanline.go:96-102`
    - Impact: Timing accuracy
 
-8. **OAM Write Protection**: Added explicit protection during visible rendering (scanlines 0-199)
+9. **OAM Write Protection**: Added explicit protection during visible rendering (scanlines 0-199)
    - Evidence: `ppu.go:356-360, 373-377`
    - Impact: Hardware-accurate behavior
 
-9. **HDMA Table Format**: Documented 16 bytes per layer (scroll + matrix if enabled)
+10. **HDMA Table Format**: Documented 16 bytes per layer (scroll + matrix if enabled)
    - Evidence: `ppu.go:955-1047`
    - Impact: HDMA implementation
 
-10. **Sprite Blending**: Added blend modes and alpha support
+11. **Sprite Blending**: Added blend modes and alpha support
     - Evidence: `ppu.go:379-437, 505-519`
     - Impact: Enhanced sprite rendering
 

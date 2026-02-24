@@ -33,7 +33,7 @@ This document provides an overview of the test suite for Nitro-Core-DX.
 
 Run all tests:
 ```bash
-go test ./...
+go test -tags no_sdl_ttf ./...
 ```
 
 Run specific package tests:
@@ -41,6 +41,7 @@ Run specific package tests:
 go test ./internal/ppu -v
 go test ./internal/cpu -v
 go test ./internal/apu -v
+go test -tags no_sdl_ttf ./internal/emulator -v
 ```
 
 Run specific test:
@@ -63,4 +64,8 @@ The test suite covers:
 
 ## Notes
 
-Some tests may need adjustment based on implementation details. The tests are designed to verify core functionality and catch regressions.
+Some tests are intentionally long-running (especially emulator audio timing tests) and may require higher timeouts in local runs/CI.
+
+If SDL2_ttf development libraries are not installed locally, use the `no_sdl_ttf` build tag for emulator/UI-related builds and tests.
+
+Generator utilities under `cmd/testrom` and `test/roms` are gated behind the `testrom_tools` build tag to avoid multiple `main()` conflicts during default `go test ./...` runs.

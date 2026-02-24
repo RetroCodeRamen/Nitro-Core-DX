@@ -75,9 +75,10 @@ func TestSpriteBlending(t *testing.T) {
 	ppu.CGRAM[0x01*2] = 0x00
 	ppu.CGRAM[0x01*2+1] = 0x7C
 
-	// Create red tile
+	// Create tiles: tile 0 = background color index 0 (white), tile 1 = sprite color index 1 (red)
 	for i := 0; i < 32; i++ {
-		ppu.VRAM[i] = 0x11
+		ppu.VRAM[i] = 0x00
+		ppu.VRAM[32+i] = 0x11
 	}
 
 	// Set up background layer to render white
@@ -87,13 +88,13 @@ func TestSpriteBlending(t *testing.T) {
 	ppu.VRAM[0x4000] = 0x00
 	ppu.VRAM[0x4001] = 0x00
 
-	// Sprite 0: Alpha blend mode, alpha 8 (50% transparent)
+	// Sprite 0: Alpha blend mode, alpha 8 (about 50% transparent)
 	ppu.OAM[0] = 100
 	ppu.OAM[1] = 0x00
 	ppu.OAM[2] = 100
-	ppu.OAM[3] = 0x00
+	ppu.OAM[3] = 0x01 // Tile 1 (red)
 	ppu.OAM[4] = 0x00 // Palette 0
-	ppu.OAM[5] = 0x23 // Enabled, 8x8, blend mode 1 (alpha), alpha 8 (bits [7:4])
+	ppu.OAM[5] = 0x85 // Enabled, 8x8, blend mode 1 (alpha), alpha 8 (bits [7:4])
 
 	// Render background first
 	ppu.renderDotBackgroundLayer(0, 100, 100)
@@ -107,8 +108,8 @@ func TestSpriteBlending(t *testing.T) {
 	if color == bgColor {
 		t.Errorf("Expected blended color, got background color 0x%06X", color)
 	}
-	// Should not be pure red (0x7C0000)
-	if color == 0x7C0000 {
+	// Should not be pure red (RGB888)
+	if color == 0xFF0000 {
 		t.Errorf("Expected blended color, got pure sprite color 0x%06X", color)
 	}
 }
@@ -373,8 +374,9 @@ func TestSpriteToBackgroundPriority(t *testing.T) {
 	// Set up BG0 (priority 0) with green
 	ppu.BG0.Enabled = true
 	ppu.BG0.TilemapBase = 0x4000
-	ppu.VRAM[0x4000] = 0x01 // Green tile
-	ppu.VRAM[0x4001] = 0x02 // Palette 0
+	testTilemapOffset := uint16((((100/8)*32)+(100/8))*2) // tilemap entry for pixel (100,100)
+	ppu.VRAM[0x4000+testTilemapOffset] = 0x01             // Green tile
+	ppu.VRAM[0x4000+testTilemapOffset+1] = 0x00           // Palette 0
 
 	// Sprite 0: Priority 0 (same as BG0), red
 	ppu.OAM[0] = 100
@@ -397,8 +399,8 @@ func TestSpriteToBackgroundPriority(t *testing.T) {
 	// BG1 has priority 1, sprite with priority 0 should be behind
 	ppu.BG1.Enabled = true
 	ppu.BG1.TilemapBase = 0x4000
-	ppu.VRAM[0x4000] = 0x01
-	ppu.VRAM[0x4001] = 0x02
+	ppu.VRAM[0x4000+testTilemapOffset] = 0x01
+	ppu.VRAM[0x4000+testTilemapOffset+1] = 0x00
 
 	ppu.OAM[4] = 0x00 // Sprite priority 0 (lower than BG1 priority 1)
 
