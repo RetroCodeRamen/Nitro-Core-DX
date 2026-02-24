@@ -583,39 +583,39 @@ func (p *PPU) renderDotBackgroundLayer(layerNum, x, y int) {
 	worldX := int(x) + int(layer.ScrollX)
 	worldY := int(y) + int(layer.ScrollY)
 
-	// Tile size: 8x8 or 16x16
+	// Tile size and tilemap dimensions are powers of two, so wrapping/division can use
+	// masks/shifts (hardware-friendly and faster than modulo/division).
 	tileSize := 8
+	tileShift := 3              // 8x8 tiles
+	tileMask := 0x07            // pixel within tile
+	tileBytesShift := uint16(5) // 8*8/2 = 32 bytes
 	if layer.TileSize {
 		tileSize = 16
+		tileShift = 4 // 16x16 tiles
+		tileMask = 0x0F
+		tileBytesShift = 7 // 16*16/2 = 128 bytes
 	}
+	tilemapMask := (32 << tileShift) - 1 // 256 or 512 pixels
 
 	// Wrap coordinates (tilemap repeats)
-	tilemapWidth := 32
-	tilemapPixelWidth := tilemapWidth * tileSize
-	tilemapPixelHeight := tilemapWidth * tileSize
-	worldX = worldX % tilemapPixelWidth
-	if worldX < 0 {
-		worldX += tilemapPixelWidth
-	}
-	worldY = worldY % tilemapPixelHeight
-	if worldY < 0 {
-		worldY += tilemapPixelHeight
-	}
+	worldX &= tilemapMask
+	worldY &= tilemapMask
 
 	// Calculate which tile this pixel is in
-	tileX := worldX / tileSize
-	tileY := worldY / tileSize
+	tileX := worldX >> tileShift
+	tileY := worldY >> tileShift
 
 	// Calculate pixel position within tile
-	pixelXInTile := worldX % tileSize
-	pixelYInTile := worldY % tileSize
+	pixelXInTile := worldX & tileMask
+	pixelYInTile := worldY & tileMask
 
 	// Read tilemap entry
 	tilemapBase := uint16(0x4000)
 	if layer.TilemapBase != 0 {
 		tilemapBase = layer.TilemapBase
 	}
-	tilemapOffset := uint16((tileY*tilemapWidth + tileX) * 2)
+	// tilemapWidth is fixed 32 tiles; each entry is 2 bytes.
+	tilemapOffset := uint16((tileY << 6) | (tileX << 1))
 	if uint32(tilemapBase)+uint32(tilemapOffset) >= 65536 {
 		return
 	}
@@ -637,10 +637,10 @@ func (p *PPU) renderDotBackgroundLayer(layerNum, x, y int) {
 	}
 
 	// Read tile data
-	tileDataOffset := uint16(tileIndex) * uint16(tileSize*tileSize/2)
-	pixelOffsetInTile := pixelYInTile*tileSize + pixelXInTile
-	byteOffsetInTile := pixelOffsetInTile / 2
-	pixelInByte := pixelOffsetInTile % 2
+	tileDataOffset := uint16(tileIndex) << tileBytesShift
+	pixelOffsetInTile := (pixelYInTile << tileShift) | pixelXInTile
+	byteOffsetInTile := pixelOffsetInTile >> 1
+	pixelInByte := pixelOffsetInTile & 0x01
 
 	if uint32(tileDataOffset)+uint32(byteOffsetInTile) >= 65536 {
 		return

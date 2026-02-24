@@ -8,24 +8,33 @@ import (
 
 // Parser parses CoreLX source code into an AST
 type Parser struct {
-	tokens []Token
+	tokens  []Token
 	current int
 }
 
 // NewParser creates a new parser
 func NewParser(tokens []Token) *Parser {
 	return &Parser{
-		tokens: tokens,
+		tokens:  tokens,
 		current: 0,
 	}
 }
 
 // Parse parses the tokens into an AST
-func (p *Parser) Parse() (*Program, error) {
-	prog := &Program{
-		Position: Position{Line: 1, Column: 1},
-		Assets:   make([]*AssetDecl, 0),
-		Types:    make([]*TypeDecl, 0),
+func (p *Parser) Parse() (prog *Program, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			if e, ok := r.(error); ok {
+				err = e
+				return
+			}
+			err = fmt.Errorf("parser panic: %v", r)
+		}
+	}()
+	prog = &Program{
+		Position:  Position{Line: 1, Column: 1},
+		Assets:    make([]*AssetDecl, 0),
+		Types:     make([]*TypeDecl, 0),
 		Functions: make([]*FunctionDecl, 0),
 	}
 
@@ -37,7 +46,7 @@ func (p *Parser) Parse() (*Program, error) {
 		if p.isAtEnd() {
 			break
 		}
-		
+
 		if p.check(TOKEN_ASSET) {
 			asset, err := p.parseAsset()
 			if err != nil {
@@ -69,13 +78,13 @@ func (p *Parser) Parse() (*Program, error) {
 func (p *Parser) parseAsset() (*AssetDecl, error) {
 	pos := p.position()
 	p.consume(TOKEN_ASSET, "Expected 'asset'")
-	
+
 	name := p.consume(TOKEN_IDENTIFIER, "Expected asset name").Literal
 	p.consume(TOKEN_COLON, "Expected ':'")
-	
-	assetType := p.consume(TOKEN_IDENTIFIER, "Expected asset type (tiles8 or tiles16)").Literal
-	if assetType != "tiles8" && assetType != "tiles16" {
-		return nil, p.error(p.previous(), fmt.Sprintf("Invalid asset type: %s (expected tiles8 or tiles16)", assetType))
+
+	assetType := p.consume(TOKEN_IDENTIFIER, "Expected asset type").Literal
+	if !isValidAssetType(assetType) {
+		return nil, p.error(p.previous(), fmt.Sprintf("Invalid asset type: %s", assetType))
 	}
 
 	// Encoding can be on same line or next line
@@ -86,13 +95,13 @@ func (p *Parser) parseAsset() (*AssetDecl, error) {
 		if p.check(TOKEN_INDENT) {
 			p.advance()
 		}
-		encoding = p.consume(TOKEN_IDENTIFIER, "Expected encoding (b64 or hex)").Literal
+		encoding = p.consume(TOKEN_IDENTIFIER, "Expected encoding (b64, hex, or text)").Literal
 	} else {
 		// Encoding is on same line
-		encoding = p.consume(TOKEN_IDENTIFIER, "Expected encoding (b64 or hex)").Literal
+		encoding = p.consume(TOKEN_IDENTIFIER, "Expected encoding (b64, hex, or text)").Literal
 	}
-	if encoding != "b64" && encoding != "hex" {
-		return nil, p.error(p.previous(), fmt.Sprintf("Invalid encoding: %s (expected b64 or hex)", encoding))
+	if !isValidAssetEncoding(encoding) {
+		return nil, p.error(p.previous(), fmt.Sprintf("Invalid encoding: %s (expected b64, hex, or text)", encoding))
 	}
 
 	// Parse multi-line data
@@ -145,10 +154,28 @@ func (p *Parser) parseAsset() (*AssetDecl, error) {
 	}, nil
 }
 
+func isValidAssetType(t string) bool {
+	switch t {
+	case "tiles8", "tiles16", "sprite", "tileset", "tilemap", "palette", "music", "sfx", "ambience", "gamedata", "blob":
+		return true
+	default:
+		return false
+	}
+}
+
+func isValidAssetEncoding(enc string) bool {
+	switch enc {
+	case "hex", "b64", "text":
+		return true
+	default:
+		return false
+	}
+}
+
 func (p *Parser) parseTypeDecl() (*TypeDecl, error) {
 	pos := p.position()
 	p.consume(TOKEN_TYPE, "Expected 'type'")
-	
+
 	name := p.consume(TOKEN_IDENTIFIER, "Expected type name").Literal
 	p.consume(TOKEN_EQUAL, "Expected '='")
 	p.consume(TOKEN_STRUCT, "Expected 'struct'")
@@ -198,9 +225,9 @@ func (p *Parser) parseField() (*FieldDecl, error) {
 func (p *Parser) parseFunction() (*FunctionDecl, error) {
 	pos := p.position()
 	p.consume(TOKEN_FUNCTION, "Expected 'function'")
-	
+
 	name := p.consume(TOKEN_IDENTIFIER, "Expected function name").Literal
-	
+
 	// Parse parameters
 	p.consume(TOKEN_LPAREN, "Expected '('")
 	params := make([]*ParamDecl, 0)
@@ -532,7 +559,7 @@ func (p *Parser) parseWhileStmt() (*WhileStmt, error) {
 func (p *Parser) parseForStmt() (*ForStmt, error) {
 	pos := p.position()
 	p.consume(TOKEN_FOR, "Expected 'for'")
-	
+
 	var init Stmt
 	if !p.check(TOKEN_NEWLINE) {
 		var err error

@@ -3,6 +3,8 @@
 **Date:** January 27, 2026  
 **Last Updated:** January 27, 2026
 
+> **Historical Snapshot:** Cleanup summary for a prior reorganization pass. Current documentation structure/source-of-truth guidance is in `docs/README.md`.
+
 ## Overview
 
 This document summarizes the cleanup performed to organize the Nitro-Core-DX project, ensuring only the correct FPGA-ready emulator binary is used and documentation is properly consolidated into four main documents.

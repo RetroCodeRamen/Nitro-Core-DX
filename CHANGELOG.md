@@ -12,6 +12,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Integrated Dev Kit (CoreLX + Embedded Emulator) MVP** (2026-02-24)
+  - Added `cmd/corelx_devkit` with CoreLX editor, diagnostics/output panels, manifest view, embedded emulator, `Build`, `Build + Run`, and `Load ROM`
+  - Added view modes (`Full View`, `Emulator Only`) and embedded emulator audio/input handling in the Dev Kit
+  - Location: `cmd/corelx_devkit/`, `internal/devkit/`
+- **Dev Kit Backend Service Layer** (2026-02-24)
+  - Added UI-agnostic Dev Kit backend wrapper for compiler + emulator session management, frame ticking, framebuffer/audio snapshots, and ROM loading
+  - Enables frontend replacement without changing emulator/core behavior
+  - Location: `internal/devkit/`
+- **CoreLX Compiler Production API + Structured Diagnostics (Phase 1)** (2026-02-24)
+  - Added `CompileProject/CompileSource/CompileFile`, compiler service wrapper, structured diagnostics, manifest/build bundle JSON outputs, and pack-stage budget diagnostics
+  - Added normalized asset pipeline foundation and multi-section manifest accounting for tooling integration
+  - Location: `internal/corelx/*`, `internal/rom/builder.go`
+- **Banked ROM Builder Skeleton** (2026-02-24)
+  - Added initial bank-aware ROM builder/linker skeleton with tests for bank-local labels and relative relocations
+  - Location: `internal/rom/banked_builder.go`, `internal/rom/banked_builder_test.go`
+- **FM/OPM Extension Skeleton and Diagnostics** (2026-02-24)
+  - Added APU FM extension MMIO host interface (`0x9100+`), timer/status/IRQ behavior, bus integration tests, and audible OPM-lite software FM path
+  - Added FM showcase and APU/FM test ROM generators
+  - Location: `internal/apu/fm_opm.go`, `internal/apu/fm_opm_test.go`, `internal/memory/bus_fm_integration_test.go`, `test/roms/build_apu_fm_showcase.go`, `test/roms/build_fm_opmlite_showcase.go`
+- **Text Assembler v1 (`.asm` -> `.rom`)** (2026-02-24)
+  - Added assembler package and CLI with labels, branches, `.entry`, `.word`, and support for the current CPU ISA
+  - Location: `internal/asm/`, `cmd/asm/`
+- **CoreLX Dev Kit Test Programs** (2026-02-24)
+  - Added CoreLX compile/run validation ROM sources including moving-box test and color/input test
+  - Location: `test/roms/devkit_moving_box_test.corelx`, `test/roms/devkit_compile_run_color_test.corelx`
+- **Documentation/Architecture Additions** (2026-02-24)
+  - Added CoreLX data model plan, Dev Kit architecture doc, FM extension spec, and future feature parking lot
+  - Location: `docs/CORELX_DATA_MODEL_PLAN.md`, `docs/DEVKIT_ARCHITECTURE.md`, `docs/specifications/APU_FM_OPM_EXTENSION_SPEC.md`, `docs/planning/FUTURE_FEATURES_PARKING_LOT.md`
+
+### Changed
+- **Documentation Cleanup and Source-of-Truth Reorganization** (2026-02-24)
+  - Reworked docs indexes, marked historical docs explicitly, and archived redundant testing snapshots into `docs/archive/test_results/`
+  - Updated README/spec/hardware status docs to reflect current APU/FM and tooling state
+  - Location: `docs/README.md`, `docs/*/README.md`, `docs/archive/test_results/*`, `README.md`, `docs/HARDWARE_FEATURES_STATUS.md`, spec docs
+- **Programming Manual Rewrite (Pre-Alpha)** (2026-02-24)
+  - Rewrote `PROGRAMMING_MANUAL.md` as a CoreLX-first, beginner-friendly guide with current Dev Kit workflows and a separate assembly section
+  - Removed outdated mixed-mode inline assembly claims and aligned with current implementation status
+  - Location: `PROGRAMMING_MANUAL.md`
+- **Input Visual Diagnostic ROM Expanded** (2026-02-24)
+  - Upgraded to broader system validation (movement, palette/background changes, audio interactions, layered music, FM MMIO exercise)
+  - Location: `test/roms/build_input_visual_diagnostic.go`, `test/roms/README_TEST_ROMS.md`
+- **PPU/Core Performance and UI Pacing Improvements** (2026-02-24)
+  - Additional render-path optimizations and Fyne UI pacing/input improvements for smoother visible emulation in Dev Kit/Fyne UI
+  - Location: `internal/ppu/scanline.go`, `internal/ui/fyne_ui.go`, `cmd/corelx_devkit/main.go`
+
+### Fixed
+- **CoreLX Sprite/Palette/Input Runtime Bugs** (2026-02-24)
+  - Fixed CoreLX palette writes to CGRAM address units, OAM sprite write helper register clobbering, local variable register corruption, and broken branch patching/condition codegen
+  - Restored correct input-driven sprite movement/color behavior in CoreLX Dev Kit test ROMs
+  - Location: `internal/corelx/codegen.go`
+- **Dev Kit Embedded Emulator Input Capture/Focus** (2026-02-24)
+  - Fixed startup nil dereference in diagnostics filter init
+  - Fixed emulator keyboard focus/capture behavior by adding focusable emulator input overlay and explicit capture behavior
+  - Location: `cmd/corelx_devkit/main.go`
+- **Emulator/APU Runtime Integration Issues** (2026-02-24)
+  - Restored frame-based APU update call in emulator loop for note duration/completion behavior
+  - Restored embedded UI audio queueing after Fyne UI refactor
+  - Location: `internal/emulator/emulator.go`, `internal/ui/fyne_ui.go`
+- **APU Audio Quality / FM Test Timing Issues** (2026-02-24)
+  - Corrected fixed-point saw scaling/clipping issue and improved FM note transition/timing behavior for showcase ROMs
+  - Location: `internal/apu/fixed_point.go`, `internal/apu/fm_opm.go`, `test/roms/build_fm_opmlite_showcase.go`
+
+### Added
 - **Local Test Tier Workflow** (2026-02-23)
   - Added root `Makefile` targets for repeatable test runs (`test-fast`, `test-emulator`, `test-commands`, `test-full`, `test-long`)
   - Updated testing docs for local `no_sdl_ttf` workflows and generator build tags

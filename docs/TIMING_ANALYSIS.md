@@ -3,6 +3,8 @@
 **Created:** January 27, 2026  
 **Status:** Design Review Needed
 
+> **Historical Snapshot:** This document predates later timing fixes. Use `docs/TIMING_FIX_SUMMARY.md` and current hardware spec/test evidence for current timing values.
+
 ## Current Situation
 
 ### PPU Timing (Current Implementation)

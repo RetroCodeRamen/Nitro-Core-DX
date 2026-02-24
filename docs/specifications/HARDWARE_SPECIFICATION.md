@@ -5,6 +5,8 @@
 **Purpose: Complete hardware specification for FPGA implementation**
 
 > **📌 FPGA-Ready**: This specification is designed for FPGA implementation. All timing, signals, and register layouts are hardware-accurate and can be directly translated to Verilog/VHDL.
+>
+> **⚠️ Historical Note (APU/FM):** This `v1.0` file predates newer APU updates (PCM details, current register clarifications) and the FM extension work. For current APU documentation, use `docs/specifications/COMPLETE_HARDWARE_SPECIFICATION_V2.1.md` plus `docs/specifications/APU_FM_OPM_EXTENSION_SPEC.md`.
 
 ---
 

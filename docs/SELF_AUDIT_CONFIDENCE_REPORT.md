@@ -3,6 +3,8 @@
 **Date:** January 30, 2026  
 **Purpose:** Verify accuracy of the hardware specification v2.1 and identify any unverified claims or assumptions
 
+> **Historical Snapshot:** This is an evidence-review artifact for a specific documentation rewrite pass. It is not a live status document.
+
 ---
 
 ## Methodology

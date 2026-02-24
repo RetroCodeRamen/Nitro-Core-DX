@@ -119,6 +119,7 @@ For detailed information about the development process and challenges, see [Deve
   - Waveform generation (sine, square, saw, noise)
   - PCM sample playback with loop and one-shot modes
   - Volume control and duration management
+  - Experimental FM/OPM extension host interface + audible OPM-lite synthesis path (in progress)
 - **Interrupt System**: Complete IRQ/NMI handling with vector table
 - **ROM Loading**: Complete ROM header parsing and execution
 - **Debugging Tools**: Register viewer, memory viewer, cycle-by-cycle logger, GUI logging controls
@@ -132,9 +133,9 @@ For detailed information about the development process and challenges, see [Deve
 ### ❌ Optional Enhancements (Not Required)
 
 - **Vertical Sprites**: 3D sprite scaling for Matrix Mode (can be added later)
-- **FM Synthesis**: Advanced audio synthesis (can be added later)
+- **FM Synthesis**: Experimental FM/OPM extension is in progress (not final YM2151-accurate yet)
 
-For detailed status, see the [System Manual](SYSTEM_MANUAL.md).
+For detailed status and documentation navigation, see [docs/README.md](docs/README.md) and [docs/HARDWARE_FEATURES_STATUS.md](docs/HARDWARE_FEATURES_STATUS.md).
 
 ---
 
@@ -149,7 +150,7 @@ For detailed status, see the [System Manual](SYSTEM_MANUAL.md).
 | **Max Sprites** | 128 sprites |
 | **Background Layers** | 4 independent layers (BG0, BG1, BG2, BG3) |
 | **Matrix Mode** | Mode 7-style effects with large world support, vertical sprites |
-| **Audio Channels** | 4 channels (sine, square, saw, noise waveforms) |
+| **Audio Channels** | 4 legacy channels + experimental FM extension (OPM-lite/YM2151-style MMIO) |
 | **Audio Sample Rate** | 44,100 Hz |
 | **CPU Speed** | ~7.67 MHz (127,820 cycles per frame at 60 FPS, Genesis-like) |
 | **Memory** | 64KB per bank, 256 banks (16MB total address space) |
@@ -278,18 +279,21 @@ For more detailed troubleshooting, see [docs/issues/](docs/issues/) for known is
 
 The project documentation is organized into several main documents:
 
-### Core Documentation
-- **[SYSTEM_MANUAL.md](SYSTEM_MANUAL.md)**: Complete system architecture, FPGA compatibility, testing framework, and development tools
-- **[PROGRAMMING_MANUAL.md](PROGRAMMING_MANUAL.md)**: Complete programming guide covering both CoreLX and assembly languages
-- **[docs/CORELX.md](docs/CORELX.md)**: Complete CoreLX language documentation
-- **[docs/specifications/HARDWARE_SPECIFICATION.md](docs/specifications/HARDWARE_SPECIFICATION.md)**: Complete hardware specification for FPGA implementation
+### Core Documentation (Start Here)
+- **[docs/README.md](docs/README.md)**: Documentation map (current vs historical docs)
+- **[SYSTEM_MANUAL.md](SYSTEM_MANUAL.md)**: System architecture manual (under revision; verify against current specs)
+- **[PROGRAMMING_MANUAL.md](PROGRAMMING_MANUAL.md)**: Programming manual (under revision; pre-alpha APIs may change)
+- **[docs/CORELX.md](docs/CORELX.md)**: Current CoreLX language reference (implementation-aware)
+- **[docs/CORELX_DATA_MODEL_PLAN.md](docs/CORELX_DATA_MODEL_PLAN.md)**: Current CoreLX/Dev Kit Phase 1 plan
+- **[docs/specifications/COMPLETE_HARDWARE_SPECIFICATION_V2.1.md](docs/specifications/COMPLETE_HARDWARE_SPECIFICATION_V2.1.md)**: Current evidence-based hardware specification
+- **[docs/specifications/APU_FM_OPM_EXTENSION_SPEC.md](docs/specifications/APU_FM_OPM_EXTENSION_SPEC.md)**: FM extension design + implementation status
 
 ### Additional Documentation
 - **[CHANGELOG.md](CHANGELOG.md)**: Version history and change log
 - **[docs/DEVELOPMENT_NOTES.md](docs/DEVELOPMENT_NOTES.md)**: Development process, challenges, and philosophy
 - **[docs/issues/](docs/issues/)**: Known issues and fixes
 - **[docs/testing/](docs/testing/)**: Testing guides and results
-- **[docs/specifications/](docs/specifications/)**: Hardware specifications and pin definitions
+- **[docs/specifications/](docs/specifications/)**: Hardware specs, pin definitions, FPGA docs (with current-vs-historical notes)
 - **[docs/guides/](docs/guides/)**: Setup guides, build instructions, and procedures
 - **[docs/planning/](docs/planning/)**: Development plans and roadmaps
 
@@ -335,7 +339,7 @@ The project documentation is organized into several main documents:
 - **Memory Tools**: Hex editor, memory map, memory dump
 - **GUI Logging Controls**: Enable/disable logging per component from Debug menu
 
-For detailed information about debugging tools, see [SYSTEM_MANUAL.md](SYSTEM_MANUAL.md).
+For detailed information about debugging tools, see [SYSTEM_MANUAL.md](SYSTEM_MANUAL.md) and [docs/README.md](docs/README.md) for current doc routing.
 
 ---
 
@@ -380,9 +384,9 @@ Contributions are welcome! This project is in active development.
 
 **Getting Started:**
 1. Read the [README.md](README.md) for project overview
-2. Read the [SYSTEM_MANUAL.md](SYSTEM_MANUAL.md) for architecture details
-3. Read the [CoreLX Documentation](docs/CORELX.md) for CoreLX language guide
-4. Read the [PROGRAMMING_MANUAL.md](PROGRAMMING_MANUAL.md) for complete programming guide
+2. Read [docs/README.md](docs/README.md) for the current documentation map
+3. Read the [CoreLX Documentation](docs/CORELX.md) for current language behavior
+4. Use [PROGRAMMING_MANUAL.md](PROGRAMMING_MANUAL.md) and [SYSTEM_MANUAL.md](SYSTEM_MANUAL.md) as manuals under revision, verifying details against current specs/tests
 
 **Development Status:**
 ✅ **Architecture Stable**: Core hardware architecture is stable; active work continues on tooling, tests, and documentation alignment.

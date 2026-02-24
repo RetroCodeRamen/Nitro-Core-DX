@@ -74,8 +74,9 @@ func (a *APU) GenerateSampleFixed() int16 {
 		case 2: // Sawtooth wave
 			// Linear ramp from -1 to 1
 			// Phase 0-2^32 maps to -32768 to 32767
-			// Use int64 intermediate to avoid overflow
-			channelSample = int32(int64(ch.PhaseFixed>>1) - 2147483648) // Convert to signed and center
+			// Use the upper 16 bits so the output is in the same amplitude range
+			// as the other waveforms before mixing/clamping.
+			channelSample = int32(int64(ch.PhaseFixed>>16) - 32768)
 
 		case 3: // Noise (LFSR-based)
 			// 15-bit Linear Feedback Shift Register
@@ -102,6 +103,10 @@ func (a *APU) GenerateSampleFixed() int16 {
 		// Update phase accumulator for next sample
 		ch.PhaseFixed += ch.PhaseIncrementFixed
 		// Phase wraps automatically (uint32 overflow)
+	}
+
+	if a.FM != nil {
+		sample += int32(a.FM.GenerateSampleFixed())
 	}
 
 	// Apply master volume
@@ -136,7 +141,7 @@ func (a *APU) sineFixed(phase uint16) int16 {
 	// Use polynomial approximation: sin(x) ≈ x - x^3/6
 	// Scale appropriately for fixed-point
 	x := phaseNormalized >> 8 // Scale down for calculation
-	x3 := (x * x * x) >> 16    // x^3 with scaling
+	x3 := (x * x * x) >> 16   // x^3 with scaling
 	result := x - (x3 / 6)
 
 	// Scale to output range

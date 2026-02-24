@@ -16,10 +16,13 @@ import (
 // - Clean audio: No artifacts, clicks, or warbling
 // - Flexible: Supports various audio use cases
 type APU struct {
-	Channels        [4]AudioChannel
-	MasterVolume    uint8
-	SampleRate      uint32
-	debugFrameCount int
+	Channels           [4]AudioChannel
+	MasterVolume       uint8
+	SampleRate         uint32
+	debugFrameCount    int
+	FM                 *FMOPM
+	FMTimerIRQCallback func()
+	lastFMIRQPending   bool
 
 	// Logger for centralized logging
 	Logger *debug.Logger
@@ -37,7 +40,7 @@ type APU struct {
 	// ROM can read this once per frame to check for completion
 	// This register is automatically cleared after being read
 	ChannelCompletionStatus uint8
-	
+
 	// PCM playback support
 	PCMChannels [4]PCMChannel // One PCM channel per audio channel
 }
@@ -45,11 +48,11 @@ type APU struct {
 // PCMChannel represents a PCM playback channel
 type PCMChannel struct {
 	Enabled      bool
-	SampleData   []int8  // PCM sample data (8-bit signed)
-	SampleRate   uint32  // Sample rate for this PCM stream
-	PlayPosition uint32  // Current playback position (in samples)
-	Loop         bool    // Loop playback
-	Volume       uint8   // PCM volume (0-255)
+	SampleData   []int8 // PCM sample data (8-bit signed)
+	SampleRate   uint32 // Sample rate for this PCM stream
+	PlayPosition uint32 // Current playback position (in samples)
+	Loop         bool   // Loop playback
+	Volume       uint8  // PCM volume (0-255)
 }
 
 // AudioChannel represents an audio channel
@@ -94,12 +97,24 @@ func NewAPU(sampleRate uint32, logger *debug.Logger) *APU {
 		Logger:              logger,
 		debugLoggingEnabled: true, // Enable debug logging for first 5 seconds
 		debugLogStartTime:   time.Now(),
+		FM:                  NewFMOPM(logger),
+	}
+	if apu.FM != nil {
+		apu.FM.SampleRate = sampleRate
 	}
 	return apu
 }
 
 // Read8 reads an 8-bit value from APU registers
 func (a *APU) Read8(offset uint16) uint8 {
+	// FM extension host interface (0x9100-0x91FF => APU offsets 0x0100-0x01FF)
+	if offset >= FMExtensionOffsetBase && offset < FMExtensionOffsetBase+0x100 {
+		if a.FM != nil {
+			return a.FM.Read8(offset - FMExtensionOffsetBase)
+		}
+		return 0
+	}
+
 	// Global APU registers (not channel-specific)
 	// Check these BEFORE channel-specific registers
 	if offset == 0x20 { // MASTER_VOLUME
@@ -188,6 +203,17 @@ func (a *APU) Read8(offset uint16) uint8 {
 // - No need to manually count frames or loop iterations
 // - Duration in frames (60 frames = 1 second at 60 FPS)
 func (a *APU) Write8(offset uint16, value uint8) {
+	// FM extension host interface (0x9100-0x91FF => APU offsets 0x0100-0x01FF)
+	if offset >= FMExtensionOffsetBase && offset < FMExtensionOffsetBase+0x100 {
+		if a.FM != nil {
+			a.FM.Write8(offset-FMExtensionOffsetBase, value)
+			// FM IRQ status can be cleared by MMIO writes (e.g. timer control clear bits),
+			// so keep the edge-tracking latch synchronized here.
+			a.lastFMIRQPending = a.FM.IRQPending()
+		}
+		return
+	}
+
 	channel := int((offset / 8) & 0x3) // Changed from /4 to /8
 	reg := offset & 0x7                // Changed from &0x3 to &0x7
 
@@ -378,7 +404,7 @@ func (a *APU) GenerateSample() float32 {
 	for i := 0; i < 4; i++ {
 		ch := &a.Channels[i]
 		pcmCh := &a.PCMChannels[i]
-		
+
 		if !ch.Enabled {
 			continue
 		}
@@ -392,10 +418,10 @@ func (a *APU) GenerateSample() float32 {
 				// Get sample (8-bit signed -> -1.0 to 1.0)
 				sampleValue := float32(pcmCh.SampleData[pcmCh.PlayPosition]) / 128.0
 				channelSample = sampleValue
-				
+
 				// Advance playback position
 				pcmCh.PlayPosition++
-				
+
 				// Handle looping after advancing
 				if pcmCh.Loop && int(pcmCh.PlayPosition) >= len(pcmCh.SampleData) {
 					pcmCh.PlayPosition = 0 // Wrap to start
@@ -418,7 +444,7 @@ func (a *APU) GenerateSample() float32 {
 					ch.Enabled = false
 				}
 			}
-			
+
 			// Apply PCM volume
 			volume := float32(pcmCh.Volume) / 255.0
 			channelSample *= volume
@@ -435,37 +461,37 @@ func (a *APU) GenerateSample() float32 {
 			}
 
 			switch ch.Waveform {
-		case 0: // Sine wave
-			// Smooth sine wave: sin(phase) gives -1.0 to 1.0
-			channelSample = float32(math.Sin(ch.Phase))
+			case 0: // Sine wave
+				// Smooth sine wave: sin(phase) gives -1.0 to 1.0
+				channelSample = float32(math.Sin(ch.Phase))
 
-		case 1: // Square wave
-			// 50% duty cycle square wave
-			if ch.Phase < math.Pi {
-				channelSample = 1.0
-			} else {
-				channelSample = -1.0
-			}
+			case 1: // Square wave
+				// 50% duty cycle square wave
+				if ch.Phase < math.Pi {
+					channelSample = 1.0
+				} else {
+					channelSample = -1.0
+				}
 
-		case 2: // Sawtooth wave
-			// Linear ramp from -1.0 to 1.0
-			channelSample = float32((ch.Phase/(2.0*math.Pi))*2.0 - 1.0)
+			case 2: // Sawtooth wave
+				// Linear ramp from -1.0 to 1.0
+				channelSample = float32((ch.Phase/(2.0*math.Pi))*2.0 - 1.0)
 
-		case 3: // Noise (LFSR-based)
-			// 15-bit Linear Feedback Shift Register
-			// Polynomial: x^15 + x^14 + 1
-			feedback := (ch.NoiseLFSR & 1) ^ ((ch.NoiseLFSR >> 14) & 1)
-			ch.NoiseLFSR = (ch.NoiseLFSR >> 1) | (feedback << 14)
-			if ch.NoiseLFSR == 0 {
-				ch.NoiseLFSR = 1 // Prevent stuck at 0
+			case 3: // Noise (LFSR-based)
+				// 15-bit Linear Feedback Shift Register
+				// Polynomial: x^15 + x^14 + 1
+				feedback := (ch.NoiseLFSR & 1) ^ ((ch.NoiseLFSR >> 14) & 1)
+				ch.NoiseLFSR = (ch.NoiseLFSR >> 1) | (feedback << 14)
+				if ch.NoiseLFSR == 0 {
+					ch.NoiseLFSR = 1 // Prevent stuck at 0
+				}
+				// Output: MSB determines output value
+				if (ch.NoiseLFSR & 1) != 0 {
+					channelSample = 1.0
+				} else {
+					channelSample = -1.0
+				}
 			}
-			// Output: MSB determines output value
-			if (ch.NoiseLFSR & 1) != 0 {
-				channelSample = 1.0
-			} else {
-				channelSample = -1.0
-			}
-		}
 
 			// Apply channel volume (0-255 -> 0.0-1.0)
 			volume := float32(ch.Volume) / 255.0
@@ -488,6 +514,9 @@ func (a *APU) GenerateSample() float32 {
 
 	// Apply master volume
 	masterVol := float32(a.MasterVolume) / 255.0
+	if a.FM != nil {
+		sample += a.FM.GenerateSampleFloat()
+	}
 	sample *= masterVol
 
 	// Clamp to valid range [-1.0, 1.0]
@@ -585,6 +614,14 @@ func (a *APU) GenerateSamples(count int) []float32 {
 // This is called by the clock scheduler
 // At ~7.67 MHz CPU and 44,100 Hz sample rate, APU runs every ~174 cycles
 func (a *APU) StepAPU(cycles uint64) error {
+	if a.FM != nil {
+		a.FM.Step(cycles)
+		currentIRQ := a.FM.IRQPending()
+		if currentIRQ && !a.lastFMIRQPending && a.FMTimerIRQCallback != nil {
+			a.FMTimerIRQCallback()
+		}
+		a.lastFMIRQPending = currentIRQ
+	}
 	// Generate one sample per APU step
 	// The clock scheduler calls this at the correct rate (44,100 Hz)
 	// For now, we'll generate samples on-demand

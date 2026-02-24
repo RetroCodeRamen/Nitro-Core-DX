@@ -3,6 +3,8 @@
 **Date:** January 27, 2026  
 **Status:** ✅ Implemented
 
+> **Historical Snapshot:** Summary of a timing-fix milestone. Use current hardware spec and test results for present timing behavior/status.
+
 ## Changes Made
 
 ### 1. CPU Speed: Genesis-Like (~7.67 MHz)

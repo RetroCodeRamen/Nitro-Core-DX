@@ -44,6 +44,15 @@ func (b *ROMBuilder) GetCodeLength() int {
 
 // BuildROM builds the ROM file
 func (b *ROMBuilder) BuildROM(entryBank uint8, entryOffset uint16, outputPath string) error {
+	romData, err := b.BuildROMBytes(entryBank, entryOffset)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(outputPath, romData, 0644)
+}
+
+// BuildROMBytes builds the ROM image and returns the bytes without writing to disk.
+func (b *ROMBuilder) BuildROMBytes(entryBank uint8, entryOffset uint16) ([]byte, error) {
 	// Calculate ROM size (in bytes)
 	romSize := uint32(len(b.code) * 2)
 
@@ -76,8 +85,7 @@ func (b *ROMBuilder) BuildROM(entryBank uint8, entryOffset uint16, outputPath st
 		binary.LittleEndian.PutUint16(romData[offset:offset+2], word)
 	}
 
-	// Write to file
-	return os.WriteFile(outputPath, romData, 0644)
+	return romData, nil
 }
 
 // Helper functions for instruction encoding

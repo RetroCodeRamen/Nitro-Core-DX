@@ -3,6 +3,8 @@
 **Date:** January 30, 2026  
 **Purpose:** Identify inconsistencies, bugs, and ROM compatibility issues in the emulator implementation
 
+> **Historical Snapshot:** This audit was useful for a specific stabilization pass. Some issues listed here may already be fixed; verify against current tests and recent work logs.
+
 ---
 
 ## Executive Summary

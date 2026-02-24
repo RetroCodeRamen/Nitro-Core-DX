@@ -2,6 +2,19 @@
 
 This directory contains testing guides, test results, and testing procedures.
 
+## Current Entry Points
+
+- `TEST_SUMMARY.md`
+  - Current recommended commands and baseline test expectations
+- `TEST_ROM_TESTING_GUIDE.md`
+  - Manual ROM testing workflow
+- `INPUT_TESTING_GUIDE.md`
+  - Input-specific testing guide
+
+## Historical / Snapshot Test Docs
+
+Older milestone-specific testing plans/results/fix logs have been moved to `docs/archive/test_results/` to keep this folder focused on current workflows.
+
 ## Quick Commands
 
 Recommended local test targets (repo root):
@@ -17,11 +30,7 @@ These targets default to `-tags no_sdl_ttf` for environments without SDL2_ttf de
 
 ## Files
 
-- **TEST_ROM_FIXES.md** - Test ROM fixes and improvements
-- **TEST_RESULTS.md** - Test execution results
 - **TEST_SUMMARY.md** - Summary of test results
 - **TEST_ROM_TESTING_GUIDE.md** - Guide for testing ROMs
-- **TEST_ROM_FEATURE_BUILD.md** - Test ROM feature build documentation
-- **TESTING_PLAN.md** - Overall testing plan
-- **test_rom_diagnostics.md** - Test ROM diagnostic information
 - **INPUT_TESTING_GUIDE.md** - Input system testing guide
+- **(Archived)** Historical testing plans/results/fix logs - `docs/archive/test_results/`

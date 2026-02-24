@@ -1,20 +1,23 @@
 package ui
 
 import (
+	"encoding/binary"
 	"fmt"
 	"image"
-	"image/color"
+	"math"
+	"sync"
 	"time"
 
+	"nitro-core-dx/internal/apu"
 	"nitro-core-dx/internal/debug"
 	"nitro-core-dx/internal/emulator"
 	"nitro-core-dx/internal/ui/panels"
 
 	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/widget"
 	"github.com/veandco/go-sdl2/sdl"
 )
@@ -32,10 +35,13 @@ type FyneUI struct {
 	sdlRenderer *sdl.Renderer
 	sdlTexture  *sdl.Texture
 	audioDev    sdl.AudioDeviceID
+	audioFrame  []byte // Interleaved stereo float32 for one emulator frame (735 samples)
 
 	// Fyne widgets
 	emulatorImage *canvas.Image
 	statusLabel   *widget.Label
+	frameImages   [2]*image.RGBA
+	frameImageIdx int
 
 	// Debug panels
 	showLogViewer bool
@@ -61,7 +67,10 @@ type FyneUI struct {
 	updateLogs      func()
 
 	// Keyboard input state
-	keyStates map[fyne.KeyName]bool
+	keyMu            sync.Mutex
+	keyStates        map[fyne.KeyName]bool
+	typedKeyUntil    map[fyne.KeyName]time.Time // fallback "held" lease for typed-only platforms
+	desktopKeyEvents bool
 }
 
 // NewFyneUI creates a new Fyne-based UI
@@ -95,8 +104,11 @@ func NewFyneUI(emu *emulator.Emulator, scale int) (*FyneUI, error) {
 	// Create status label
 	statusLabel := widget.NewLabel("FPS: 0.0 | CPU: 0 cycles/frame | Frame: 0")
 
-	// Create emulator image (will be updated with SDL2 rendering)
-	emulatorImage := canvas.NewImageFromImage(image.NewRGBA(image.Rect(0, 0, 320*scale, 200*scale)))
+	// Create reusable frame buffers for UI rendering (double-buffered to avoid UI thread races).
+	frame0 := image.NewRGBA(image.Rect(0, 0, 320*scale, 200*scale))
+	frame1 := image.NewRGBA(image.Rect(0, 0, 320*scale, 200*scale))
+	// Create emulator image (will be updated with rendered frames)
+	emulatorImage := canvas.NewImageFromImage(frame0)
 	emulatorImage.FillMode = canvas.ImageFillContain
 
 	// Create debug panels (initially hidden)
@@ -126,8 +138,10 @@ func NewFyneUI(emu *emulator.Emulator, scale int) (*FyneUI, error) {
 		running:         false,
 		paused:          false,
 		audioDev:        audioDev,
+		audioFrame:      make([]byte, 735*2*4),
 		emulatorImage:   emulatorImage,
 		statusLabel:     statusLabel,
+		frameImages:     [2]*image.RGBA{frame0, frame1},
 		registersPanel:  registersPanel,
 		memoryPanel:     memoryPanel,
 		tilesPanel:      tilesPanel,
@@ -137,6 +151,7 @@ func NewFyneUI(emu *emulator.Emulator, scale int) (*FyneUI, error) {
 		updateTiles:     updateTilesFunc,
 		updateLogs:      updateLogsFunc,
 		keyStates:       make(map[fyne.KeyName]bool),
+		typedKeyUntil:   make(map[fyne.KeyName]time.Time),
 	}
 
 	// Create right-side panel container (vertical stack for multiple panels)
@@ -202,60 +217,93 @@ func setupKeyboardInput(window fyne.Window, ui *FyneUI) {
 	// Bit 10: START
 	// Bit 11: Z (used as "Stop" in diagnostics)
 
-	// Handle typed key events (fallback path)
+	// Handle typed key events (fallback path).
+	// On some platforms/toolkits, typed events may repeat while a key is held but there may be
+	// no reliable key-up callback. We convert typed events into a short "held lease" that is
+	// extended by repeats and expires when repeats stop.
 	window.Canvas().SetOnTypedKey(func(key *fyne.KeyEvent) {
-		ui.keyStates[key.Name] = true
+		ui.keyMu.Lock()
+		if !ui.desktopKeyEvents {
+			ui.typedKeyUntil[key.Name] = time.Now().Add(450 * time.Millisecond)
+		}
+		ui.keyMu.Unlock()
 		ui.updateInputFromKeys()
 	})
 
 	// Desktop platforms provide key down/up callbacks; use them for reliable key state tracking.
 	if c, ok := window.Canvas().(desktop.Canvas); ok {
+		ui.keyMu.Lock()
+		ui.desktopKeyEvents = true
+		ui.keyMu.Unlock()
 		c.SetOnKeyDown(func(key *fyne.KeyEvent) {
+			ui.keyMu.Lock()
 			ui.keyStates[key.Name] = true
+			ui.keyMu.Unlock()
 			ui.updateInputFromKeys()
 		})
 		c.SetOnKeyUp(func(key *fyne.KeyEvent) {
+			ui.keyMu.Lock()
 			ui.keyStates[key.Name] = false
+			delete(ui.typedKeyUntil, key.Name)
+			ui.keyMu.Unlock()
 			ui.updateInputFromKeys()
 		})
 	}
 }
 
 func (ui *FyneUI) applyFyneKeyStates(buttons uint16) uint16 {
-	if ui.keyStates[fyne.KeyW] || ui.keyStates[fyne.KeyUp] {
+	now := time.Now()
+
+	ui.keyMu.Lock()
+	defer ui.keyMu.Unlock()
+
+	isPressed := func(key fyne.KeyName) bool {
+		if ui.keyStates[key] {
+			return true
+		}
+		if until, ok := ui.typedKeyUntil[key]; ok {
+			if now.Before(until) {
+				return true
+			}
+			delete(ui.typedKeyUntil, key)
+		}
+		return false
+	}
+
+	if isPressed(fyne.KeyW) || isPressed(fyne.KeyUp) {
 		buttons |= 0x01 // UP
 	}
-	if ui.keyStates[fyne.KeyS] || ui.keyStates[fyne.KeyDown] {
+	if isPressed(fyne.KeyS) || isPressed(fyne.KeyDown) {
 		buttons |= 0x02 // DOWN
 	}
-	if ui.keyStates[fyne.KeyA] || ui.keyStates[fyne.KeyLeft] {
+	if isPressed(fyne.KeyA) || isPressed(fyne.KeyLeft) {
 		buttons |= 0x04 // LEFT
 	}
-	if ui.keyStates[fyne.KeyD] || ui.keyStates[fyne.KeyRight] {
+	if isPressed(fyne.KeyD) || isPressed(fyne.KeyRight) {
 		buttons |= 0x08 // RIGHT
 	}
-	if ui.keyStates[fyne.KeyZ] {
+	if isPressed(fyne.KeyZ) {
 		buttons |= 0x10 // A
 	}
-	if ui.keyStates[fyne.KeyX] {
+	if isPressed(fyne.KeyX) {
 		buttons |= 0x20 // B
 	}
-	if ui.keyStates[fyne.KeyV] {
+	if isPressed(fyne.KeyV) {
 		buttons |= 0x40 // X
 	}
-	if ui.keyStates[fyne.KeyC] {
+	if isPressed(fyne.KeyC) {
 		buttons |= 0x80 // Y
 	}
-	if ui.keyStates[fyne.KeyQ] {
+	if isPressed(fyne.KeyQ) {
 		buttons |= 0x100 // L
 	}
-	if ui.keyStates[fyne.KeyE] {
+	if isPressed(fyne.KeyE) {
 		buttons |= 0x200 // R
 	}
-	if ui.keyStates[fyne.KeyReturn] {
+	if isPressed(fyne.KeyReturn) {
 		buttons |= 0x400 // START
 	}
-	if ui.keyStates[fyne.KeyBackspace] {
+	if isPressed(fyne.KeyBackspace) {
 		buttons |= 0x800 // Z (used as STOP in diagnostics)
 	}
 	return buttons
@@ -583,38 +631,44 @@ func createMenus(window fyne.Window, emu *emulator.Emulator, ui *FyneUI) {
 
 // renderEmulatorScreen renders the emulator screen and converts to scaled Fyne image
 func (ui *FyneUI) renderEmulatorScreen() (image.Image, error) {
-	// Get output buffer from emulator (make a copy to avoid race conditions)
+	// Get output buffer from emulator. The UI update loop calls RunFrame() and then renders
+	// on the same goroutine, so reading the buffer here is safe.
 	buffer := ui.emulator.GetOutputBuffer()
 
 	if len(buffer) != 320*200 {
 		return nil, fmt.Errorf("buffer size mismatch: expected %d, got %d", 320*200, len(buffer))
 	}
 
-	// Make a copy of the buffer to avoid race conditions with PPU rendering
-	bufferCopy := make([]uint32, len(buffer))
-	copy(bufferCopy, buffer)
+	// Reuse double-buffered RGBA images to avoid per-frame allocations.
+	img := ui.frameImages[ui.frameImageIdx]
+	ui.frameImageIdx ^= 1
 
-	// Create scaled RGBA image
-	scaledW := 320 * ui.scale
-	scaledH := 200 * ui.scale
-	img := image.NewRGBA(image.Rect(0, 0, scaledW, scaledH))
-
-	// Scale pixels manually for perfect integer scaling
+	// Scale pixels manually for perfect integer scaling (direct Pix writes are much
+	// faster than img.Set in the hot path).
+	pix := img.Pix
+	stride := img.Stride
+	scale := ui.scale
 	for y := 0; y < 200; y++ {
 		for x := 0; x < 320; x++ {
 			idx := y*320 + x
-			colorValue := bufferCopy[idx]
+			colorValue := buffer[idx]
 
 			// Convert RGB888 to RGBA
 			r := uint8((colorValue >> 16) & 0xFF)
 			g := uint8((colorValue >> 8) & 0xFF)
 			b := uint8(colorValue & 0xFF)
-			c := color.RGBA{R: r, G: g, B: b, A: 255}
 
 			// Scale pixel
-			for sy := 0; sy < ui.scale; sy++ {
-				for sx := 0; sx < ui.scale; sx++ {
-					img.Set(x*ui.scale+sx, y*ui.scale+sy, c)
+			baseX := x * scale
+			baseY := y * scale
+			for sy := 0; sy < scale; sy++ {
+				row := (baseY + sy) * stride
+				for sx := 0; sx < scale; sx++ {
+					off := row + (baseX+sx)*4
+					pix[off+0] = r
+					pix[off+1] = g
+					pix[off+2] = b
+					pix[off+3] = 0xFF
 				}
 			}
 		}
@@ -626,6 +680,10 @@ func (ui *FyneUI) renderEmulatorScreen() (image.Image, error) {
 // Run runs the Fyne UI main loop
 func (ui *FyneUI) Run() error {
 	defer ui.Cleanup()
+
+	// UI updateLoop provides the pacing target (60Hz ticker), so disable emulator-internal
+	// frame sleeping here to avoid double-throttling/jitter.
+	ui.emulator.SetFrameLimit(false)
 
 	// Start emulator
 	ui.emulator.Start()
@@ -646,11 +704,29 @@ func (ui *FyneUI) Run() error {
 
 // updateLoop updates the UI at 60 FPS
 func (ui *FyneUI) updateLoop() {
-	ticker := time.NewTicker(time.Second / 60) // 60 FPS
+	// Run a higher-rate UI tick and advance emulation using a fixed 60Hz timestep accumulator.
+	// This keeps gameplay speed stable even when UI rendering occasionally stutters.
+	const emuHz = 60
+	const uiTickHz = 120
+	const maxCatchUpFrames = 4
+	frameStep := time.Second / emuHz
+
+	ticker := time.NewTicker(time.Second / uiTickHz)
 	defer ticker.Stop()
+	uiTickCount := 0
+	lastTick := time.Now()
+	accumulator := time.Duration(0)
 
 	for ui.running {
 		<-ticker.C
+		uiTickCount++
+		now := time.Now()
+		delta := now.Sub(lastTick)
+		lastTick = now
+		// Clamp long stalls (window drag/breakpoint/suspend) to avoid huge catch-up bursts.
+		if delta > 250*time.Millisecond {
+			delta = 250 * time.Millisecond
+		}
 
 		// Pump SDL events to update keyboard state
 		sdl.PumpEvents()
@@ -659,54 +735,101 @@ func (ui *FyneUI) updateLoop() {
 		// This ensures the ROM reads the correct input state
 		ui.updateInputFromKeys()
 
-		// Update emulator (this will run one frame, which will read the input we just set)
-		if !ui.emulator.Paused {
-			if err := ui.emulator.RunFrame(); err != nil {
-				if ui.emulator.Logger != nil {
-					ui.emulator.Logger.LogUI(debug.LogLevelError, fmt.Sprintf("Emulation error: %v", err), nil)
+		framesStepped := 0
+		if ui.emulator.Paused {
+			// Do not accumulate emulation debt while paused.
+			accumulator = 0
+		} else {
+			accumulator += delta
+			maxAccum := frameStep * maxCatchUpFrames
+			if accumulator > maxAccum {
+				accumulator = maxAccum
+			}
+
+			// Fixed-timestep emulation: advance 1 frame per 16.67ms of accumulated time.
+			for accumulator >= frameStep && framesStepped < maxCatchUpFrames {
+				if err := ui.emulator.RunFrame(); err != nil {
+					if ui.emulator.Logger != nil {
+						ui.emulator.Logger.LogUI(debug.LogLevelError, fmt.Sprintf("Emulation error: %v", err), nil)
+					}
+					break
 				}
+				ui.queueFrameAudio()
+				accumulator -= frameStep
+				framesStepped++
 			}
 		}
-
-		// After frame, ensure input is still set (in case it was modified during frame)
-		// Actually, don't do this - let the ROM read whatever we set before the frame
 
 		// Render emulator screen
 		// Note: RunFrame() completes a full PPU frame (127,820 cycles), so buffer is ready
 		// FrameComplete flag ensures we don't read mid-frame, but RunFrame() guarantees completion
-		img, err := ui.renderEmulatorScreen()
-		if err == nil {
-			// Update image - must be done on main thread
-			fyne.Do(func() {
-				ui.emulatorImage.Image = img
-				ui.emulatorImage.Refresh()
-			})
+		var img image.Image
+		var imgErr error
+		if framesStepped > 0 || (ui.emulator.Paused && uiTickCount%8 == 0) {
+			img, imgErr = ui.renderEmulatorScreen()
 		}
 
-		// Update status - must be done on main thread
+		// Update UI on main thread. Throttle status/panel refreshes slightly to reduce
+		// Fyne/UI work in the hot path while keeping the emulator display at full rate.
 		fps := ui.emulator.GetFPS()
 		cycles := ui.emulator.GetCPUCyclesPerFrame()
 		frameCount := ui.emulator.FrameCount
+		refreshAuxPanels := (uiTickCount%4 == 0) // ~15 Hz at 60 FPS target
 		fyne.Do(func() {
+			if img != nil && imgErr == nil {
+				ui.emulatorImage.Image = img
+				ui.emulatorImage.Refresh()
+			}
 			ui.statusLabel.SetText(fmt.Sprintf("FPS: %.1f | CPU: %d cycles/frame | Frame: %d", fps, cycles, frameCount))
-			// Update register viewer if visible
-			if ui.showRegisters && ui.updateRegisters != nil {
-				ui.updateRegisters()
-			}
-			// Update memory viewer if visible
-			if ui.showMemory && ui.updateMemory != nil {
-				ui.updateMemory()
-			}
-			// Update tile viewer if visible
-			if ui.showTiles && ui.updateTiles != nil {
-				ui.updateTiles()
-			}
-			// Update log viewer if visible
-			if ui.showLogViewer && ui.updateLogs != nil {
-				ui.updateLogs()
+			if refreshAuxPanels {
+				// Update register viewer if visible
+				if ui.showRegisters && ui.updateRegisters != nil {
+					ui.updateRegisters()
+				}
+				// Update memory viewer if visible
+				if ui.showMemory && ui.updateMemory != nil {
+					ui.updateMemory()
+				}
+				// Update tile viewer if visible
+				if ui.showTiles && ui.updateTiles != nil {
+					ui.updateTiles()
+				}
+				// Update log viewer if visible
+				if ui.showLogViewer && ui.updateLogs != nil {
+					ui.updateLogs()
+				}
 			}
 		})
 	}
+}
+
+func (ui *FyneUI) queueFrameAudio() {
+	if ui.audioDev == 0 || ui.emulator == nil {
+		return
+	}
+
+	// Prevent runaway queue growth if rendering stalls. Keep roughly <= 4 frames queued.
+	if sdl.GetQueuedAudioSize(ui.audioDev) > uint32(len(ui.audioFrame))*4 {
+		return
+	}
+
+	samples := ui.emulator.AudioSampleBuffer // 735 mono int16 samples for last frame
+	if len(samples) == 0 {
+		return
+	}
+
+	// Convert mono int16 fixed-point samples to interleaved stereo float32 (little-endian).
+	// Duplicating channels keeps behavior simple until a stereo mixer path is introduced.
+	j := 0
+	for _, s := range samples {
+		f := apu.ConvertFixedToFloat(s)
+		bits := math.Float32bits(f)
+		binary.LittleEndian.PutUint32(ui.audioFrame[j:j+4], bits)
+		binary.LittleEndian.PutUint32(ui.audioFrame[j+4:j+8], bits)
+		j += 8
+	}
+
+	_ = sdl.QueueAudio(ui.audioDev, ui.audioFrame)
 }
 
 // Cleanup cleans up resources

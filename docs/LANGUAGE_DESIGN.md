@@ -3,6 +3,8 @@
 **Created:** January 27, 2026  
 **Status:** Design Phase
 
+> **Historical / Naming Note:** This document reflects an earlier language-design phase under the `NitroLang` name. Current language work is centered on CoreLX (`docs/CORELX.md`) and the Phase 1 data model/compiler plan (`docs/CORELX_DATA_MODEL_PLAN.md`).
+
 ## Overview
 
 NitroLang is a custom compiled language designed specifically for Nitro-Core-DX. It uses Lua-like syntax for readability and ease of use, but compiles to efficient bytecode (not interpreted). It provides direct assembly access for unimplemented features and low-level control when needed.

@@ -1,10 +1,12 @@
 # Nitro-Core-DX Complete Hardware Specification
 
 **Version 2.1**  
-**Last Updated: January 30, 2026**  
+**Last Updated: February 24, 2026**  
 **Purpose: FPGA-implementable hardware specification based on emulator source code evidence**
 
 > **📌 Evidence-Based**: This specification is derived directly from the emulator source code. Every behavior, register, and timing specification is backed by code evidence. Unverified or inferred behaviors are explicitly marked.
+>
+> **APU/FM Note:** This spec covers the current legacy APU behavior and documents the implemented FM host interface/MMIO window at `0x9100-0x91FF`. For FM extension design and current implementation status details, also see `docs/specifications/APU_FM_OPM_EXTENSION_SPEC.md`.
 
 ---
 
@@ -495,6 +497,8 @@ All instructions are 16-bit words:
 - **Waveforms**: Sine, Square, Saw, Noise (`apu.go:437-468`)
 - **Sample Rate**: 44,100 Hz (`emulator.go:76`)
 - **Output**: Mono (single channel, can be mixed to stereo by host)
+- **PCM Support**: Per-channel PCM playback mode (shared channel slots)
+- **FM Extension**: Experimental FM/OPM-style extension via `0x9100-0x91FF` (documented below)
 
 ### Channel Parameters
 
@@ -736,6 +740,31 @@ All instructions are 16-bit words:
 | 0x9021 | COMPLETION_STATUS | 8-bit | Channel completion flags (bits [3:0], cleared when read) | `apu.go:108-127` |
 
 **Note:** Spec v2.0 incorrectly listed MASTER_VOLUME at 0x9040. Actual address is 0x9020.
+
+#### FM Extension Host Interface (0x9100-0x91FF, Experimental/In Progress)
+
+The FM extension is implemented as an APU sub-block. The memory bus already routes `0x9000-0x9FFF` to the APU; addresses `0x9100-0x91FF` are handled by the APU as an FM host interface window.
+
+| Address | Name | Size | Description |
+|---------|------|------|-------------|
+| 0x9100 | FM_ADDR | 8-bit | OPM/YM2151-style register address select |
+| 0x9101 | FM_DATA | 8-bit | OPM register data port (read/write shadowed register values) |
+| 0x9102 | FM_STATUS | 8-bit | Busy/timer/IRQ flags |
+| 0x9103 | FM_CONTROL | 8-bit | Bit0=enable, bit1=mute, bit7=write-one reset |
+| 0x9104 | FM_MIX_L | 8-bit | FM mix gain (left; currently used in mono fold-down) |
+| 0x9105 | FM_MIX_R | 8-bit | FM mix gain (right; currently used in mono fold-down) |
+
+`FM_STATUS` bits (current emulator behavior):
+- Bit 0: Timer A flag
+- Bit 1: Timer B flag
+- Bit 6: Busy flag (host-interface busy placeholder timing)
+- Bit 7: IRQ pending (derived from timer flags + IRQ enable bits)
+
+Current implementation status:
+- ✅ MMIO host interface (`FM_ADDR/FM_DATA/FM_STATUS/FM_CONTROL/FM_MIX_L/R`)
+- ✅ Timer/status behavior and IRQ bridge (deterministic placeholder timer timing)
+- ✅ Audible OPM-lite FM synthesis subset (software-first, hardware-oriented)
+- ❌ Full YM2151/OPM accuracy (ongoing)
 
 ### Input Registers (0xA000-0xAFFF)
 

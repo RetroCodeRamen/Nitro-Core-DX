@@ -4,6 +4,8 @@
 **Auditor:** AI Technical Auditor (Evidence-Based Analysis)  
 **Scope:** Complete hardware specification rewrite and emulator consistency audit
 
+> **Historical Snapshot:** Audit summary for a prior specification rewrite effort. Keep for traceability; do not treat as current implementation status.
+
 ---
 
 ## Deliverables Completed

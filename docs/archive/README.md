@@ -1,6 +1,6 @@
 # Documentation Archive
 
-This directory contains older documentation files that have been consolidated into the main manuals.
+This directory contains older/superseded documentation retained for reference.
 
 ## Archived Files
 
@@ -15,5 +15,12 @@ This directory contains older documentation files that have been consolidated in
 These files are kept for reference but are no longer actively maintained. Please refer to the main documentation:
 
 - [README.md](../README.md) - Project overview
-- [SYSTEM_MANUAL.md](../SYSTEM_MANUAL.md) - Architecture and design
-- [NITRO_CORE_DX_PROGRAMMING_MANUAL.md](../NITRO_CORE_DX_PROGRAMMING_MANUAL.md) - Programming guide
+- [docs/README.md](../README.md) - Documentation map (current vs historical)
+- [SYSTEM_MANUAL.md](../SYSTEM_MANUAL.md) - Architecture and design manual (under revision)
+- [PROGRAMMING_MANUAL.md](../PROGRAMMING_MANUAL.md) - Programming manual (under revision)
+
+## Archive Subfolders
+
+- `plans/` - superseded planning docs
+- `reviews/` - archived code/architecture reviews
+- `test_results/` - historical test plans, results, and test-ROM diagnostics

@@ -2,7 +2,6 @@ package corelx
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 
 	"nitro-core-dx/internal/rom"
@@ -10,18 +9,19 @@ import (
 
 // CodeGenerator generates Nitro Core DX machine code from AST
 type CodeGenerator struct {
-	program      *Program
-	builder      *rom.ROMBuilder
-	symbols      map[string]*Symbol
-	regAlloc     *RegisterAllocator
-	labelCounter int
-	assets       map[string]*AssetDecl
-	assetOffsets map[string]uint16
-	
+	program          *Program
+	builder          *rom.ROMBuilder
+	symbols          map[string]*Symbol
+	regAlloc         *RegisterAllocator
+	labelCounter     int
+	assets           map[string]*AssetDecl
+	normalizedAssets map[string]AssetIR
+	assetOffsets     map[string]uint16
+
 	// Variable storage tracking
-	variables    map[string]*VariableInfo
-	varCounter   int
-	stackOffset  uint16 // Current stack offset for spilled variables
+	variables   map[string]*VariableInfo
+	varCounter  int
+	stackOffset uint16 // Current stack offset for spilled variables
 }
 
 // VariableInfo tracks where a variable is stored
@@ -43,23 +43,31 @@ const (
 
 // RegisterAllocator manages register allocation
 type RegisterAllocator struct {
-	registers [8]bool // R0-R7 usage
+	registers [8]bool  // R0-R7 usage
 	spill     []string // Spilled variables
 }
 
 // NewCodeGenerator creates a new code generator
 func NewCodeGenerator(program *Program, builder *rom.ROMBuilder) *CodeGenerator {
 	return &CodeGenerator{
-		program:      program,
-		builder:      builder,
-		symbols:      make(map[string]*Symbol),
-		regAlloc:     &RegisterAllocator{},
-		labelCounter: 0,
-		assets:       make(map[string]*AssetDecl),
-		assetOffsets: make(map[string]uint16),
-		variables:    make(map[string]*VariableInfo),
-		varCounter:   0,
-		stackOffset:  0x1FFF, // Start at top of stack (grows downward)
+		program:          program,
+		builder:          builder,
+		symbols:          make(map[string]*Symbol),
+		regAlloc:         &RegisterAllocator{},
+		labelCounter:     0,
+		assets:           make(map[string]*AssetDecl),
+		normalizedAssets: make(map[string]AssetIR),
+		assetOffsets:     make(map[string]uint16),
+		variables:        make(map[string]*VariableInfo),
+		varCounter:       0,
+		stackOffset:      0x1FFF, // Start at top of stack (grows downward)
+	}
+}
+
+// SetNormalizedAssets injects compiler-normalized assets so codegen can avoid re-parsing source asset text.
+func (cg *CodeGenerator) SetNormalizedAssets(assets []AssetIR) {
+	for _, a := range assets {
+		cg.normalizedAssets[a.Name] = a
 	}
 }
 
@@ -82,7 +90,7 @@ func (cg *CodeGenerator) Generate() error {
 	// Prioritize __Boot() or Start() as the first function (entry point at 0x8000)
 	functions := make([]*FunctionDecl, 0, len(cg.program.Functions))
 	var entryFunction *FunctionDecl
-	
+
 	// Find entry point function
 	for _, fn := range cg.program.Functions {
 		if fn.Name == "__Boot" {
@@ -98,7 +106,7 @@ func (cg *CodeGenerator) Generate() error {
 			}
 		}
 	}
-	
+
 	// Add entry function first, then others
 	if entryFunction != nil {
 		functions = append(functions, entryFunction)
@@ -108,7 +116,7 @@ func (cg *CodeGenerator) Generate() error {
 			functions = append(functions, fn)
 		}
 	}
-	
+
 	// Generate code for each function
 	for _, fn := range functions {
 		if err := cg.generateFunction(fn); err != nil {
@@ -122,8 +130,9 @@ func (cg *CodeGenerator) Generate() error {
 func (cg *CodeGenerator) generateFunction(fn *FunctionDecl) error {
 	// Reset variable tracking for each function
 	cg.variables = make(map[string]*VariableInfo)
+	cg.regAlloc = &RegisterAllocator{}
 	cg.stackOffset = 0x1FFF // Reset stack for each function
-	
+
 	// Function prologue
 	// For now, we'll use a simple calling convention:
 	// - Parameters passed in R0-R7
@@ -196,73 +205,40 @@ func (cg *CodeGenerator) generateVarDecl(stmt *VarDeclStmt) error {
 				// So we need to track that this variable holds a struct address
 				// The address is computed at runtime by generateCall
 				// We'll need to store R0 somewhere and track it
-				// For simplicity, allocate a register to hold the address
-				var reg uint8 = 2
-				for reg < 8 && cg.regAlloc.registers[reg] {
-					reg++
-				}
-				if reg < 8 {
-					// Store address in register
-					cg.builder.AddInstruction(rom.EncodeMOV(0, reg, 0)) // MOV R{reg}, R0
-					cg.regAlloc.registers[reg] = true
-					cg.variables[stmt.Name] = &VariableInfo{
-						Name:     stmt.Name,
-						Location: VarLocationRegister,
-						RegIndex: reg,
-					}
-				} else {
-					// Spill to stack - store address on stack
-					cg.stackOffset -= 2
-					stackAddr := cg.stackOffset
-					cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0)) // MOV R7, #stackAddr
-					cg.builder.AddImmediate(stackAddr)
-					cg.builder.AddInstruction(rom.EncodeMOV(3, 7, 0)) // MOV [R7], R0
-					cg.variables[stmt.Name] = &VariableInfo{
-						Name:     stmt.Name,
-						Location: VarLocationStack,
-						StackAddr: stackAddr,
-					}
+				// Pre-alpha simplification: keep long-lived locals on stack because
+				// builtins use R0-R7 freely and there is no caller/callee-save contract yet.
+				cg.stackOffset -= 2
+				stackAddr := cg.stackOffset
+				cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0)) // MOV R7, #stackAddr
+				cg.builder.AddImmediate(stackAddr)
+				cg.builder.AddInstruction(rom.EncodeMOV(3, 7, 0)) // MOV [R7], R0
+				cg.variables[stmt.Name] = &VariableInfo{
+					Name:      stmt.Name,
+					Location:  VarLocationStack,
+					StackAddr: stackAddr,
 				}
 				return nil
 			}
 		}
 	}
-	
+
 	// Regular variable initialization
 	// Generate code for initializer
 	if err := cg.generateExpr(stmt.Value, 0); err != nil {
 		return err
 	}
 	// Value is now in R0
-	// Allocate storage for variable
-	// Try to use a register first (R2-R7, R0-R1 are used for temporaries)
-	var reg uint8 = 2
-	for reg < 8 && cg.regAlloc.registers[reg] {
-		reg++
-	}
-	
-	if reg < 8 {
-		// Store in register
-		cg.builder.AddInstruction(rom.EncodeMOV(0, reg, 0)) // MOV R{reg}, R0
-		cg.regAlloc.registers[reg] = true
-		cg.variables[stmt.Name] = &VariableInfo{
-			Name:     stmt.Name,
-			Location: VarLocationRegister,
-			RegIndex: reg,
-		}
-	} else {
-		// Spill to stack
-		cg.stackOffset -= 2 // Allocate 2 bytes (16-bit value)
-		stackAddr := cg.stackOffset
-		// Store to stack: MOV [SP+offset], R0
-		cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0)) // MOV R7, #stackAddr
-		cg.builder.AddImmediate(stackAddr)
-		cg.builder.AddInstruction(rom.EncodeMOV(3, 7, 0)) // MOV [R7], R0
-		cg.variables[stmt.Name] = &VariableInfo{
-			Name:     stmt.Name,
-			Location: VarLocationStack,
-			StackAddr: stackAddr,
-		}
+	// Pre-alpha simplification: store locals on stack. This avoids register clobbering
+	// by builtins until a real calling convention/register allocator is implemented.
+	cg.stackOffset -= 2 // Allocate 2 bytes (16-bit value)
+	stackAddr := cg.stackOffset
+	cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0)) // MOV R7, #stackAddr
+	cg.builder.AddImmediate(stackAddr)
+	cg.builder.AddInstruction(rom.EncodeMOV(3, 7, 0)) // MOV [R7], R0
+	cg.variables[stmt.Name] = &VariableInfo{
+		Name:      stmt.Name,
+		Location:  VarLocationStack,
+		StackAddr: stackAddr,
 	}
 	return nil
 }
@@ -302,7 +278,7 @@ func (cg *CodeGenerator) generateAssign(stmt *AssignStmt) error {
 						// Variable is in register, holding the struct address
 						// Load struct address from register, add offset, then store member
 						cg.builder.AddInstruction(rom.EncodeMOV(0, 7, varInfo.RegIndex)) // MOV R7, R{reg} (struct address)
-						cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0)) // MOV R6, #offset
+						cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))                // MOV R6, #offset
 						cg.builder.AddImmediate(offset)
 						cg.builder.AddInstruction(rom.EncodeADD(0, 7, 6)) // ADD R7, R6 (member address)
 						cg.builder.AddInstruction(rom.EncodeMOV(7, 7, 0)) // MOV [R7], R0 (8-bit store)
@@ -325,7 +301,7 @@ func (cg *CodeGenerator) generateAssign(stmt *AssignStmt) error {
 		// Fallback: discard (would need proper struct tracking)
 		return nil
 	}
-	
+
 	// Regular assignment: x = value
 	if ident, ok := stmt.Target.(*IdentExpr); ok {
 		if varInfo, exists := cg.variables[ident.Name]; exists {
@@ -349,7 +325,7 @@ func (cg *CodeGenerator) generateAssign(stmt *AssignStmt) error {
 			Value:    stmt.Value,
 		})
 	}
-	
+
 	return fmt.Errorf("assignment target not supported: %T", stmt.Target)
 }
 
@@ -711,82 +687,109 @@ func (cg *CodeGenerator) generateExpr(expr Expr, destReg uint8) error {
 			}
 			return fmt.Errorf("modulo by non-power-of-2 or 60 not yet implemented")
 		case TOKEN_EQUAL_EQUAL:
-			// Compare and set result: 1 if equal, 0 if not
+			// Compare and set result: 1 if equal, 0 if not.
+			// Important: branch immediately after CMP (MOV updates flags).
 			cg.builder.AddInstruction(rom.EncodeCMP(0, 1, 2)) // CMP R1, R2
-			// Set R0 to 1 if equal, 0 if not
-			cg.builder.AddInstruction(rom.EncodeMOV(1, destReg, 0)) // MOV R{destReg}, #0
+			falseLabel := cg.newLabel()
+			endLabel := cg.newLabel()
+			cg.builder.AddInstruction(rom.EncodeBNE()) // BNE false
+			falsePos := cg.builder.GetCodeLength()
 			cg.builder.AddImmediate(0)
-			// Branch past setting to 1 if not equal
-			skipLabel := cg.newLabel()
-			cg.builder.AddInstruction(rom.EncodeBNE()) // BNE skip
-			skipPos := cg.builder.GetCodeLength()
-			cg.builder.AddImmediate(0) // Placeholder
-			// Set to 1 (equal)
-			cg.builder.AddInstruction(rom.EncodeMOV(1, destReg, 0))
+			cg.builder.AddInstruction(rom.EncodeMOV(1, destReg, 0)) // true => 1
 			cg.builder.AddImmediate(1)
-			// Skip label
-			cg.patchLabel(skipLabel, skipPos)
+			cg.builder.AddInstruction(rom.EncodeJMP()) // JMP end
+			endPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(0)
+			cg.patchLabel(falseLabel, falsePos)
+			cg.builder.AddInstruction(rom.EncodeMOV(1, destReg, 0)) // false => 0
+			cg.builder.AddImmediate(0)
+			cg.patchLabel(endLabel, endPos)
 			return nil
 		case TOKEN_BANG_EQUAL:
-			// Compare and set result: 1 if not equal, 0 if equal
+			// Compare and set result: 1 if not equal, 0 if equal.
 			cg.builder.AddInstruction(rom.EncodeCMP(0, 1, 2))
-			cg.builder.AddInstruction(rom.EncodeMOV(1, destReg, 0))
+			falseLabel := cg.newLabel()
+			endLabel := cg.newLabel()
+			cg.builder.AddInstruction(rom.EncodeBEQ()) // BEQ false (equal => false)
+			falsePos := cg.builder.GetCodeLength()
 			cg.builder.AddImmediate(0)
-			skipLabel := cg.newLabel()
-			cg.builder.AddInstruction(rom.EncodeBEQ()) // BEQ skip
-			skipPos := cg.builder.GetCodeLength()
-			cg.builder.AddImmediate(0)
-			cg.builder.AddInstruction(rom.EncodeMOV(1, destReg, 0))
+			cg.builder.AddInstruction(rom.EncodeMOV(1, destReg, 0)) // true => 1
 			cg.builder.AddImmediate(1)
-			cg.patchLabel(skipLabel, skipPos)
+			cg.builder.AddInstruction(rom.EncodeJMP())
+			endPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(0)
+			cg.patchLabel(falseLabel, falsePos)
+			cg.builder.AddInstruction(rom.EncodeMOV(1, destReg, 0)) // false => 0
+			cg.builder.AddImmediate(0)
+			cg.patchLabel(endLabel, endPos)
 			return nil
 		case TOKEN_LESS:
 			cg.builder.AddInstruction(rom.EncodeCMP(0, 1, 2))
-			cg.builder.AddInstruction(rom.EncodeMOV(1, destReg, 0))
+			falseLabel := cg.newLabel()
+			endLabel := cg.newLabel()
+			cg.builder.AddInstruction(rom.EncodeBGE()) // >= => false
+			falsePos := cg.builder.GetCodeLength()
 			cg.builder.AddImmediate(0)
-			skipLabel := cg.newLabel()
-			cg.builder.AddInstruction(rom.EncodeBGE()) // BGE skip (if >=, not <)
-			skipPos := cg.builder.GetCodeLength()
-			cg.builder.AddImmediate(0)
-			cg.builder.AddInstruction(rom.EncodeMOV(1, destReg, 0))
+			cg.builder.AddInstruction(rom.EncodeMOV(1, destReg, 0)) // true => 1
 			cg.builder.AddImmediate(1)
-			cg.patchLabel(skipLabel, skipPos)
+			cg.builder.AddInstruction(rom.EncodeJMP())
+			endPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(0)
+			cg.patchLabel(falseLabel, falsePos)
+			cg.builder.AddInstruction(rom.EncodeMOV(1, destReg, 0)) // false => 0
+			cg.builder.AddImmediate(0)
+			cg.patchLabel(endLabel, endPos)
 			return nil
 		case TOKEN_GREATER:
 			cg.builder.AddInstruction(rom.EncodeCMP(0, 1, 2))
-			cg.builder.AddInstruction(rom.EncodeMOV(1, destReg, 0))
-			cg.builder.AddImmediate(0)
-			skipLabel := cg.newLabel()
-			cg.builder.AddInstruction(rom.EncodeBLE()) // BLE skip
-			skipPos := cg.builder.GetCodeLength()
+			falseLabel := cg.newLabel()
+			endLabel := cg.newLabel()
+			cg.builder.AddInstruction(rom.EncodeBLE()) // <= => false
+			falsePos := cg.builder.GetCodeLength()
 			cg.builder.AddImmediate(0)
 			cg.builder.AddInstruction(rom.EncodeMOV(1, destReg, 0))
 			cg.builder.AddImmediate(1)
-			cg.patchLabel(skipLabel, skipPos)
+			cg.builder.AddInstruction(rom.EncodeJMP())
+			endPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(0)
+			cg.patchLabel(falseLabel, falsePos)
+			cg.builder.AddInstruction(rom.EncodeMOV(1, destReg, 0))
+			cg.builder.AddImmediate(0)
+			cg.patchLabel(endLabel, endPos)
 			return nil
 		case TOKEN_LESS_EQUAL:
 			cg.builder.AddInstruction(rom.EncodeCMP(0, 1, 2))
-			cg.builder.AddInstruction(rom.EncodeMOV(1, destReg, 0))
-			cg.builder.AddImmediate(0)
-			skipLabel := cg.newLabel()
-			cg.builder.AddInstruction(rom.EncodeBGT()) // BGT skip
-			skipPos := cg.builder.GetCodeLength()
+			falseLabel := cg.newLabel()
+			endLabel := cg.newLabel()
+			cg.builder.AddInstruction(rom.EncodeBGT()) // > => false
+			falsePos := cg.builder.GetCodeLength()
 			cg.builder.AddImmediate(0)
 			cg.builder.AddInstruction(rom.EncodeMOV(1, destReg, 0))
 			cg.builder.AddImmediate(1)
-			cg.patchLabel(skipLabel, skipPos)
+			cg.builder.AddInstruction(rom.EncodeJMP())
+			endPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(0)
+			cg.patchLabel(falseLabel, falsePos)
+			cg.builder.AddInstruction(rom.EncodeMOV(1, destReg, 0))
+			cg.builder.AddImmediate(0)
+			cg.patchLabel(endLabel, endPos)
 			return nil
 		case TOKEN_GREATER_EQUAL:
 			cg.builder.AddInstruction(rom.EncodeCMP(0, 1, 2))
-			cg.builder.AddInstruction(rom.EncodeMOV(1, destReg, 0))
-			cg.builder.AddImmediate(0)
-			skipLabel := cg.newLabel()
-			cg.builder.AddInstruction(rom.EncodeBLT()) // BLT skip
-			skipPos := cg.builder.GetCodeLength()
+			falseLabel := cg.newLabel()
+			endLabel := cg.newLabel()
+			cg.builder.AddInstruction(rom.EncodeBLT()) // < => false
+			falsePos := cg.builder.GetCodeLength()
 			cg.builder.AddImmediate(0)
 			cg.builder.AddInstruction(rom.EncodeMOV(1, destReg, 0))
 			cg.builder.AddImmediate(1)
-			cg.patchLabel(skipLabel, skipPos)
+			cg.builder.AddInstruction(rom.EncodeJMP())
+			endPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(0)
+			cg.patchLabel(falseLabel, falsePos)
+			cg.builder.AddInstruction(rom.EncodeMOV(1, destReg, 0))
+			cg.builder.AddImmediate(0)
+			cg.patchLabel(endLabel, endPos)
 			return nil
 		case TOKEN_AND:
 			// Logical AND: both must be non-zero
@@ -795,12 +798,12 @@ func (cg *CodeGenerator) generateExpr(expr Expr, destReg uint8) error {
 			cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0)) // MOV R7, #0
 			cg.builder.AddImmediate(0)
 			cg.builder.AddInstruction(rom.EncodeCMP(0, 1, 7)) // CMP R1, R7
-			cg.builder.AddInstruction(rom.EncodeBEQ()) // BEQ false
+			cg.builder.AddInstruction(rom.EncodeBEQ())        // BEQ false
 			falseLabel1 := cg.newLabel()
 			falsePos1 := cg.builder.GetCodeLength()
 			cg.builder.AddImmediate(0)
 			cg.builder.AddInstruction(rom.EncodeCMP(0, 2, 7)) // CMP R2, R7
-			cg.builder.AddInstruction(rom.EncodeBEQ()) // BEQ false
+			cg.builder.AddInstruction(rom.EncodeBEQ())        // BEQ false
 			falseLabel2 := cg.newLabel()
 			falsePos2 := cg.builder.GetCodeLength()
 			cg.builder.AddImmediate(0)
@@ -849,13 +852,13 @@ func (cg *CodeGenerator) generateExpr(expr Expr, destReg uint8) error {
 		case TOKEN_PIPE:
 			// Bitwise OR: left result is in R1, right result is in R2
 			// OR R1, R2 -> result in R1, then move to destReg
-			cg.builder.AddInstruction(rom.EncodeOR(0, 1, 2)) // OR R1, R2 -> R1 = R1 | R2
+			cg.builder.AddInstruction(rom.EncodeOR(0, 1, 2))        // OR R1, R2 -> R1 = R1 | R2
 			cg.builder.AddInstruction(rom.EncodeMOV(0, destReg, 1)) // MOV R{destReg}, R1
 			return nil
 		case TOKEN_AMPERSAND:
 			// Bitwise AND: left result is in R1, right result is in R2
 			// AND R1, R2 -> result in R1, then move to destReg
-			cg.builder.AddInstruction(rom.EncodeAND(0, 1, 2)) // AND R1, R2 -> R1 = R1 & R2
+			cg.builder.AddInstruction(rom.EncodeAND(0, 1, 2))       // AND R1, R2 -> R1 = R1 & R2
 			cg.builder.AddInstruction(rom.EncodeMOV(0, destReg, 1)) // MOV R{destReg}, R1
 			return nil
 		case TOKEN_CARET:
@@ -912,9 +915,9 @@ func (cg *CodeGenerator) generateExpr(expr Expr, destReg uint8) error {
 						// Variable is in register, holding the struct address
 						// Load struct address from register, add offset, then load member
 						cg.builder.AddInstruction(rom.EncodeMOV(0, 7, varInfo.RegIndex)) // MOV R7, R{reg} (struct address)
-						cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0)) // MOV R6, #offset
+						cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))                // MOV R6, #offset
 						cg.builder.AddImmediate(offset)
-						cg.builder.AddInstruction(rom.EncodeADD(0, 7, 6)) // ADD R7, R6 (member address)
+						cg.builder.AddInstruction(rom.EncodeADD(0, 7, 6))       // ADD R7, R6 (member address)
 						cg.builder.AddInstruction(rom.EncodeMOV(6, destReg, 7)) // MOV R{destReg}, [R7] (8-bit load)
 						return nil
 					} else if varInfo.Location == VarLocationStack {
@@ -925,7 +928,7 @@ func (cg *CodeGenerator) generateExpr(expr Expr, destReg uint8) error {
 						cg.builder.AddInstruction(rom.EncodeMOV(2, 6, 7)) // MOV R6, [R7] (load struct address, 16-bit)
 						cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0)) // MOV R7, #offset
 						cg.builder.AddImmediate(offset)
-						cg.builder.AddInstruction(rom.EncodeADD(0, 6, 7)) // ADD R6, R7 (member address)
+						cg.builder.AddInstruction(rom.EncodeADD(0, 6, 7))       // ADD R6, R7 (member address)
 						cg.builder.AddInstruction(rom.EncodeMOV(6, destReg, 6)) // MOV R{destReg}, [R6] (8-bit load)
 						return nil
 					}
@@ -1010,7 +1013,7 @@ func (cg *CodeGenerator) generateCall(call *CallExpr, destReg uint8) error {
 		}
 		cg.stackOffset -= structSize
 		stackAddr := cg.stackOffset
-		
+
 		// Initialize struct to zero
 		// Zero out struct bytes
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0)) // MOV R7, #stackAddr
@@ -1019,11 +1022,11 @@ func (cg *CodeGenerator) generateCall(call *CallExpr, destReg uint8) error {
 		cg.builder.AddImmediate(0)
 		// Zero out struct bytes (simplified - just zero first byte, rest will be zero-initialized)
 		cg.builder.AddInstruction(rom.EncodeMOV(7, 7, 6)) // MOV [R7], R6 (8-bit store, mode 7)
-		
+
 		// Return struct address in destReg
 		cg.builder.AddInstruction(rom.EncodeMOV(1, destReg, 0))
 		cg.builder.AddImmediate(stackAddr)
-		
+
 		// Note: The caller (VarDecl) will track this variable
 		// Struct address is returned in destReg
 		return nil
@@ -1050,13 +1053,13 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		cg.builder.AddImmediate(0x803E)
 		waitPos := cg.builder.GetCodeLength()
 		cg.builder.AddInstruction(rom.EncodeMOV(2, 5, 4)) // MOV R5, [R4] (read flag)
-		cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))  // MOV R7, #0x01
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0)) // MOV R7, #0x01
 		cg.builder.AddImmediate(0x01)
 		cg.builder.AddInstruction(rom.EncodeAND(0, 5, 7)) // AND R5, R7 (mask to bit 0)
-		cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))  // MOV R7, #0
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0)) // MOV R7, #0
 		cg.builder.AddImmediate(0)
-		cg.builder.AddInstruction(rom.EncodeCMP(0, 5, 7))  // CMP R5, R7 (compare with 0)
-		cg.builder.AddInstruction(rom.EncodeBEQ())         // BEQ waitPos (if equal to 0, keep waiting)
+		cg.builder.AddInstruction(rom.EncodeCMP(0, 5, 7)) // CMP R5, R7 (compare with 0)
+		cg.builder.AddInstruction(rom.EncodeBEQ())        // BEQ waitPos (if equal to 0, keep waiting)
 		currentPC := uint16(cg.builder.GetCodeLength() * 2)
 		offset := rom.CalculateBranchOffset(currentPC, uint16(waitPos*2))
 		cg.builder.AddImmediate(uint16(offset))
@@ -1066,24 +1069,24 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		// frame_counter() -> u32 (returns 16-bit frame counter)
 		// Read FRAME_COUNTER_LOW (0x803F) and FRAME_COUNTER_HIGH (0x8040)
 		// Combine into 16-bit value: (high << 8) | low
-		
+
 		// Read low byte from 0x803F
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #0x803F
 		cg.builder.AddImmediate(0x803F)
 		cg.builder.AddInstruction(rom.EncodeMOV(2, 5, 4)) // MOV R5, [R4] (read low byte)
-		
+
 		// Read high byte from 0x8040
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #0x8040
 		cg.builder.AddImmediate(0x8040)
 		cg.builder.AddInstruction(rom.EncodeMOV(2, 6, 4)) // MOV R6, [R4] (read high byte)
-		
+
 		// Combine: (high << 8) | low
 		cg.builder.AddInstruction(rom.EncodeMOV(0, 7, 6)) // MOV R7, R6 (copy high byte)
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #8
 		cg.builder.AddImmediate(8)
 		cg.builder.AddInstruction(rom.EncodeSHL(0, 7, 4)) // SHL R7, R4 -> R7 = high << 8
-		cg.builder.AddInstruction(rom.EncodeOR(0, 5, 7)) // OR R5, R7 -> R5 = (high << 8) | low
-		
+		cg.builder.AddInstruction(rom.EncodeOR(0, 5, 7))  // OR R5, R7 -> R5 = (high << 8) | low
+
 		// Return value in destReg
 		cg.builder.AddInstruction(rom.EncodeMOV(0, destReg, 5)) // MOV R{destReg}, R5
 		return nil
@@ -1097,13 +1100,13 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		cg.builder.AddInstruction(rom.EncodeMOV(0, 3, 0)) // MOV R3, R0 (save sprite addr)
 		cg.builder.AddInstruction(rom.EncodeMOV(0, 4, 1)) // MOV R4, R1 (save x)
 		cg.builder.AddInstruction(rom.EncodeMOV(0, 5, 2)) // MOV R5, R2 (save y)
-		
+
 		// Write x_lo (offset 0) - low byte of x
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0)) // MOV R6, #0xFF
 		cg.builder.AddImmediate(0xFF)
 		cg.builder.AddInstruction(rom.EncodeAND(0, 4, 6)) // AND R4, R6 (mask to low byte)
 		cg.builder.AddInstruction(rom.EncodeMOV(7, 3, 4)) // MOV [R3], R4 (8-bit store x_lo)
-		
+
 		// Write x_hi (offset 1) - high byte (sign bit)
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0)) // MOV R6, #1
 		cg.builder.AddImmediate(1)
@@ -1124,10 +1127,10 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		// oam.write(id: u8, s: *Sprite)
 		// Args: R0 = sprite id, R1 = sprite pointer
 		// Set OAM_ADDR to id * 6, then write sprite data from struct to OAM_DATA
-		
+
 		// Save sprite pointer (R1) to R3
 		cg.builder.AddInstruction(rom.EncodeMOV(0, 3, 1)) // MOV R3, R1 (sprite pointer)
-		
+
 		// Calculate OAM address: id * 6
 		cg.builder.AddInstruction(rom.EncodeMOV(0, 2, 0)) // MOV R2, R0 (save id)
 		cg.builder.AddInstruction(rom.EncodeMOV(0, 6, 2)) // MOV R6, R2 (copy id)
@@ -1139,67 +1142,67 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		cg.builder.AddImmediate(2)
 		cg.builder.AddInstruction(rom.EncodeSHL(0, 7, 5)) // SHL R7, R5 -> R7 = id*4
 		cg.builder.AddInstruction(rom.EncodeADD(0, 6, 7)) // ADD R6, R7 -> R6 = id*2 + id*4 = id*6
-		
+
 		// Set OAM_ADDR (0x8014)
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #0x8014
 		cg.builder.AddImmediate(0x8014)
 		cg.builder.AddInstruction(rom.EncodeMOV(0, 5, 6)) // MOV R5, R6 (OAM offset)
 		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5)) // MOV [R4], R5 (write OAM_ADDR)
-		
+
 		// Set OAM_DATA address (0x8015)
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #0x8015
 		cg.builder.AddImmediate(0x8015)
-		
+
 		// Read sprite struct and write to OAM_DATA
 		// Sprite format: x_lo (offset 0), x_hi (offset 1), y (offset 2), tile (offset 3), attr (offset 4), ctrl (offset 5)
 		// R3 = sprite pointer (save original in R7 for later use if needed)
 		cg.builder.AddInstruction(rom.EncodeMOV(0, 7, 3)) // MOV R7, R3 (save original sprite pointer)
-		
+
 		// Write x_lo (offset 0)
 		cg.builder.AddInstruction(rom.EncodeMOV(6, 5, 3)) // MOV R5, [R3] (8-bit load, mode 6)
 		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5)) // MOV [R4], R5 (write to OAM_DATA)
-		
+
 		// Write x_hi (offset 1)
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0)) // MOV R6, #1
 		cg.builder.AddImmediate(1)
 		cg.builder.AddInstruction(rom.EncodeADD(0, 3, 6)) // ADD R3, R6 (increment to offset 1)
 		cg.builder.AddInstruction(rom.EncodeMOV(6, 5, 3)) // MOV R5, [R3]
 		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5)) // MOV [R4], R5
-		
+
 		// Write y (offset 2)
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0)) // MOV R6, #1
 		cg.builder.AddImmediate(1)
 		cg.builder.AddInstruction(rom.EncodeADD(0, 3, 6)) // ADD R3, R6 (increment to offset 2)
 		cg.builder.AddInstruction(rom.EncodeMOV(6, 5, 3)) // MOV R5, [R3]
 		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5)) // MOV [R4], R5
-		
+
 		// Write tile (offset 3)
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0)) // MOV R6, #1
 		cg.builder.AddImmediate(1)
 		cg.builder.AddInstruction(rom.EncodeADD(0, 3, 6)) // ADD R3, R6 (increment to offset 3)
 		cg.builder.AddInstruction(rom.EncodeMOV(6, 5, 3)) // MOV R5, [R3]
 		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5)) // MOV [R4], R5
-		
+
 		// Write attr (offset 4)
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0)) // MOV R6, #1
 		cg.builder.AddImmediate(1)
 		cg.builder.AddInstruction(rom.EncodeADD(0, 3, 6)) // ADD R3, R6 (increment to offset 4)
 		cg.builder.AddInstruction(rom.EncodeMOV(6, 5, 3)) // MOV R5, [R3]
 		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5)) // MOV [R4], R5
-		
+
 		// Write ctrl (offset 5)
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0)) // MOV R6, #1
 		cg.builder.AddImmediate(1)
 		cg.builder.AddInstruction(rom.EncodeADD(0, 3, 6)) // ADD R3, R6 (increment to offset 5)
 		cg.builder.AddInstruction(rom.EncodeMOV(6, 5, 3)) // MOV R5, [R3]
 		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5)) // MOV [R4], R5
-		
+
 		return nil
 
 	case "oam.write_sprite_data":
 		// oam.write_sprite_data(id: u8, x: i16, y: u8, tile: u8, attr: u8, ctrl: u8)
 		// Args: R0=id, R1=x, R2=y, R3=tile, R4=attr, R5=ctrl
-		// IMPORTANT: Save R4 (attr) and R5 (ctrl) to R6/R7 BEFORE using R4 for OAM_DATA address
+		// Preserve y in R6 and keep attr/ctrl in R4/R5 by using R0/R2/R7 as temporaries.
 		if len(args) != 6 {
 			return fmt.Errorf("oam.write_sprite_data requires 6 arguments")
 		}
@@ -1210,50 +1213,45 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		tileReg := uint8(3)
 		attrReg := uint8(4)
 		ctrlReg := uint8(5)
-
-		// Save attr (R4) and ctrl (R5) to R6 and R7 BEFORE overwriting R4
-		cg.builder.AddInstruction(rom.EncodeMOV(0, 6, attrReg)) // MOV R6, R4 (save attr)
-		cg.builder.AddInstruction(rom.EncodeMOV(0, 7, ctrlReg)) // MOV R7, R5 (save ctrl)
+		// Save y (R2) because R2 will be reused for x temp values
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 6, yReg)) // MOV R6, R2 (save y)
 
 		// Set OAM_ADDR to sprite ID (0-127), NOT id * 6
 		// The PPU internally multiplies by 6 to get the byte offset
 		// Write sprite ID directly to OAM_ADDR (0x8014)
-		cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #0x8014
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 2, 0)) // MOV R2, #0x8014
 		cg.builder.AddImmediate(0x8014)
-		cg.builder.AddInstruction(rom.EncodeMOV(0, 5, idReg)) // MOV R5, R0 (sprite ID)
-		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5)) // MOV [R4], R5 (write sprite ID to OAM_ADDR)
+		cg.builder.AddInstruction(rom.EncodeMOV(3, 2, idReg)) // MOV [R2], R0 (sprite ID)
 
-		// Write sprite data to OAM_DATA (0x8015)
-		cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #0x8015
+		// Write sprite data to OAM_DATA (0x8015) using R0 as pointer (id no longer needed)
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 0, 0)) // MOV R0, #0x8015
 		cg.builder.AddImmediate(0x8015)
-		
+
 		// X low byte (R1)
-		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #0xFF
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 2, xReg)) // MOV R2, R1 (x temp)
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))    // MOV R7, #0xFF
 		cg.builder.AddImmediate(0xFF)
-		cg.builder.AddInstruction(rom.EncodeMOV(0, 2, xReg)) // MOV R2, R1 (x, save to R2)
-		cg.builder.AddInstruction(rom.EncodeAND(0, 2, 5)) // AND R2, R5 (mask to low byte)
-		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 2)) // MOV [R4], R2
-		
+		cg.builder.AddInstruction(rom.EncodeAND(0, 2, 7)) // AND R2, R7 (low byte)
+		cg.builder.AddInstruction(rom.EncodeMOV(3, 0, 2)) // MOV [R0], R2
+
 		// X high byte: extract sign bit from x (bit 8)
 		cg.builder.AddInstruction(rom.EncodeMOV(0, 2, xReg)) // MOV R2, R1 (x)
-		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #8
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))    // MOV R7, #8
 		cg.builder.AddImmediate(8)
-		cg.builder.AddInstruction(rom.EncodeSHR(0, 2, 5)) // SHR R2, R5 -> R2 = x >> 8 (high byte)
-		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 2)) // MOV [R4], R2
-		
-		// Y (R2) - but R2 was used above, so use R5 temporarily
-		cg.builder.AddInstruction(rom.EncodeMOV(0, 5, yReg)) // MOV R5, R2 (y)
-		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5)) // MOV [R4], R5
-		
+		cg.builder.AddInstruction(rom.EncodeSHR(0, 2, 7)) // SHR R2, R7 -> x high
+		cg.builder.AddInstruction(rom.EncodeMOV(3, 0, 2)) // MOV [R0], R2
+
+		// Y (from saved R6)
+		cg.builder.AddInstruction(rom.EncodeMOV(3, 0, 6)) // MOV [R0], R6
+
 		// Tile (R3)
-		cg.builder.AddInstruction(rom.EncodeMOV(0, 5, tileReg)) // MOV R5, R3 (tile)
-		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5)) // MOV [R4], R5
-		
-		// Attr (from saved R6)
-		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 6)) // MOV [R4], R6 (write saved attr)
-		
-		// Ctrl (from saved R7)
-		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 7)) // MOV [R4], R7 (write saved ctrl)
+		cg.builder.AddInstruction(rom.EncodeMOV(3, 0, tileReg)) // MOV [R0], R3
+
+		// Attr (R4)
+		cg.builder.AddInstruction(rom.EncodeMOV(3, 0, attrReg)) // MOV [R0], R4
+
+		// Ctrl (R5)
+		cg.builder.AddInstruction(rom.EncodeMOV(3, 0, ctrlReg)) // MOV [R0], R5
 		return nil
 
 	case "oam.clear_sprite":
@@ -1271,8 +1269,8 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #0x8014
 		cg.builder.AddImmediate(0x8014)
 		cg.builder.AddInstruction(rom.EncodeMOV(0, 6, idReg)) // MOV R6, R0 (sprite ID)
-		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 6)) // MOV [R4], R6 (write sprite ID to OAM_ADDR)
-		
+		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 6))     // MOV [R4], R6 (write sprite ID to OAM_ADDR)
+
 		// Set OAM_ADDR to sprite ID again, but this time we need to write to byte 5 (control)
 		// The PPU uses OAM_ADDR * 6 + byte_index, so we need to write 5 dummy bytes first
 		// Actually, simpler: just write 0 to all 6 bytes to completely disable the sprite
@@ -1308,7 +1306,7 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		}
 		// Arg is in R0, shift left by 6 bits
 		cg.builder.AddInstruction(rom.EncodeMOV(0, destReg, 0)) // MOV R{destReg}, R0
-		cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0)) // MOV R7, #6
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))       // MOV R7, #6
 		cg.builder.AddImmediate(6)
 		cg.builder.AddInstruction(rom.EncodeSHL(0, destReg, 7)) // SHL R{destReg}, R7 -> priority << 6
 		return nil
@@ -1358,7 +1356,7 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		}
 		// Arg is in R0, shift left by 2 bits
 		cg.builder.AddInstruction(rom.EncodeMOV(0, destReg, 0)) // MOV R{destReg}, R0
-		cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0)) // MOV R7, #2
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))       // MOV R7, #2
 		cg.builder.AddImmediate(2)
 		cg.builder.AddInstruction(rom.EncodeSHL(0, destReg, 7)) // SHL R{destReg}, R7 -> mode << 2
 		return nil
@@ -1373,10 +1371,10 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		}
 		// Arg is in R0, mask to 4 bits first (alpha is 0-15), then shift left by 4
 		cg.builder.AddInstruction(rom.EncodeMOV(0, destReg, 0)) // MOV R{destReg}, R0
-		cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0)) // MOV R7, #0x0F
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))       // MOV R7, #0x0F
 		cg.builder.AddImmediate(0x0F)
 		cg.builder.AddInstruction(rom.EncodeAND(0, destReg, 7)) // AND R{destReg}, R7 -> mask to 4 bits
-		cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0)) // MOV R7, #4
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))       // MOV R7, #4
 		cg.builder.AddImmediate(4)
 		cg.builder.AddInstruction(rom.EncodeSHL(0, destReg, 7)) // SHL R{destReg}, R7 -> alpha << 4
 		return nil
@@ -1391,40 +1389,38 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		// Sets a color in CGRAM
 		// CGRAM address = (palette * 16 + color_index) * 2
 		// CGRAM is RGB555 format, stored as 2 bytes (low, high)
-		
-		// Calculate CGRAM address: (palette * 16 + color_index) * 2
+
+		// Calculate CGRAM color index address: (palette * 16 + color_index)
+		// Note: PPU CGRAM_ADDR register is in color-index units (the PPU multiplies by 2 internally
+		// when writing low/high bytes into CGRAM storage), so we must NOT multiply by 2 here.
 		// palette * 16 = palette << 4
 		cg.builder.AddInstruction(rom.EncodeMOV(0, 3, 0)) // MOV R3, R0 (save palette)
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #4
 		cg.builder.AddImmediate(4)
 		cg.builder.AddInstruction(rom.EncodeSHL(0, 3, 4)) // SHL R3, R4 -> R3 = palette << 4 = palette * 16
 		cg.builder.AddInstruction(rom.EncodeADD(0, 3, 1)) // ADD R3, R1 -> R3 = palette * 16 + color_index
-		cg.builder.AddInstruction(rom.EncodeMOV(0, 4, 3)) // MOV R4, R3 (copy)
-		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #1
-		cg.builder.AddImmediate(1)
-		cg.builder.AddInstruction(rom.EncodeSHL(0, 4, 5)) // SHL R4, R5 -> R4 = (palette * 16 + color_index) * 2
-		
+
 		// Set CGRAM_ADDR (0x8012)
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0)) // MOV R6, #0x8012
 		cg.builder.AddImmediate(0x8012)
-		cg.builder.AddInstruction(rom.EncodeMOV(0, 7, 4)) // MOV R7, R4 (CGRAM address)
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 7, 3)) // MOV R7, R3 (CGRAM color index address)
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #0xFF
 		cg.builder.AddImmediate(0xFF)
 		cg.builder.AddInstruction(rom.EncodeAND(0, 7, 5)) // AND R7, R5 (mask to 8 bits for CGRAM_ADDR)
 		cg.builder.AddInstruction(rom.EncodeMOV(3, 6, 7)) // MOV [R6], R7 (write CGRAM_ADDR)
-		
+
 		// Write color to CGRAM_DATA (0x8013)
 		// CGRAM_DATA requires two writes: low byte, then high byte (both to same address)
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0)) // MOV R6, #0x8013
 		cg.builder.AddImmediate(0x8013)
-		
+
 		// Write low byte first
 		cg.builder.AddInstruction(rom.EncodeMOV(0, 7, 2)) // MOV R7, R2 (color)
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #0xFF
 		cg.builder.AddImmediate(0xFF)
 		cg.builder.AddInstruction(rom.EncodeAND(0, 7, 5)) // AND R7, R5 (mask to low byte)
 		cg.builder.AddInstruction(rom.EncodeMOV(3, 6, 7)) // MOV [R6], R7 (write low byte)
-		
+
 		// Write high byte (triggers CGRAM write)
 		cg.builder.AddInstruction(rom.EncodeMOV(0, 7, 2)) // MOV R7, R2 (color)
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #8
@@ -1438,9 +1434,9 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		// Initializes default palettes with basic colors
 		// Palette 0: Grayscale (black to white)
 		// Palette 1: Blue tones
-		// Palette 2: Green tones  
+		// Palette 2: Green tones
 		// Palette 3: Red tones
-		
+
 		// Initialize palette 0 (grayscale)
 		for i := 0; i < 16; i++ {
 			// Color value: RGB555, grayscale = (i*31/15, i*31/15, i*31/15)
@@ -1451,14 +1447,14 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 			}
 			// RGB555: RRRRR GGGGG BBBBB (bits 15-11=R, 10-6=G, 5-1=B, bit 0 unused)
 			color := (comp << 11) | (comp << 6) | (comp << 1)
-			
+
 			// Set palette 0, color i
 			cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #0x8012 (CGRAM_ADDR)
 			cg.builder.AddImmediate(0x8012)
 			cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #(i*2)
 			cg.builder.AddImmediate(uint16(i * 2))
 			cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5)) // MOV [R4], R5
-			
+
 			// Write color
 			cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #0x8013 (CGRAM_DATA)
 			cg.builder.AddImmediate(0x8013)
@@ -1469,7 +1465,7 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 			cg.builder.AddImmediate((color >> 8) & 0xFF)
 			cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5)) // MOV [R4], R5 (high byte)
 		}
-		
+
 		// Initialize palette 1 (blue tones) - simplified, just set a few colors
 		// Color 0 = black, Color 15 = bright blue
 		for i := 0; i < 16; i++ {
@@ -1479,13 +1475,13 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 			}
 			// Blue: (0, 0, comp)
 			color := (comp << 1) // Blue in bits 5-1
-			
+
 			cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #0x8012
 			cg.builder.AddImmediate(0x8012)
 			cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #(16*2 + i*2)
 			cg.builder.AddImmediate(uint16(16*2 + i*2))
 			cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5)) // MOV [R4], R5
-			
+
 			cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #0x8013
 			cg.builder.AddImmediate(0x8013)
 			cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #color_low
@@ -1495,7 +1491,7 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 			cg.builder.AddImmediate((color >> 8) & 0xFF)
 			cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5)) // MOV [R4], R5
 		}
-		
+
 		// Initialize palette 2 (green tones)
 		for i := 0; i < 16; i++ {
 			comp := uint16(i * 2)
@@ -1504,13 +1500,13 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 			}
 			// Green: (0, comp, 0)
 			color := (comp << 6) // Green in bits 10-6
-			
+
 			cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #0x8012
 			cg.builder.AddImmediate(0x8012)
 			cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #(32*2 + i*2)
 			cg.builder.AddImmediate(uint16(32*2 + i*2))
 			cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5)) // MOV [R4], R5
-			
+
 			cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #0x8013
 			cg.builder.AddImmediate(0x8013)
 			cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #color_low
@@ -1520,7 +1516,7 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 			cg.builder.AddImmediate((color >> 8) & 0xFF)
 			cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5)) // MOV [R4], R5
 		}
-		
+
 		// Initialize palette 3 (red tones)
 		for i := 0; i < 16; i++ {
 			comp := uint16(i * 2)
@@ -1529,13 +1525,13 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 			}
 			// Red: (comp, 0, 0)
 			color := (comp << 11) // Red in bits 15-11
-			
+
 			cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #0x8012
 			cg.builder.AddImmediate(0x8012)
 			cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #(48*2 + i*2)
 			cg.builder.AddImmediate(uint16(48*2 + i*2))
 			cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5)) // MOV [R4], R5
-			
+
 			cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #0x8013
 			cg.builder.AddImmediate(0x8013)
 			cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #color_low
@@ -1545,7 +1541,7 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 			cg.builder.AddImmediate((color >> 8) & 0xFF)
 			cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5)) // MOV [R4], R5
 		}
-		
+
 		return nil
 
 	case "ppu.enable_display":
@@ -1562,7 +1558,7 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		// Args: R0 = asset ID (ASSET_* constant), R1 = base tile index
 		// Loads tile data from asset to VRAM starting at base * 32 bytes
 		// Returns base tile index (for chaining)
-		
+
 		// Check if first arg is an ASSET_ constant (compile-time known)
 		if len(args) > 0 {
 			if ident, ok := args[0].(*IdentExpr); ok && strings.HasPrefix(ident.Name, "ASSET_") {
@@ -1573,18 +1569,18 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 				}
 			}
 		}
-		
+
 		// Runtime asset loading (asset ID is a variable)
 		// Calculate VRAM address: base * 32 (each 8x8 tile is 32 bytes at 4bpp)
 		// Save base (R1) to R2
 		cg.builder.AddInstruction(rom.EncodeMOV(0, 2, 1)) // MOV R2, R1 (save base)
-		
+
 		// Calculate VRAM address: base * 32 = base << 5
 		cg.builder.AddInstruction(rom.EncodeMOV(0, 3, 2)) // MOV R3, R2 (copy base)
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #5
 		cg.builder.AddImmediate(5)
 		cg.builder.AddInstruction(rom.EncodeSHL(0, 3, 4)) // SHL R3, R4 -> R3 = base << 5 = base * 32
-		
+
 		// Set VRAM_ADDR_L (0x800E)
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #0x800E
 		cg.builder.AddImmediate(0x800E)
@@ -1593,7 +1589,7 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		cg.builder.AddImmediate(0xFF)
 		cg.builder.AddInstruction(rom.EncodeAND(0, 5, 6)) // AND R5, R6 (mask to low byte)
 		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5)) // MOV [R4], R5 (write VRAM_ADDR_L)
-		
+
 		// Set VRAM_ADDR_H (0x800F)
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #0x800F
 		cg.builder.AddImmediate(0x800F)
@@ -1602,7 +1598,7 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		cg.builder.AddImmediate(8)
 		cg.builder.AddInstruction(rom.EncodeSHR(0, 5, 6)) // SHR R5, R6 -> R5 = VRAM address >> 8 (high byte)
 		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5)) // MOV [R4], R5 (write VRAM_ADDR_H)
-		
+
 		// TODO: Runtime asset loading would need asset data in ROM
 		// For now, return base (tile index) so code can continue
 		cg.builder.AddInstruction(rom.EncodeMOV(0, destReg, 2)) // MOV R{destReg}, R2 (return base)
@@ -1630,7 +1626,7 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0)) // MOV R7, #8
 		cg.builder.AddImmediate(8)
 		cg.builder.AddInstruction(rom.EncodeSHL(0, 6, 7)) // SHL R6, R7 -> R6 = high << 8
-		cg.builder.AddInstruction(rom.EncodeOR(0, 5, 6)) // OR R5, R6 -> R5 = low | (high << 8)
+		cg.builder.AddInstruction(rom.EncodeOR(0, 5, 6))  // OR R5, R6 -> R5 = low | (high << 8)
 		// Release latch: write 0 to 0xA001
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #0xA001
 		cg.builder.AddImmediate(0xA001)
@@ -1658,7 +1654,7 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		// Write to CONTROL register (offset +3) with bits [1:2] = waveform
 		// Channel base: CH0=0x9000, CH1=0x9008, CH2=0x9010, CH3=0x9018
 		// CONTROL = channel_base + 3
-		
+
 		// Calculate channel base address: 0x9000 + (ch * 8)
 		// ch * 8 = ch << 3
 		cg.builder.AddInstruction(rom.EncodeMOV(0, 4, 0)) // MOV R4, R0 (save channel)
@@ -1668,19 +1664,19 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #0x9000
 		cg.builder.AddImmediate(0x9000)
 		cg.builder.AddInstruction(rom.EncodeADD(0, 4, 5)) // ADD R4, R5 -> R4 = 0x9000 + (ch * 8)
-		
+
 		// Add offset 3 for CONTROL register
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #3
 		cg.builder.AddImmediate(3)
 		cg.builder.AddInstruction(rom.EncodeADD(0, 4, 5)) // ADD R4, R5 -> R4 = channel_base + 3
-		
+
 		// Prepare waveform value: shift to bits [1:2]
 		// Waveform is in R1, need to shift left by 1 bit
 		cg.builder.AddInstruction(rom.EncodeMOV(0, 5, 1)) // MOV R5, R1 (waveform)
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0)) // MOV R6, #1
 		cg.builder.AddImmediate(1)
 		cg.builder.AddInstruction(rom.EncodeSHL(0, 5, 6)) // SHL R5, R6 -> R5 = wave << 1
-		
+
 		// Read current CONTROL value, OR with waveform bits, write back
 		// For simplicity, just write waveform bits (assumes enable bit will be set separately)
 		// In practice, we'd read, mask, OR, write - but for now just write waveform
@@ -1692,7 +1688,7 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		// Args: R0 = channel (0-3), R1 = frequency (16-bit)
 		// Write low byte to FREQ_LOW (offset +0), then high byte to FREQ_HIGH (offset +1)
 		// Writing high byte triggers phase reset
-		
+
 		// Calculate channel base address: 0x9000 + (ch * 8)
 		// ch * 8 = ch << 3
 		cg.builder.AddInstruction(rom.EncodeMOV(0, 4, 0)) // MOV R4, R0 (save channel)
@@ -1702,17 +1698,17 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #0x9000
 		cg.builder.AddImmediate(0x9000)
 		cg.builder.AddInstruction(rom.EncodeADD(0, 4, 5)) // ADD R4, R5 -> R4 = 0x9000 + (ch * 8)
-		
+
 		// Save frequency value
 		cg.builder.AddInstruction(rom.EncodeMOV(0, 5, 1)) // MOV R5, R1 (frequency)
-		
+
 		// Write low byte to FREQ_LOW (offset +0)
 		cg.builder.AddInstruction(rom.EncodeMOV(0, 6, 5)) // MOV R6, R5 (copy freq)
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0)) // MOV R7, #0xFF
 		cg.builder.AddImmediate(0xFF)
 		cg.builder.AddInstruction(rom.EncodeAND(0, 6, 7)) // AND R6, R7 -> R6 = freq & 0xFF (low byte)
 		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 6)) // MOV [R4], R6 (write FREQ_LOW)
-		
+
 		// Write high byte to FREQ_HIGH (offset +1)
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0)) // MOV R6, #1
 		cg.builder.AddImmediate(1)
@@ -1728,7 +1724,7 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		// apu.set_channel_volume(ch: u8, vol: u8)
 		// Args: R0 = channel (0-3), R1 = volume (0-255)
 		// Write to VOLUME register (offset +2)
-		
+
 		// Calculate channel base address: 0x9000 + (ch * 8)
 		// ch * 8 = ch << 3
 		cg.builder.AddInstruction(rom.EncodeMOV(0, 4, 0)) // MOV R4, R0 (save channel)
@@ -1738,12 +1734,12 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #0x9000
 		cg.builder.AddImmediate(0x9000)
 		cg.builder.AddInstruction(rom.EncodeADD(0, 4, 5)) // ADD R4, R5 -> R4 = 0x9000 + (ch * 8)
-		
+
 		// Add offset 2 for VOLUME register
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #2
 		cg.builder.AddImmediate(2)
 		cg.builder.AddInstruction(rom.EncodeADD(0, 4, 5)) // ADD R4, R5 -> R4 = channel_base + 2
-		
+
 		// Write volume (R1) to VOLUME register
 		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 1)) // MOV [R4], R1 (write VOLUME)
 		return nil
@@ -1752,7 +1748,7 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		// apu.note_on(ch: u8)
 		// Args: R0 = channel (0-3)
 		// Set CONTROL register (offset +3) bit 0 to 1 (enable)
-		
+
 		// Calculate channel base address: 0x9000 + (ch * 8)
 		// ch * 8 = ch << 3
 		cg.builder.AddInstruction(rom.EncodeMOV(0, 4, 0)) // MOV R4, R0 (save channel)
@@ -1762,17 +1758,17 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #0x9000
 		cg.builder.AddImmediate(0x9000)
 		cg.builder.AddInstruction(rom.EncodeADD(0, 4, 5)) // ADD R4, R5 -> R4 = 0x9000 + (ch * 8)
-		
+
 		// Add offset 3 for CONTROL register
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #3
 		cg.builder.AddImmediate(3)
 		cg.builder.AddInstruction(rom.EncodeADD(0, 4, 5)) // ADD R4, R5 -> R4 = channel_base + 3
-		
+
 		// Read current CONTROL value, OR with 0x01 (enable bit)
 		cg.builder.AddInstruction(rom.EncodeMOV(2, 5, 4)) // MOV R5, [R4] (read current CONTROL)
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0)) // MOV R6, #0x01
 		cg.builder.AddImmediate(0x01)
-		cg.builder.AddInstruction(rom.EncodeOR(0, 5, 6)) // OR R5, R6 -> R5 = CONTROL | 0x01
+		cg.builder.AddInstruction(rom.EncodeOR(0, 5, 6))  // OR R5, R6 -> R5 = CONTROL | 0x01
 		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5)) // MOV [R4], R5 (write CONTROL with enable bit)
 		return nil
 
@@ -1780,7 +1776,7 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		// apu.note_off(ch: u8)
 		// Args: R0 = channel (0-3)
 		// Clear CONTROL register (offset +3) bit 0 (disable)
-		
+
 		// Calculate channel base address: 0x9000 + (ch * 8)
 		// ch * 8 = ch << 3
 		cg.builder.AddInstruction(rom.EncodeMOV(0, 4, 0)) // MOV R4, R0 (save channel)
@@ -1790,12 +1786,12 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #0x9000
 		cg.builder.AddImmediate(0x9000)
 		cg.builder.AddInstruction(rom.EncodeADD(0, 4, 5)) // ADD R4, R5 -> R4 = 0x9000 + (ch * 8)
-		
+
 		// Add offset 3 for CONTROL register
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #3
 		cg.builder.AddImmediate(3)
 		cg.builder.AddInstruction(rom.EncodeADD(0, 4, 5)) // ADD R4, R5 -> R4 = channel_base + 3
-		
+
 		// Read current CONTROL value, AND with 0xFE (clear enable bit)
 		cg.builder.AddInstruction(rom.EncodeMOV(2, 5, 4)) // MOV R5, [R4] (read current CONTROL)
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0)) // MOV R6, #0xFE
@@ -1811,18 +1807,21 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 
 // generateInlineTileLoad generates code to load tile data from an asset directly to VRAM
 func (cg *CodeGenerator) generateInlineTileLoad(asset *AssetDecl, baseExpr Expr, destReg uint8) error {
+	if asset.Type != "tiles8" && asset.Type != "tiles16" && asset.Type != "sprite" && asset.Type != "tileset" {
+		return fmt.Errorf("gfx.load_tiles requires tile asset type, got %s", asset.Type)
+	}
 	// Generate base tile index (second argument)
 	if err := cg.generateExpr(baseExpr, 1); err != nil {
 		return err
 	}
 	// R1 now has base tile index
-	
+
 	// Calculate VRAM address based on tile size
 	// For tiles8: base * 32 = base << 5 (32 bytes per tile)
 	// For tiles16: base * 128 = base << 7 (128 bytes per tile)
 	cg.builder.AddInstruction(rom.EncodeMOV(0, 2, 1)) // MOV R2, R1 (save base)
 	cg.builder.AddInstruction(rom.EncodeMOV(0, 3, 2)) // MOV R3, R2 (copy base)
-	
+
 	if asset.Type == "tiles16" {
 		// 16x16 tile: base * 128 = base << 7
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #7
@@ -1834,7 +1833,7 @@ func (cg *CodeGenerator) generateInlineTileLoad(asset *AssetDecl, baseExpr Expr,
 		cg.builder.AddImmediate(5)
 		cg.builder.AddInstruction(rom.EncodeSHL(0, 3, 4)) // SHL R3, R4 -> R3 = base << 5 = base * 32
 	}
-	
+
 	// Set VRAM_ADDR_L (0x800E)
 	cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #0x800E
 	cg.builder.AddImmediate(0x800E)
@@ -1843,7 +1842,7 @@ func (cg *CodeGenerator) generateInlineTileLoad(asset *AssetDecl, baseExpr Expr,
 	cg.builder.AddImmediate(0xFF)
 	cg.builder.AddInstruction(rom.EncodeAND(0, 5, 6)) // AND R5, R6 (mask to low byte)
 	cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5)) // MOV [R4], R5 (write VRAM_ADDR_L)
-	
+
 	// Set VRAM_ADDR_H (0x800F)
 	cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #0x800F
 	cg.builder.AddImmediate(0x800F)
@@ -1852,42 +1851,42 @@ func (cg *CodeGenerator) generateInlineTileLoad(asset *AssetDecl, baseExpr Expr,
 	cg.builder.AddImmediate(8)
 	cg.builder.AddInstruction(rom.EncodeSHR(0, 5, 6)) // SHR R5, R6 -> R5 = VRAM address >> 8 (high byte)
 	cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5)) // MOV [R4], R5 (write VRAM_ADDR_H)
-	
-	// Parse hex data and write to VRAM_DATA (0x8010)
-	if asset.Encoding == "hex" {
-		// Parse hex string (format: "FF FF 00 00 ..." or "FF FF\n00 00\n...")
-		hexData := strings.Fields(asset.Data)
-		vramDataAddr := uint16(0x8010)
-		
-		// Set VRAM_DATA address once
-		cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #0x8010
-		cg.builder.AddImmediate(vramDataAddr)
-		
-		// Write each byte
-		bytesWritten := 0
-		tileSize := 32 // 8x8 tile at 4bpp = 32 bytes
-		if asset.Type == "tiles16" {
-			tileSize = 128 // 16x16 tile at 4bpp = 128 bytes
-		}
-		
-		for _, hexByte := range hexData {
-			if bytesWritten >= tileSize {
-				break
-			}
-			// Parse hex byte
-			if value, err := strconv.ParseUint(hexByte, 16, 8); err == nil {
-				// Write byte to VRAM_DATA
-				cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #value
-				cg.builder.AddImmediate(uint16(value))
-				cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5)) // MOV [R4], R5 (write to VRAM_DATA, auto-increments)
-				bytesWritten++
-			}
-		}
+
+	dataBytes, err := cg.inlineTileAssetBytes(asset)
+	if err != nil {
+		return err
 	}
-	
+	vramDataAddr := uint16(0x8010)
+	cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #0x8010
+	cg.builder.AddImmediate(vramDataAddr)
+
+	tileSize := 32 // 8x8 tile at 4bpp = 32 bytes
+	if asset.Type == "tiles16" {
+		tileSize = 128 // 16x16 tile at 4bpp = 128 bytes
+	}
+	for i, value := range dataBytes {
+		if i >= tileSize {
+			break
+		}
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #value
+		cg.builder.AddImmediate(uint16(value))
+		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5)) // MOV [R4], R5
+	}
+
 	// Return base tile index
 	cg.builder.AddInstruction(rom.EncodeMOV(0, destReg, 2)) // MOV R{destReg}, R2 (return base)
 	return nil
+}
+
+func (cg *CodeGenerator) inlineTileAssetBytes(asset *AssetDecl) ([]byte, error) {
+	if norm, ok := cg.normalizedAssets[asset.Name]; ok {
+		return norm.Data, nil
+	}
+	// Fallback for direct codegen use outside the compiler pipeline.
+	if asset.Encoding != "hex" {
+		return nil, fmt.Errorf("inline tile load requires normalized asset data for %s encoding", asset.Encoding)
+	}
+	return decodeHexAssetData(asset.Data)
 }
 
 func (cg *CodeGenerator) generateMember(expr *MemberExpr, destReg uint8) error {
@@ -1959,6 +1958,11 @@ func (cg *CodeGenerator) newLabel() int {
 }
 
 func (cg *CodeGenerator) patchLabel(label, offsetPos int) {
-	// In a full implementation, we'd track labels and patch them
-	// For now, this is a placeholder
+	_ = label // Labels are currently patched immediately at their definition point.
+	// offsetPos is the word index where the branch/jump immediate placeholder was emitted.
+	// The CPU PC-relative branch offset is calculated from the address *after* the immediate.
+	currentPC := uint16(offsetPos * 2)
+	targetPC := uint16(cg.builder.GetCodeLength() * 2)
+	offset := rom.CalculateBranchOffset(currentPC, targetPC)
+	cg.builder.SetImmediateAt(offsetPos, uint16(offset))
 }

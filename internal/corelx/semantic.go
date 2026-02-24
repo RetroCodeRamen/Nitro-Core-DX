@@ -8,25 +8,34 @@ import (
 type SemanticAnalyzer struct {
 	program     *Program
 	symbols     map[string]*Symbol
-	errors      []error
+	diagnostics []Diagnostic
 	currentFunc *FunctionDecl
 }
 
 // Symbol represents a symbol in the symbol table
 type Symbol struct {
-	Name     string
-	Type     TypeExpr
-	IsFunc   bool
+	Name      string
+	Type      TypeExpr
+	IsFunc    bool
 	IsBuiltin bool
-	Position Position
+	Position  Position
 }
 
 // Analyze performs semantic analysis
 func Analyze(program *Program) error {
+	diags := AnalyzeWithDiagnostics(program)
+	if !HasErrors(diags) {
+		return nil
+	}
+	return &DiagnosticsError{Diagnostics: diags}
+}
+
+// AnalyzeWithDiagnostics performs semantic analysis and returns structured diagnostics.
+func AnalyzeWithDiagnostics(program *Program) []Diagnostic {
 	analyzer := &SemanticAnalyzer{
-		program: program,
-		symbols: make(map[string]*Symbol),
-		errors:  make([]error, 0),
+		program:     program,
+		symbols:     make(map[string]*Symbol),
+		diagnostics: make([]Diagnostic, 0),
 	}
 
 	// Register built-in types
@@ -45,21 +54,27 @@ func Analyze(program *Program) error {
 		analyzer.analyzeAsset(asset)
 	}
 
+	// Register/analyze function declarations (name collisions first)
+	analyzer.registerFunctionDecls()
+
 	// Analyze functions
 	for _, fn := range program.Functions {
 		analyzer.analyzeFunction(fn)
 	}
 
 	// Check for Start() function
-	if _, ok := analyzer.symbols["Start"]; !ok {
-		analyzer.errors = append(analyzer.errors, fmt.Errorf("missing required function: Start()"))
+	hasStart := false
+	for _, fn := range program.Functions {
+		if fn.Name == "Start" {
+			hasStart = true
+			break
+		}
+	}
+	if !hasStart {
+		analyzer.addDiagnostic(Position{}, CategoryValidationError, "E_MISSING_ENTRYPOINT", "missing required function: Start()", "")
 	}
 
-	if len(analyzer.errors) > 0 {
-		return fmt.Errorf("semantic errors: %v", analyzer.errors)
-	}
-
-	return nil
+	return analyzer.diagnostics
 }
 
 func (a *SemanticAnalyzer) registerBuiltinTypes() {
@@ -70,8 +85,8 @@ func (a *SemanticAnalyzer) registerBuiltinTypes() {
 	}
 	for _, name := range builtins {
 		a.symbols[name] = &Symbol{
-			Name:     name,
-			Type:     &NamedType{Name: name},
+			Name:      name,
+			Type:      &NamedType{Name: name},
 			IsBuiltin: true,
 		}
 	}
@@ -94,8 +109,8 @@ func (a *SemanticAnalyzer) registerBuiltinFunctions() {
 	}
 	for _, name := range builtins {
 		a.symbols[name] = &Symbol{
-			Name:     name,
-			IsFunc:   true,
+			Name:      name,
+			IsFunc:    true,
 			IsBuiltin: true,
 		}
 	}
@@ -103,7 +118,8 @@ func (a *SemanticAnalyzer) registerBuiltinFunctions() {
 
 func (a *SemanticAnalyzer) analyzeType(typeDecl *TypeDecl) {
 	if _, exists := a.symbols[typeDecl.Name]; exists && !a.symbols[typeDecl.Name].IsBuiltin {
-		a.errors = append(a.errors, fmt.Errorf("type %s already defined", typeDecl.Name))
+		existing := a.symbols[typeDecl.Name]
+		a.addDuplicateDiagnostic(typeDecl.Position, CategorySymbolError, "E_TYPE_DUPLICATE", fmt.Sprintf("type %s already defined", typeDecl.Name), "", existing.Position, "previous type declaration")
 		return
 	}
 
@@ -121,11 +137,41 @@ func (a *SemanticAnalyzer) analyzeType(typeDecl *TypeDecl) {
 func (a *SemanticAnalyzer) analyzeAsset(asset *AssetDecl) {
 	// Assets are registered as constants
 	constName := "ASSET_" + asset.Name
+	if _, exists := a.symbols[constName]; exists {
+		existing := a.symbols[constName]
+		a.addDuplicateDiagnostic(asset.Position, CategorySymbolError, "E_ASSET_DUPLICATE", fmt.Sprintf("asset %s already defined", asset.Name), "", existing.Position, "previous asset declaration")
+		return
+	}
 	a.symbols[constName] = &Symbol{
-		Name:     constName,
-		Type:     &NamedType{Name: "u16"},
+		Name:      constName,
+		Type:      &NamedType{Name: "u16"},
 		IsBuiltin: false,
-		Position: asset.Position,
+		Position:  asset.Position,
+	}
+}
+
+func (a *SemanticAnalyzer) registerFunctionDecls() {
+	seen := make(map[string]Position)
+	for _, fn := range a.program.Functions {
+		if prev, exists := seen[fn.Name]; exists {
+			a.addDuplicateDiagnostic(fn.Position, CategorySymbolError, "E_FUNC_DUPLICATE", fmt.Sprintf("function %s already defined", fn.Name), "", prev, "previous function declaration")
+			continue
+		}
+		seen[fn.Name] = fn.Position
+
+		if existing, exists := a.symbols[fn.Name]; exists && !existing.IsBuiltin {
+			a.addDuplicateDiagnostic(fn.Position, CategorySymbolError, "E_FUNC_DUPLICATE", fmt.Sprintf("function %s already defined", fn.Name), "", existing.Position, "previous function declaration")
+			continue
+		}
+		// Do not overwrite builtin entries (e.g. Start in current builtin list), but still allow body analysis.
+		if existing, exists := a.symbols[fn.Name]; exists && existing.IsBuiltin {
+			continue
+		}
+		a.symbols[fn.Name] = &Symbol{
+			Name:     fn.Name,
+			IsFunc:   true,
+			Position: fn.Position,
+		}
 	}
 }
 
@@ -133,7 +179,7 @@ func (a *SemanticAnalyzer) analyzeFunction(fn *FunctionDecl) {
 	if fn.Name == "Start" || fn.Name == "__Boot" {
 		// Entry points are special
 		if len(fn.Params) > 0 {
-			a.errors = append(a.errors, fmt.Errorf("function %s() must have no parameters", fn.Name))
+			a.addDiagnostic(fn.Position, CategoryValidationError, "E_ENTRY_PARAMS", fmt.Sprintf("function %s() must have no parameters", fn.Name), "")
 		}
 	}
 
@@ -152,7 +198,8 @@ func (a *SemanticAnalyzer) analyzeStmt(stmt Stmt) {
 	case *VarDeclStmt:
 		// Variable declaration
 		if _, exists := a.symbols[s.Name]; exists {
-			a.errors = append(a.errors, fmt.Errorf("variable %s already defined", s.Name))
+			existing := a.symbols[s.Name]
+			a.addDuplicateDiagnostic(s.Position, CategorySymbolError, "E_VAR_DUPLICATE", fmt.Sprintf("variable %s already defined", s.Name), "", existing.Position, "previous declaration")
 		} else {
 			var varType TypeExpr
 			if s.Type != nil {
@@ -251,12 +298,47 @@ func (a *SemanticAnalyzer) analyzeExpr(expr Expr) {
 			return
 		}
 		if _, exists := a.symbols[e.Name]; !exists {
-			a.errors = append(a.errors, fmt.Errorf("undefined identifier: %s", e.Name))
+			a.addDiagnostic(e.Position, CategorySymbolError, "E_IDENT_UNDEFINED", fmt.Sprintf("undefined identifier: %s", e.Name), "")
 		}
 
 	case *NumberExpr, *StringExpr, *BoolExpr:
 		// Literals are fine
 	}
+}
+
+func (a *SemanticAnalyzer) addDiagnostic(pos Position, category DiagnosticCategory, code, message, file string) {
+	a.diagnostics = append(a.diagnostics, Diagnostic{
+		Category: category,
+		Code:     code,
+		Message:  message,
+		File:     file,
+		Line:     pos.Line,
+		Column:   pos.Column,
+		Severity: SeverityError,
+		Stage:    StageSemantic,
+	})
+}
+
+func (a *SemanticAnalyzer) addDuplicateDiagnostic(pos Position, category DiagnosticCategory, code, message, file string, previous Position, previousMsg string) {
+	d := Diagnostic{
+		Category: category,
+		Code:     code,
+		Message:  message,
+		File:     file,
+		Line:     pos.Line,
+		Column:   pos.Column,
+		Severity: SeverityError,
+		Stage:    StageSemantic,
+	}
+	if previous.Line > 0 {
+		d.Related = append(d.Related, DiagnosticLocation{
+			File:    file,
+			Line:    previous.Line,
+			Column:  previous.Column,
+			Message: previousMsg,
+		})
+	}
+	a.diagnostics = append(a.diagnostics, d)
 }
 
 func (a *SemanticAnalyzer) inferType(expr Expr) TypeExpr {

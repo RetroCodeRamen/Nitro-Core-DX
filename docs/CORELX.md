@@ -320,6 +320,8 @@ alpha := SPR_ALPHA(15)      -- Alpha value
 
 ## Audio (APU)
 
+Note: CoreLX currently exposes the legacy 4-channel APU built-ins documented below. The newer FM/OPM extension exists in the emulator/APU (`0x9100-0x91FF`) but does not yet have stable CoreLX language-level APIs.
+
 ### Enabling APU
 
 ```corelx
@@ -373,6 +375,7 @@ apu.note_off(0)
 - `apu.set_channel_volume(ch, vol)` - Set volume
 - `apu.note_on(ch)` - Start note
 - `apu.note_off(ch)` - Stop note
+- `fm.*` APIs - Planned (FM extension exists at hardware/MMIO level; CoreLX API integration is not finalized yet)
 
 ### Input
 

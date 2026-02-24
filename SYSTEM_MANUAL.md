@@ -1,9 +1,9 @@
 # Nitro-Core-DX System Manual
 
-**Version 1.0**  
+**Version 1.0 (Under Revision)**  
 **Last Updated: January 6, 2026**
 
-> **✅ Architecture Stable**: The core hardware architecture is complete and stable. All hardware features are implemented, tested, and ready for use. See [Development Status](#development-status) for current implementation status.
+> **⚠️ Under Revision / Historical Snapshot:** This manual contains useful architectural context but includes stale values/status claims (for example CPU timing and audio/FM status). Verify against `README.md`, `docs/specifications/COMPLETE_HARDWARE_SPECIFICATION_V2.1.md`, and `docs/specifications/APU_FM_OPM_EXTENSION_SPEC.md` before using as current source-of-truth.
 
 ---
 
@@ -685,4 +685,3 @@ For project overview and quick start, see the [README](README.md).
 ---
 
 **End of System Manual**
-

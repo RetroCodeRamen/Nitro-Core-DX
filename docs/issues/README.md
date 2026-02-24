@@ -1,6 +1,16 @@
 # Known Issues and Fixes
 
-This directory contains documentation about known issues, bug fixes, and troubleshooting guides.
+This directory contains issue investigations, fix writeups, and troubleshooting notes.
+
+## How To Use This Folder
+
+- Treat these files as **incident history / debugging references**, not a current status dashboard.
+- Many files describe specific bugs that are already fixed.
+- For current status, use:
+  - `README.md`
+  - `docs/HARDWARE_FEATURES_STATUS.md`
+  - `docs/testing/TEST_SUMMARY.md`
+  - recent test runs/worklog entries
 
 ## Files
 

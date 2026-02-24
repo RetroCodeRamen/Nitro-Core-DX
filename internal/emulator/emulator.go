@@ -80,12 +80,13 @@ func NewEmulatorWithLogger(logger *debug.Logger) *Emulator {
 	bus.PPUHandler = ppu
 	bus.APUHandler = apu
 	bus.InputHandler = input
-	
+
 	// Set logger on bus for input debug logging
 	bus.SetLogger(logger)
 
 	// Create CPU logger adapter
 	cpuLogger := cpu.NewCPULoggerAdapter(logger, cpu.CPULogNone)
+	timerIRQType := uint8(cpu.INT_TIMER)
 
 	// Create CPU with bus (not MemorySystem)
 	cpu := cpu.NewCPU(bus, cpuLogger)
@@ -93,6 +94,9 @@ func NewEmulatorWithLogger(logger *debug.Logger) *Emulator {
 	// Set up PPU interrupt callback to trigger CPU interrupts
 	ppu.InterruptCallback = func(interruptType uint8) {
 		cpu.TriggerInterrupt(interruptType)
+	}
+	apu.FMTimerIRQCallback = func() {
+		cpu.TriggerInterrupt(timerIRQType)
 	}
 
 	// Set up PPU memory reader for DMA
@@ -172,7 +176,7 @@ func (e *Emulator) LoadROM(data []uint8) error {
 	// Additional validation (entry point should already be validated by GetROMEntryPoint,
 	// but we double-check here for safety)
 	if bank == 0 {
-		return fmt.Errorf("invalid ROM entry point: bank is 0 (expected bank 1-125, got 0). "+
+		return fmt.Errorf("invalid ROM entry point: bank is 0 (expected bank 1-125, got 0). " +
 			"ROM code must be located in bank 1 or higher. Bank 0 is reserved for WRAM and I/O registers.")
 	}
 	if bank > 125 {
@@ -203,6 +207,10 @@ func (e *Emulator) RunFrame() error {
 		return nil
 	}
 
+	// Frame-level APU updates (duration countdown/completion flags) happen once per emulated frame.
+	// This is separate from sample-rate stepping and is required for ROMs that use duration/completion APIs.
+	e.APU.UpdateFrame()
+
 	// Track CPU cycles before frame
 	cyclesBefore := e.CPU.State.Cycles
 
@@ -222,9 +230,9 @@ func (e *Emulator) RunFrame() error {
 	// This ensures CPU, PPU, and APU always advance on the same cycle timeline
 	// Debug mode: step cycle-by-cycle for logging accuracy
 	// Optimized mode: step in chunks for performance while maintaining synchronization
-	
+
 	const chunkSize = uint64(1000) // Step in chunks of 1000 cycles for optimized mode
-	
+
 	if e.CycleLogger != nil && e.CycleLogger.IsEnabled() {
 		// Cycle logging enabled: step cycle-by-cycle for accuracy
 		for cyclesStepped := uint64(0); cyclesStepped < e.CyclesPerFrame; cyclesStepped++ {
@@ -273,34 +281,34 @@ func (e *Emulator) RunFrame() error {
 		// Stepping in chunks maintains synchronization while improving performance
 		cyclesRemaining := e.CyclesPerFrame
 		cycleAtStart := e.Clock.Cycle
-		
+
 		for cyclesRemaining > 0 {
 			// Step in chunks, but ensure we don't exceed the frame boundary
 			chunk := chunkSize
 			if chunk > cyclesRemaining {
 				chunk = cyclesRemaining
 			}
-			
+
 			// Use scheduler to step all components together
 			// The scheduler handles APU stepping internally based on sample rate
 			if err := e.Clock.StepCycles(chunk); err != nil {
 				return fmt.Errorf("clock step cycles error: %w", err)
 			}
-			
+
 			cyclesRemaining -= chunk
-			
+
 			// Generate audio samples for any samples that occurred during this chunk
 			// Use fractional accumulator for accurate timing (matches scheduler)
 			currentCycle := e.Clock.Cycle
 			cyclesElapsed := currentCycle - cycleAtStart
-			
+
 			// Calculate expected sample count using fractional arithmetic
 			// This matches the scheduler's fractional accumulator approach
 			expectedSamplesFixed := (cyclesElapsed * exactCyclesPerSampleFixed) >> 32
 			if expectedSamplesFixed > 735 {
 				expectedSamplesFixed = 735
 			}
-			
+
 			// Generate any missing samples
 			for samplesGenerated < int(expectedSamplesFixed) && samplesGenerated < 735 {
 				sampleFixed := e.APU.GenerateSampleFixed()
@@ -310,7 +318,7 @@ func (e *Emulator) RunFrame() error {
 				samplesGenerated++
 			}
 		}
-		
+
 		// Generate any remaining audio samples (should be exactly 735 total)
 		for samplesGenerated < 735 {
 			sampleFixed := e.APU.GenerateSampleFixed()

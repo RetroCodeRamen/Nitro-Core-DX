@@ -1,6 +1,6 @@
 # Nitro-Core-DX Hardware Features Status
 
-**Last Updated:** January 27, 2026
+**Last Updated:** February 24, 2026
 
 This document tracks the implementation status of all hardware features for the emulated console itself (not emulator UI or dev tools).
 
@@ -45,6 +45,8 @@ This document tracks the implementation status of all hardware features for the 
 - ✅ Volume control (per channel + master)
 - ✅ Duration control with loop mode
 - ✅ Sample generation at 44,100 Hz
+- ✅ PCM playback support (per-channel)
+- 🚧 FM extension MMIO host interface (`0x9100-0x91FF`) and OPM-lite audible synthesis path (in progress)
 
 ### Input System
 - ✅ Controller 1 & 2 support
@@ -135,9 +137,12 @@ This document tracks the implementation status of all hardware features for the 
   - ✅ Loop and one-shot playback modes
   - ✅ PCM volume control
 
-- ❌ **FM Synthesis** (Planned)
-  - Not implemented
-  - **Needs:** FM synthesis channels (Genesis-style)
+- 🚧 **FM Synthesis Extension** (In Progress)
+  - ✅ FM host interface (`FM_ADDR`, `FM_DATA`, `FM_STATUS`, `FM_CONTROL`, `FM_MIX_L/R`)
+  - ✅ Timer/status/IRQ bridge behavior (deterministic placeholder timing)
+  - ✅ Audible OPM-lite subset (software-first, hardware-oriented)
+  - ❌ Full YM2151/OPM behavior accuracy (future work)
+  - ❌ Final patch/envelope/timbre polish (future work)
 
 ### Advanced Features
 - ❌ **Large World Tilemap Support**
@@ -182,15 +187,15 @@ This document tracks the implementation status of all hardware features for the 
 - CPU: ✅ Complete (including interrupts)
 - Memory: ✅ Complete
 - PPU: ✅ Complete (priority, blending, mosaic, DMA, Matrix Mode enhancements)
-- APU: ✅ Complete (including audio output, PCM playback)
+- APU: ✅ Complete (legacy audio + PCM) with 🚧 FM extension in progress
 - Input: ✅ Complete
 - Matrix Mode: ✅ Complete (per-layer, HDMA updates, outside-screen handling, direct color)
 - DMA: ✅ Complete (VRAM/CGRAM/OAM transfers)
 
 **Optional Enhancements (Not Required for Core System):**
 - Vertical sprites for Matrix Mode (advanced 3D feature - can be added later)
-- FM synthesis (planned audio enhancement - can be added later)
+- FM extension accuracy/polish (already started; continue incrementally)
 
 **System Status:** ✅ **READY FOR SOFTWARE DEVELOPMENT**
 
-All core hardware features are implemented and functional. The system is complete and ready for game/application development. Optional enhancements like vertical sprites and FM synthesis can be added incrementally as needed.
+All core hardware features are implemented and functional for game/application development. The legacy audio path is complete; the FM extension is now actively implemented but still evolving toward fuller OPM/YM2151 compatibility.
