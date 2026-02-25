@@ -110,22 +110,54 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
-          $env:Path = "C:\msys64\mingw64\bin;C:\msys64\usr\bin;$env:Path"
-          $env:CC = "C:\msys64\mingw64\bin\gcc.exe"
-          $env:PKG_CONFIG = "C:\msys64\mingw64\bin\pkg-config.exe"
-          $env:PKG_CONFIG_PATH = "C:\msys64\mingw64\lib\pkgconfig"
-          $env:CGO_CFLAGS = "-IC:/msys64/mingw64/include"
-          $env:CGO_LDFLAGS = "-LC:/msys64/mingw64/lib"
-          if (!(Test-Path "C:\msys64\mingw64\include\SDL2\SDL.h")) {
-            throw "SDL2 headers not found at C:\msys64\mingw64\include\SDL2\SDL.h"
+          $msysRoot = "C:\msys64"
+          $prefixCandidates = @(
+            (Join-Path $msysRoot "mingw64"),
+            (Join-Path $msysRoot "ucrt64")
+          )
+          $prefix = $prefixCandidates | Where-Object {
+            Test-Path (Join-Path $_ "include\SDL2\SDL.h")
+          } | Select-Object -First 1
+
+          if (-not $prefix) {
+            Write-Host "SDL2 headers not found after setup-msys2 install. Attempting pacman fallback install..."
+            & "$msysRoot\usr\bin\bash.exe" -lc "pacman -S --noconfirm --needed mingw-w64-x86_64-gcc mingw-w64-x86_64-pkgconf mingw-w64-x86_64-SDL2"
+            if ($LASTEXITCODE -ne 0) {
+              throw "Fallback pacman install failed"
+            }
+            $prefix = $prefixCandidates | Where-Object {
+              Test-Path (Join-Path $_ "include\SDL2\SDL.h")
+            } | Select-Object -First 1
           }
+
+          if (-not $prefix) {
+            Get-ChildItem $msysRoot -Directory | Select-Object FullName | Format-Table -AutoSize | Out-String | Write-Host
+            throw "SDL2 headers not found under any expected MSYS2 prefix"
+          }
+          Write-Host "Using MSYS2 prefix: $prefix"
+
+          $env:Path = "$prefix\bin;$msysRoot\usr\bin;$env:Path"
+          $env:CC = Join-Path $prefix "bin\gcc.exe"
+          $pkgConfigCandidates = @(
+            (Join-Path $prefix "bin\pkg-config.exe"),
+            (Join-Path $prefix "bin\pkgconf.exe")
+          )
+          $env:PKG_CONFIG = $pkgConfigCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $env:PKG_CONFIG) {
+            throw "pkg-config executable not found under $prefix\bin"
+          }
+          $env:PKG_CONFIG_PATH = Join-Path $prefix "lib\pkgconfig"
+          $unixPrefix = ($prefix -replace '\\','/')
+          $env:CGO_CFLAGS = "-I$unixPrefix/include"
+          $env:CGO_CPPFLAGS = "-I$unixPrefix/include"
+          $env:CGO_LDFLAGS = "-L$unixPrefix/lib"
           go build -tags no_sdl_ttf -o dist\nitrocoredx.exe ./cmd/corelx_devkit
           $sdlDlls = @(
-            Get-ChildItem "C:\msys64\mingw64\bin\SDL2*.dll" -ErrorAction SilentlyContinue
-            Get-ChildItem "C:\msys64\mingw64\bin\libSDL2*.dll" -ErrorAction SilentlyContinue
+            Get-ChildItem (Join-Path $prefix "bin\SDL2*.dll") -ErrorAction SilentlyContinue
+            Get-ChildItem (Join-Path $prefix "bin\libSDL2*.dll") -ErrorAction SilentlyContinue
           ) | Select-Object -Unique
           if (-not $sdlDlls -or $sdlDlls.Count -eq 0) {
-            throw "SDL2 runtime DLL not found under C:\msys64\mingw64\bin"
+            throw "SDL2 runtime DLL not found under $prefix\bin"
           }
           foreach ($dll in $sdlDlls) {
             Copy-Item $dll.FullName (Join-Path "dist" $dll.Name)
