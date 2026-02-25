@@ -1,16 +1,16 @@
 # Binaries (all binaries should be built, not committed)
-nitro-core-dx
-emulator
-audiotest
-demorom
-testrom
-corelx
-debugger
-test_corelx_features
-test_rom_execution
-trace_cpu_execution
-trace_oam_writes
-trace_vram_loop
+/nitro-core-dx
+/emulator
+/audiotest
+/demorom
+/testrom
+/corelx
+/debugger
+/test_corelx_features
+/test_rom_execution
+/trace_cpu_execution
+/trace_oam_writes
+/trace_vram_loop
 
 # Debug logs and state dumps
 *.log
