@@ -110,10 +110,26 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
-          $env:Path = "C:\msys64\mingw64\bin;$env:Path"
-          $env:CC = "gcc"
+          $env:Path = "C:\msys64\mingw64\bin;C:\msys64\usr\bin;$env:Path"
+          $env:CC = "C:\msys64\mingw64\bin\gcc.exe"
+          $env:PKG_CONFIG = "C:\msys64\mingw64\bin\pkg-config.exe"
+          $env:PKG_CONFIG_PATH = "C:\msys64\mingw64\lib\pkgconfig"
+          $env:CGO_CFLAGS = "-IC:/msys64/mingw64/include"
+          $env:CGO_LDFLAGS = "-LC:/msys64/mingw64/lib"
+          if (!(Test-Path "C:\msys64\mingw64\include\SDL2\SDL.h")) {
+            throw "SDL2 headers not found at C:\msys64\mingw64\include\SDL2\SDL.h"
+          }
           go build -tags no_sdl_ttf -o dist\nitrocoredx.exe ./cmd/corelx_devkit
-          Copy-Item C:\msys64\mingw64\bin\SDL2.dll dist\SDL2.dll
+          $sdlDlls = @(
+            Get-ChildItem "C:\msys64\mingw64\bin\SDL2*.dll" -ErrorAction SilentlyContinue
+            Get-ChildItem "C:\msys64\mingw64\bin\libSDL2*.dll" -ErrorAction SilentlyContinue
+          ) | Select-Object -Unique
+          if (-not $sdlDlls -or $sdlDlls.Count -eq 0) {
+            throw "SDL2 runtime DLL not found under C:\msys64\mingw64\bin"
+          }
+          foreach ($dll in $sdlDlls) {
+            Copy-Item $dll.FullName (Join-Path "dist" $dll.Name)
+          }
 
       - name: Package windows archive
         shell: pwsh
@@ -121,7 +137,7 @@ jobs:
           $pkgDir = "dist\nitrocoredx-${{ steps.meta.outputs.version }}-windows-amd64"
           New-Item -ItemType Directory -Force $pkgDir | Out-Null
           Copy-Item dist\nitrocoredx.exe $pkgDir\
-          Copy-Item dist\SDL2.dll $pkgDir\
+          Copy-Item dist\*SDL2*.dll $pkgDir\
           Copy-Item LICENSE, README.md $pkgDir\
           @"
           Nitro-Core-DX (Integrated App) - Windows amd64
