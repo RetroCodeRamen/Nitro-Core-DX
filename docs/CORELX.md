@@ -279,7 +279,8 @@ asset MyTiles: tiles8
 base := gfx.load_tiles(ASSET_MyTiles, 0)
 ```
 
-**Note**: Asset embedding is currently in progress. Assets can be declared but are not yet embedded into ROM.
+**Note**: `gfx.load_tiles` accepts either an `ASSET_*` constant or a runtime `u16` variable that contains one of the compiler-assigned asset IDs for assets declared in the same source file.
+When the first argument is an `ASSET_*` literal, tile writes are inlined at compile time. Runtime IDs are dispatched across declared assets at runtime.
 
 ---
 
@@ -359,7 +360,7 @@ apu.note_off(0)
 ### Graphics
 
 - `ppu.enable_display()` - Enable PPU display
-- `gfx.load_tiles(asset, base) -> u16` - Load tiles from asset (planned)
+- `gfx.load_tiles(asset, base) -> u16` - Load declared tile asset into VRAM (`asset` may be an `ASSET_*` literal or a runtime asset-ID value for a declared asset)
 
 ### Sprites
 

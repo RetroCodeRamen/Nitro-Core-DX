@@ -299,6 +299,31 @@ function Start()
 	}
 }
 
+func TestCompileSourceRuntimeAssetIDLoadTilesCompiles(t *testing.T) {
+	src := `
+asset T: tiles8 b64
+    "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+
+function Start()
+    id := ASSET_T
+    base := gfx.load_tiles(id, 0)
+    ppu.enable_display()
+`
+	res, err := CompileSource(src, "runtime_asset_id.corelx", nil)
+	if err != nil {
+		t.Fatalf("unexpected compile error for runtime asset ID load_tiles usage: %v", err)
+	}
+	if res == nil {
+		t.Fatalf("expected compile result")
+	}
+	if HasErrors(res.Diagnostics) {
+		t.Fatalf("unexpected diagnostics: %+v", res.Diagnostics)
+	}
+	if len(res.ROMBytes) == 0 {
+		t.Fatalf("expected compiled ROM bytes")
+	}
+}
+
 func TestCompileSourceDiagnosticsJSONOutputOnError(t *testing.T) {
 	dir := t.TempDir()
 	diagPath := filepath.Join(dir, "diagnostics.json")

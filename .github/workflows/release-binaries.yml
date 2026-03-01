@@ -63,7 +63,7 @@ jobs:
           Notes:
           - Built with no_sdl_ttf (SDL2_ttf not required).
           - SDL2 runtime libraries are still required on the host system.
-          - Use "Emulator Only" view for a play/test-focused layout.
+          - Use "Emulator Focus" view for a play/test-focused layout.
           EOF
           tar -C dist -czf "dist/nitrocoredx-${{ steps.meta.outputs.version }}-linux-amd64.tar.gz" "$(basename "$PKG_DIR")"
 
@@ -180,7 +180,7 @@ jobs:
           Notes:
           - SDL2.dll is included in this package.
           - Built with no_sdl_ttf (SDL2_ttf.dll not required).
-          - Use "Emulator Only" view for a play/test-focused layout.
+          - Use "Emulator Focus" view for a play/test-focused layout.
           "@ | Set-Content -Path "$pkgDir\README_RELEASE.txt"
 
           $zipPath = "dist\nitrocoredx-${{ steps.meta.outputs.version }}-windows-amd64.zip"
@@ -223,7 +223,7 @@ jobs:
           - Linux amd64 package (`.tar.gz`)
           - Windows amd64 package (`.zip`)
 
-          Open the app and use **Emulator Only** view if you want a play/test-focused layout.
+          Use **Emulator Focus** view for a play/test-focused layout, or **Code Only** view for focused editing.
           EOF
 
       - name: Create / update GitHub Release

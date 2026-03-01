@@ -4,6 +4,12 @@ This directory contains planning, roadmap, and implementation-plan documents.
 
 ## Current Planning Inputs
 
+- `V1_CHARTER.md`
+  - Canonical V1 scope contract and release-blocking IDs
+- `V1_ACCEPTANCE.md`
+  - Release acceptance gates and required evidence
+- `V1_RISKS.md`
+  - Active V1 risk register (owner + mitigation tracking)
 - `DEV_TOOLS_IMPLEMENTATION_PLAN.md`
   - Dev tools roadmap and implementation ideas (review against current code before executing)
 - `FUTURE_FEATURES_PARKING_LOT.md`

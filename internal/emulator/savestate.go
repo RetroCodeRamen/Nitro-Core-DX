@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/gob"
 	"fmt"
+	"os"
 
 	"nitro-core-dx/internal/apu"
 	"nitro-core-dx/internal/cpu"
@@ -273,24 +274,30 @@ func (e *Emulator) loadInputState(state InputState) {
 	e.Input.Controller2LatchState = state.Controller2LatchState
 }
 
-// SaveStateToFile saves the current emulator state to a file
-// TODO: Implement file writing - for now, use SaveState() and write to file manually
+// SaveStateToFile saves the current emulator state to a file.
 func (e *Emulator) SaveStateToFile(filename string) error {
-	_, err := e.SaveState()
+	data, err := e.SaveState()
 	if err != nil {
 		return fmt.Errorf("failed to save state: %w", err)
 	}
 
-	// TODO: Write data to file using os.WriteFile
-	_ = filename
-	return fmt.Errorf("SaveStateToFile not yet implemented - use SaveState() and write to file manually")
+	if err := os.WriteFile(filename, data, 0o644); err != nil {
+		return fmt.Errorf("failed to write save state file %q: %w", filename, err)
+	}
+
+	return nil
 }
 
-// LoadStateFromFile loads an emulator state from a file
+// LoadStateFromFile loads an emulator state from a file.
 func (e *Emulator) LoadStateFromFile(filename string) error {
-	// Read from file (we'll need to import os)
-	// For now, return error - caller should read file and call LoadState()
-	_ = filename // TODO: Implement file reading when needed
-	return fmt.Errorf("LoadStateFromFile not yet implemented - read file and use LoadState() manually")
-}
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return fmt.Errorf("failed to read save state file %q: %w", filename, err)
+	}
 
+	if err := e.LoadState(data); err != nil {
+		return fmt.Errorf("failed to load save state from %q: %w", filename, err)
+	}
+
+	return nil
+}

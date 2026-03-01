@@ -45,4 +45,4 @@ Default version is derived from `git describe --tags --always --dirty`.
 - Builds use the `no_sdl_ttf` tag (SDL2_ttf is optional and not included).
 - **Linux** still requires SDL2 runtime libraries installed on the target machine.
 - **Windows** package includes `SDL2.dll`, but still depends on normal Windows graphics/runtime components.
-- The packaged app is the integrated **Nitro-Core-DX** app; users can switch to **Emulator Only** view inside the app.
+- The packaged app is the integrated **Nitro-Core-DX** app; users can switch to **Emulator Focus** or **Code Only** view inside the app.

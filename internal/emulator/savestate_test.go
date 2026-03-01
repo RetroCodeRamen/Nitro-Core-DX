@@ -1,6 +1,8 @@
 package emulator
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -105,3 +107,68 @@ func TestSaveLoadState(t *testing.T) {
 	}
 }
 
+// TestSaveLoadStateFile tests file-based save/load state APIs.
+func TestSaveLoadStateFile(t *testing.T) {
+	emu := NewEmulator()
+
+	romData := make([]uint8, 64)
+	romData[0] = 0x52 // "RMCF"
+	romData[1] = 0x4D
+	romData[2] = 0x43
+	romData[3] = 0x46
+	romData[4] = 0x01 // Version 1
+	romData[6] = 0x20 // ROM size 32
+	romData[10] = 0x01 // Entry bank 1
+	romData[12] = 0x00 // Entry offset 0x8000
+	romData[13] = 0x80
+
+	if err := emu.LoadROM(romData); err != nil {
+		t.Fatalf("Failed to load ROM: %v", err)
+	}
+
+	emu.CPU.State.R0 = 0xBEEF
+	emu.CPU.State.R1 = 0xCAFE
+	emu.Bus.WRAM[0x200] = 0x44
+	emu.PPU.FrameCounter = 77
+	emu.APU.MasterVolume = 99
+
+	savePath := filepath.Join(t.TempDir(), "test_state.sav")
+	if err := emu.SaveStateToFile(savePath); err != nil {
+		t.Fatalf("SaveStateToFile failed: %v", err)
+	}
+
+	info, err := os.Stat(savePath)
+	if err != nil {
+		t.Fatalf("expected save file to exist: %v", err)
+	}
+	if info.Size() == 0 {
+		t.Fatal("save file is empty")
+	}
+
+	// Mutate state to prove load restores from file.
+	emu.CPU.State.R0 = 0x0000
+	emu.CPU.State.R1 = 0x0000
+	emu.Bus.WRAM[0x200] = 0x00
+	emu.PPU.FrameCounter = 0
+	emu.APU.MasterVolume = 0
+
+	if err := emu.LoadStateFromFile(savePath); err != nil {
+		t.Fatalf("LoadStateFromFile failed: %v", err)
+	}
+
+	if emu.CPU.State.R0 != 0xBEEF {
+		t.Errorf("R0 not restored from file: expected 0xBEEF, got 0x%04X", emu.CPU.State.R0)
+	}
+	if emu.CPU.State.R1 != 0xCAFE {
+		t.Errorf("R1 not restored from file: expected 0xCAFE, got 0x%04X", emu.CPU.State.R1)
+	}
+	if emu.Bus.WRAM[0x200] != 0x44 {
+		t.Errorf("WRAM[0x200] not restored from file: expected 0x44, got 0x%02X", emu.Bus.WRAM[0x200])
+	}
+	if emu.PPU.FrameCounter != 77 {
+		t.Errorf("FrameCounter not restored from file: expected 77, got %d", emu.PPU.FrameCounter)
+	}
+	if emu.APU.MasterVolume != 99 {
+		t.Errorf("MasterVolume not restored from file: expected 99, got %d", emu.APU.MasterVolume)
+	}
+}

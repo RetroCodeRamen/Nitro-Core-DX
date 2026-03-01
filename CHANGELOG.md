@@ -9,6 +9,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.7] - 2026-02-28
+
+### Added
+- **Sprite Lab** — Built-in pixel-art sprite editor integrated as a workbench tab
+  - Canvas sizes from 8x8 to 64x64 (step of 8) with dynamic cell sizing for uniform pixels
+  - 16 palette banks with 16 colors each (RGB555 format)
+  - Pencil and Erase tools with Mirror X painting mode
+  - Grid overlay with scaled line thickness and hover highlighting
+  - Undo/Redo history (up to 128 states)
+  - Import/Export `.clxsprite` asset files (JSON format with palette bank data)
+  - One-click **Insert CoreLX Asset** generates tile hex data + palette setup code directly into the editor
+  - Preview pane with packed 4bpp hex output and copy-to-clipboard
+  - Location: `cmd/corelx_devkit/sprite_lab.go`
+- **Project Templates** — Six built-in templates for new project creation
+  - Blank Game, Minimal Loop, Sprite Demo, Tilemap Demo, Shmup Starter, Matrix Mode Demo
+  - Accessible via **New** button in toolbar or **File > New Project** menu
+  - Location: `cmd/corelx_devkit/templates.go`
+- **IDE Menu Bar** — Traditional IDE menu structure (File, Edit, View, Build, Debug, Tools, Help)
+  - Replaces ad-hoc menu; establishes professional SDK identity
+  - Location: `cmd/corelx_devkit/help_center.go`
+- **Three View Modes** — Split View, Emulator Focus, Code Only
+  - Code Only mode hides the emulator entirely for focused editing
+  - Dynamic layout construction prevents Fyne widget re-parenting issues
+- **UI Density Modes** — Compact and Standard spacing via Tools menu
+  - Custom Fyne theme with reduced padding, font sizes, and line spacing for Compact mode
+  - Persisted in settings between sessions
+  - Location: `cmd/corelx_devkit/compact_theme.go`
+- **Autosave** — Automatic crash recovery for unsaved editor work
+  - Location: `cmd/corelx_devkit/autosave.go`
+- **Settings Persistence** — View mode, split offsets, recent files, UI density, and last directories saved between sessions
+  - Location: `cmd/corelx_devkit/settings.go`
+- **Load ROM Toolbar Button** — Direct ROM loading for testing without recompilation, added to both toolbar and File menu
+- **Window Maximize (F11)** — F11 toggles programmatic maximize/restore with X11 WM hint support on Linux
+  - Location: `cmd/corelx_devkit/window_x11_maximize.go`
+
+### Changed
+- **IDE Toolbar Redesign** — Domain-grouped toolbar (Project, Build, Run/Debug, View) with visual separators replacing flat button row
+- **Terminology Update** — Project-centric language throughout (replaced ROM-centric phrasing); "Hardware Output" instead of "Emulator" in status labels
+- **UI Compactness Overhaul** — Shortened toolbar labels, compacted panel headers, removed redundant controls, tightened spacing across all panels
+- **Emulator No Longer Auto-Runs** — Emulator does not start running on project load; requires explicit Build + Run
+- **Fullscreen Removed** — Replaced with maximize/restore toggle (F11) for more reliable window management on Linux
+- **Documentation Update** — README, Programming Manual, Programming Guide, Hardware Features Status, V1 Charter, and V1 Acceptance all updated to reflect new IDE features and Sprite Lab
+
+### Fixed
+- **Sprite Lab Pixel Uniformity** — Dynamic cell-size computation ensures every sprite pixel maps to exactly the same number of screen pixels
+- **Sprite Lab Paint Performance** — Only editor canvas re-renders during paint strokes; preview, hex dump, and palette updates deferred to stroke end
+- **Sprite Lab Loading Lag** — Eliminated redundant initial image renders; placeholder images used until first `refreshVisuals` call
+- **Sprite Lab Mouse Alignment** — Proportional coordinate mapping with `ImageFillStretch` and `NewCenter` constraint ensures correct cell targeting
+- **Sprite Lab Grid Consistency** — Grid line thickness scales with cell size (2px for cells ≥16px, 1px for cells ≥4px) to prevent inconsistent appearance under display scaling
+- **Split View Rendering** — Fixed Fyne widget re-parenting issue by dynamically building all layout containers in `setViewMode` instead of pre-building them
+- **Window Maximize on Linux** — X11 `WM_NORMAL_HINTS` set programmatically to enable native WM maximize after Fyne/GLFW initialization
+
+---
+
 ## [Unreleased]
 
 ### Added

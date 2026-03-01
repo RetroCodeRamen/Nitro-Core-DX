@@ -10,6 +10,7 @@ require (
 require (
 	fyne.io/systray v1.12.0 // indirect
 	github.com/BurntSushi/toml v1.5.0 // indirect
+	github.com/BurntSushi/xgb v0.0.0-20210121224620-deaf085860bc // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/fredbi/uri v1.1.1 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect

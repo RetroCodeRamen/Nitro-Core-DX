@@ -752,3 +752,119 @@ func TestGfxSetPaletteWritesExpectedCGRAM(t *testing.T) {
 		t.Fatalf("CGRAM high byte mismatch at palette1/color1: got 0x%02X want 0x7C", got)
 	}
 }
+
+// TestGfxLoadTilesRuntimeAssetIDDispatch verifies runtime asset-ID dispatch for
+// gfx.load_tiles by selecting between two declared assets via a variable.
+func TestGfxLoadTilesRuntimeAssetIDDispatch(t *testing.T) {
+	source := `asset A: tiles8
+    hex
+        11 11 11 11 11 11 11 11
+        11 11 11 11 11 11 11 11
+        11 11 11 11 11 11 11 11
+        11 11 11 11 11 11 11 11
+
+asset B: tiles8
+    hex
+        22 22 22 22 22 22 22 22
+        22 22 22 22 22 22 22 22
+        22 22 22 22 22 22 22 22
+        22 22 22 22 22 22 22 22
+
+function Start()
+    id := ASSET_B
+    base := gfx.load_tiles(id, 0)
+    ppu.enable_display()
+    while true
+        wait_vblank()
+`
+
+	tmpDir := t.TempDir()
+	sourcePath := filepath.Join(tmpDir, "runtime_asset_dispatch.corelx")
+	outputPath := filepath.Join(tmpDir, "runtime_asset_dispatch.rom")
+
+	if err := os.WriteFile(sourcePath, []byte(source), 0644); err != nil {
+		t.Fatalf("Failed to write source file: %v", err)
+	}
+	if err := CompileFile(sourcePath, outputPath); err != nil {
+		t.Fatalf("Compilation failed: %v", err)
+	}
+
+	romData, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("Failed to read ROM: %v", err)
+	}
+	emu := emulator.NewEmulator()
+	emu.SetFrameLimit(false)
+	if err := emu.LoadROM(romData); err != nil {
+		t.Fatalf("Failed to load ROM: %v", err)
+	}
+	emu.Start()
+
+	for i := 0; i < 2; i++ {
+		if err := emu.RunFrame(); err != nil {
+			t.Fatalf("RunFrame failed: %v", err)
+		}
+	}
+
+	for i := 0; i < 32; i++ {
+		if got := emu.PPU.VRAM[i]; got != 0x22 {
+			t.Fatalf("VRAM[%d] mismatch: got 0x%02X want 0x22", i, got)
+		}
+	}
+}
+
+// TestGfxLoadTilesTilesetWritesFullPayload ensures tileset/sprite-sized payloads are
+// emitted completely (not truncated to a single 8x8 tile worth of bytes).
+func TestGfxLoadTilesTilesetWritesFullPayload(t *testing.T) {
+	source := `asset Big: tileset
+    hex
+        60 60 60 60 60 60 60 60
+        60 60 60 60 60 60 60 60
+        60 60 60 60 60 60 60 60
+        60 60 60 60 60 60 60 60
+        60 60 60 60 60 60 60 60
+        60 60 60 60 60 60 60 60
+        60 60 60 60 60 60 60 60
+        60 60 60 60 60 60 60 60
+
+function Start()
+    base := gfx.load_tiles(ASSET_Big, 0)
+    ppu.enable_display()
+    while true
+        wait_vblank()
+`
+
+	tmpDir := t.TempDir()
+	sourcePath := filepath.Join(tmpDir, "tileset_full_payload.corelx")
+	outputPath := filepath.Join(tmpDir, "tileset_full_payload.rom")
+
+	if err := os.WriteFile(sourcePath, []byte(source), 0644); err != nil {
+		t.Fatalf("Failed to write source file: %v", err)
+	}
+	if err := CompileFile(sourcePath, outputPath); err != nil {
+		t.Fatalf("Compilation failed: %v", err)
+	}
+
+	romData, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("Failed to read ROM: %v", err)
+	}
+	emu := emulator.NewEmulator()
+	emu.SetFrameLimit(false)
+	if err := emu.LoadROM(romData); err != nil {
+		t.Fatalf("Failed to load ROM: %v", err)
+	}
+	emu.Start()
+
+	for i := 0; i < 2; i++ {
+		if err := emu.RunFrame(); err != nil {
+			t.Fatalf("RunFrame failed: %v", err)
+		}
+	}
+
+	for i := 0; i < 64; i++ {
+		if got := emu.PPU.VRAM[i]; got != 0x60 {
+			t.Fatalf("VRAM[%d] mismatch: got 0x%02X want 0x60", i, got)
+		}
+	}
+}

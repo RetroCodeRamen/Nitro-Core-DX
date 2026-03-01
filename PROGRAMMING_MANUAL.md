@@ -1,7 +1,7 @@
 # Nitro Core DX Programming Manual
 
-**Version 3.0 (Pre-Alpha Rewrite)**  
-**Last Updated: February 24, 2026**
+**Version 3.1 (Pre-Alpha)**  
+**Last Updated: February 28, 2026**
 
 > **Pre-Alpha Note:** Nitro Core DX is moving fast. This manual is intentionally practical and current, but some language features and tools will still change before alpha.
 >
@@ -101,18 +101,7 @@ Use assembly when you want:
 
 ## Nitro-Core-DX App (Recommended Starting Point)
 
-Nitro-Core-DX (the integrated app / Dev Kit) is the current best way to work day-to-day.
-
-### What Nitro-Core-DX Does Today
-
-- CoreLX editor pane
-- integrated emulator (embedded in the same app)
-- diagnostics panel (compiler errors/warnings)
-- build output panel
-- manifest/memory summary panel
-- `Build`
-- `Build + Run`
-- `Load ROM` (for prebuilt `.rom` files, including assembly ROMs)
+Nitro-Core-DX (the integrated app / Dev Kit) is a professional IDE for day-to-day development.
 
 ### Run Nitro-Core-DX
 
@@ -120,11 +109,57 @@ Nitro-Core-DX (the integrated app / Dev Kit) is the current best way to work day
 go run ./cmd/corelx_devkit
 ```
 
-### Layout (Current)
+### IDE Structure
 
-- **Top-left:** embedded emulator
-- **Bottom-left:** diagnostics / output / manifest tabs
-- **Right side:** editor/workbench tabs (Code + placeholders for future tools)
+The app uses a traditional IDE layout with a menu bar and domain-grouped toolbar:
+
+**Menu Bar:** File, Edit, View, Build, Debug, Tools, Help
+
+**Toolbar Groups (left to right):**
+- **Project:** New, Open, Save, Load ROM
+- **Build:** Build, Build + Run (primary action)
+- **Run/Debug:** Run, Pause, Stop, Step Frame, Step CPU
+- **View:** Split View, Emulator Focus, Code Only
+
+### View Modes
+
+- **Split View** — Editor + emulator side by side (default)
+- **Emulator Focus** — Emulator fills the workspace for play/test workflows
+- **Code Only** — Editor fills the workspace, emulator hidden for focused coding
+
+Press **F11** to toggle maximize/restore.
+
+### Dev Kit Features
+
+- **Project Templates:** Create new projects from templates (Blank Game, Minimal Loop, Sprite Demo, Tilemap Demo, Shmup Starter, Matrix Mode Demo)
+- **Sprite Lab:** Pixel-art sprite editor integrated as a workbench tab (see below)
+- **Diagnostics Panel:** Compiler errors/warnings with severity filtering
+- **Build Output / Manifest / Debug Panels:** Build logs, memory summary, debugger output
+- **Autosave:** Automatic crash recovery for unsaved work
+- **Settings Persistence:** View mode, split positions, recent files, and UI density are saved between sessions
+- **UI Density:** Switch between Compact and Standard spacing via **Tools > UI Density**
+- **Load ROM:** Test prebuilt `.rom` files directly without recompilation
+
+### Sprite Lab
+
+The Sprite Lab is a built-in pixel-art editor accessible from the workbench tabs. It supports:
+
+- Canvas sizes from 8x8 to 64x64 (step of 8)
+- 16 palette banks with 16 colors each (RGB555 format)
+- Pencil and Erase tools with optional Mirror X painting
+- Grid overlay and hover highlighting
+- Undo/Redo history (up to 128 states)
+- Import/Export `.clxsprite` asset files
+- One-click **Insert CoreLX Asset** to generate tile hex data + palette setup code directly into the editor
+- Preview pane with packed 4bpp hex output
+
+### Workflow (Typical)
+
+1. Click **New** and choose a project template, or **Open** an existing `.corelx` file
+2. Edit code in the CoreLX editor
+3. Click **Build + Run** to compile and run in the embedded emulator
+4. Use the **Sprite Lab** tab to create sprites and insert them as CoreLX assets
+5. Use **Load ROM** to test prebuilt ROMs without recompilation
 
 > **Quick Note:** If game input seems unresponsive, make sure **Capture Game Input** is enabled and click the emulator pane once.
 
@@ -356,6 +391,8 @@ tile_base := gfx.load_tiles(ASSET_BoxTile, 0)
 ```
 
 This loads a tile asset into VRAM and returns the base tile index.
+
+> Current compiler behavior: the first argument to `gfx.load_tiles` can be either an `ASSET_*` literal (for example `ASSET_BoxTile`) or a runtime `u16` variable that holds one of the IDs of assets declared in the same source file.
 
 ### Current Reliable Asset Types for `gfx.load_tiles`
 
@@ -748,17 +785,16 @@ These are active directions, not promises of exact syntax.
 ### CoreLX / Compiler
 
 - richer asset model (tilemaps, palettes, music, gamedata, packaging integration)
-- better diagnostics and editor integration
+- better diagnostics and editor integration (syntax highlighting, squiggles, find/replace)
 - more complete runtime APIs
 - eventual mixed CoreLX + assembly support
 
 ### Nitro-Core-DX App
 
-- Sprite Lab
 - Tilemap Editor
 - Sound Studio
 - Debug overlays / memory viewers
-- stronger code editing experience (current editor is intentionally simple)
+- stronger code editing experience (Monaco/webview integration planned)
 
 ### Audio
 

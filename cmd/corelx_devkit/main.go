@@ -11,6 +11,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -20,8 +21,10 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/storage"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/veandco/go-sdl2/sdl"
@@ -31,8 +34,12 @@ import (
 )
 
 const (
-	devKitScreenW = 320
-	devKitScreenH = 200
+	devKitScreenW          = 320
+	devKitScreenH          = 200
+	defaultWindowWidth     = 1280
+	defaultWindowHeight    = 760
+	defaultMainSplitOffset = 0.40
+	defaultLeftSplitOffset = 0.60
 )
 
 const defaultTemplate = `function Start()
@@ -44,6 +51,15 @@ type viewMode string
 const (
 	viewModeFull         viewMode = "full"
 	viewModeEmulatorOnly viewMode = "emulator_only"
+	viewModeCodeOnly     viewMode = "code_only"
+)
+
+const (
+	layoutPresetBalanced      = "balanced"
+	layoutPresetCodeFocus     = "code_focus"
+	layoutPresetArtMode       = "art_mode"
+	layoutPresetDebugMode     = "debug_mode"
+	layoutPresetEmulatorFocus = "emulator_focus"
 )
 
 type emulatorKeyOverlay struct {
@@ -77,9 +93,9 @@ func (w *emulatorKeyOverlay) Tapped(*fyne.PointEvent) {
 }
 
 func (w *emulatorKeyOverlay) TappedSecondary(*fyne.PointEvent) {}
-func (w *emulatorKeyOverlay) FocusGained()                  {}
-func (w *emulatorKeyOverlay) FocusLost()                    {}
-func (w *emulatorKeyOverlay) TypedRune(r rune)              {}
+func (w *emulatorKeyOverlay) FocusGained()                     {}
+func (w *emulatorKeyOverlay) FocusLost()                       {}
+func (w *emulatorKeyOverlay) TypedRune(r rune)                 {}
 
 func (w *emulatorKeyOverlay) TypedKey(ev *fyne.KeyEvent) {
 	if w.onTyped != nil {
@@ -102,11 +118,14 @@ func (w *emulatorKeyOverlay) KeyUp(ev *fyne.KeyEvent) {
 type devKitState struct {
 	backend *devkit.Service
 
-	tempDir string
+	tempDir      string
+	settingsPath string
+	settings     devKitSettings
 
-	currentPath string
-	lastROMPath string
-	dirty       bool
+	currentPath  string
+	lastROMPath  string
+	autosavePath string
+	dirty        bool
 
 	diagnostics         []corelx.Diagnostic
 	filteredDiagnostics []corelx.Diagnostic
@@ -120,18 +139,30 @@ type devKitState struct {
 	sourceEntry    *widget.Entry
 	buildOutput    *widget.Entry
 	manifestOutput *widget.Entry
+	debuggerOutput *widget.Entry
 
 	diagnosticFilter *widget.Select
 	diagnosticSearch *widget.Entry
 	diagnosticsList  *widget.List
 	diagnosticDetail *widget.Entry
+	diagnosticSummary *widget.Label
+	diagnosticsToggle *widget.Button
+	stepFrameEntry   *widget.Entry
+	stepCPUEntry     *widget.Entry
 
-	fullLayout         fyne.CanvasObject
-	emulatorOnlyLayout fyne.CanvasObject
-	emulatorPane       fyne.CanvasObject
-	bottomLeftTabs     *container.AppTabs
-	editorPane         fyne.CanvasObject
-	workbenchTabs      *container.AppTabs
+	emuSurface     fyne.CanvasObject
+	captureCheck   *widget.Check
+	bottomLeftTabs *container.AppTabs
+	leftSplit      *container.Split
+	mainSplit      *container.Split
+	editorPane     fyne.CanvasObject
+	workbenchTabs  *container.AppTabs
+	splitViewBtn       *widget.Button
+	emulatorFocusBtn   *widget.Button
+	codeOnlyBtn        *widget.Button
+	runBtn             *widget.Button
+	pauseBtn           *widget.Button
+	stopBtn            *widget.Button
 
 	emuScale   int
 	emuImage   *canvas.Image
@@ -151,6 +182,13 @@ type devKitState struct {
 	typedKeyUntil    map[fyne.KeyName]time.Time
 	desktopKeyEvents bool
 	captureGameInput bool
+
+	suppressSourceChange bool
+	diagnosticsCollapsed bool
+
+	// programmatic maximize workaround when WM title-bar Maximize is greyed out
+	savedRestoreSize fyne.Size
+	windowMaximized  bool
 }
 
 func main() {
@@ -164,13 +202,35 @@ func main() {
 	}
 
 	a := app.New()
+
+	settingsPath := devKitSettingsPath()
+	settings, settingsErr := loadDevKitSettings(settingsPath)
+
+	if settings.UIDensity == "standard" {
+		a.Settings().SetTheme(newStandardTheme())
+	} else {
+		a.Settings().SetTheme(newCompactTheme())
+	}
+
 	w := a.NewWindow("Nitro-Core-DX")
-	w.Resize(fyne.NewSize(1500, 920))
+	w.SetFixedSize(false)
+	w.Resize(fyne.NewSize(defaultWindowWidth, defaultWindowHeight))
+
+	initialView := viewModeFull
+	switch settings.ViewMode {
+	case string(viewModeEmulatorOnly):
+		initialView = viewModeEmulatorOnly
+	case string(viewModeCodeOnly):
+		initialView = viewModeCodeOnly
+	}
 
 	state := &devKitState{
 		tempDir:             tempDir,
+		settingsPath:        settingsPath,
+		settings:            settings,
+		autosavePath:        devKitAutosavePath(settingsPath),
 		window:              w,
-		currentView:         viewModeFull,
+		currentView:         initialView,
 		statusLabel:         widget.NewLabel("Ready"),
 		pathLabel:           widget.NewLabel("Untitled.corelx"),
 		diagnostics:         make([]corelx.Diagnostic, 0),
@@ -181,9 +241,13 @@ func main() {
 		emuScale:            2,
 		keyStates:           make(map[fyne.KeyName]bool),
 		typedKeyUntil:       make(map[fyne.KeyName]time.Time),
-		captureGameInput:    true,
+		captureGameInput:    settings.CaptureGameInput,
 		updateLoopStop:      make(chan struct{}),
 		audioFrame:          make([]byte, 735*2*4),
+		diagnosticsCollapsed: !settings.DiagnosticsPanel,
+	}
+	if settingsErr != nil {
+		fmt.Fprintf(os.Stderr, "settings load warning: %v\n", settingsErr)
 	}
 	state.backend = devkit.NewService(tempDir)
 	if err := state.initAudio(); err != nil {
@@ -191,25 +255,49 @@ func main() {
 		state.setStatus("Ready (audio unavailable)")
 	}
 	state.initUI()
+	state.window.SetMainMenu(state.buildMainMenu())
 	state.setupKeyboardInput()
 	state.startEmulatorLoop()
 
 	if *openPath != "" {
-		if err := state.loadFile(*openPath); err != nil {
+		if err := state.loadFile(*openPath, true); err != nil {
 			state.appendBuildOutput(fmt.Sprintf("Open error: %v", err))
 			state.setStatus("Open failed")
+		}
+	} else if state.settings.LastOpenFile != "" {
+		if err := state.loadFile(state.settings.LastOpenFile, false); err != nil {
+			state.appendBuildOutput(fmt.Sprintf("Session restore warning: %v", err))
 		}
 	} else {
 		state.dirty = false
 		state.refreshTitle()
 	}
+	if *openPath == "" {
+		state.tryRecoverAutosave()
+	}
+	if state.settings.LastROMPath != "" {
+		state.lastROMPath = state.settings.LastROMPath
+	}
 
 	w.SetCloseIntercept(func() {
+		state.captureLayoutState()
+		state.writeAutosaveSnapshot(state.sourceEntry.Text)
 		state.stopEmulatorLoop()
 		state.shutdownEmbeddedEmulator()
 		state.shutdownAudio()
+		state.persistSettings()
 		w.Close()
 	})
+
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		fyne.Do(func() {
+			if w != nil {
+				w.SetFixedSize(false)
+				_ = applyX11MaximizeHint(w)
+			}
+		})
+	}()
 
 	w.ShowAndRun()
 }
@@ -218,9 +306,13 @@ func (s *devKitState) initUI() {
 	s.sourceEntry = widget.NewMultiLineEntry()
 	s.sourceEntry.SetText(defaultTemplate)
 	s.sourceEntry.Wrapping = fyne.TextWrapOff
-	s.sourceEntry.OnChanged = func(string) {
+	s.sourceEntry.OnChanged = func(text string) {
+		if s.suppressSourceChange {
+			return
+		}
 		s.dirty = true
 		s.refreshTitle()
+		s.writeAutosaveSnapshot(text)
 	}
 
 	s.diagnosticFilter = widget.NewSelect([]string{"All", "Errors", "Warnings", "Info"}, func(string) {
@@ -232,14 +324,22 @@ func (s *devKitState) initUI() {
 		s.applyDiagnosticFilter()
 	}
 	s.diagnosticFilter.SetSelected("All")
+	s.stepFrameEntry = widget.NewEntry()
+	s.stepFrameEntry.SetText("1")
+	s.stepCPUEntry = widget.NewEntry()
+	s.stepCPUEntry.SetText("1")
+	s.debuggerOutput = newReadOnlyTextArea()
 
 	s.diagnosticsList = widget.NewList(
 		func() int { return len(s.filteredDiagnostics) },
-		func() fyne.CanvasObject { return widget.NewLabel("diagnostic") },
+		func() fyne.CanvasObject {
+			return canvas.NewText("diagnostic", theme.ForegroundColor())
+		},
 		func(id widget.ListItemID, obj fyne.CanvasObject) {
-			lbl := obj.(*widget.Label)
+			lbl := obj.(*canvas.Text)
 			if id < 0 || id >= len(s.filteredDiagnostics) {
-				lbl.SetText("")
+				lbl.Text = ""
+				lbl.Refresh()
 				return
 			}
 			d := s.filteredDiagnostics[id]
@@ -247,7 +347,16 @@ func (s *devKitState) initUI() {
 			if d.Line > 0 {
 				loc = fmt.Sprintf(":%d:%d", d.Line, maxInt(1, d.Column))
 			}
-			lbl.SetText(fmt.Sprintf("[%s/%s] %s%s %s", d.Severity, d.Stage, baseNameOr(d.File, "<buffer>"), loc, d.Message))
+			lbl.Text = fmt.Sprintf("[%s/%s] %s%s %s", d.Severity, d.Stage, baseNameOr(d.File, "<buffer>"), loc, d.Message)
+			switch d.Severity {
+			case corelx.SeverityError:
+				lbl.Color = theme.ErrorColor()
+			case corelx.SeverityWarning:
+				lbl.Color = theme.WarningColor()
+			default:
+				lbl.Color = theme.ForegroundColor()
+			}
+			lbl.Refresh()
 		},
 	)
 	s.diagnosticsList.OnSelected = func(id widget.ListItemID) {
@@ -271,98 +380,66 @@ func (s *devKitState) initUI() {
 		func(key *fyne.KeyEvent) { s.handleKeyDown(key) },
 		func(key *fyne.KeyEvent) { s.handleKeyUp(key) },
 	)
-	s.emuLabel = widget.NewLabel("Emulator: idle")
-	emuSurface := container.NewStack(s.emuImage, s.emuKeys)
+	s.emuLabel = widget.NewLabel("Hardware: idle")
+	s.emuSurface = container.NewStack(s.emuImage, s.emuKeys)
 
-	emuToolbar := container.NewHBox(
-		widget.NewButton("Reset", func() {
-			if err := s.backend.ResetEmulator(); err != nil {
-				s.setStatus("No ROM loaded")
-				return
-			}
-			s.setStatus("Emulator reset")
-		}),
-		widget.NewButton("Pause/Resume", func() {
-			paused, err := s.backend.TogglePause()
-			if err != nil {
-				s.setStatus("No ROM loaded")
-				return
-			}
-			if paused {
-				s.setStatus("Emulator paused")
-			} else {
-				s.setStatus("Emulator resumed")
-			}
-		}),
-		widget.NewCheck("Capture Game Input", func(v bool) {
-			s.captureGameInput = v
-			if !v {
-				s.applyInputButtons(0)
-			}
-		}),
-	)
-	// ensure initial check state shows current value
-	if len(emuToolbar.Objects) >= 3 {
-		if chk, ok := emuToolbar.Objects[2].(*widget.Check); ok {
-			chk.SetChecked(s.captureGameInput)
+	s.captureCheck = widget.NewCheck("Capture Input", func(v bool) {
+		s.captureGameInput = v
+		if !v {
+			s.applyInputButtons(0)
 		}
-	}
+		s.settings.CaptureGameInput = v
+		s.persistSettings()
+	})
+	s.captureCheck.SetChecked(s.captureGameInput)
 
-	s.emulatorPane = container.NewBorder(
-		container.NewVBox(widget.NewLabel("Emulator"), s.emuLabel, emuToolbar),
-		nil, nil, nil,
-		emuSurface,
-	)
-
+	s.diagnosticSummary = widget.NewLabel("Errors: 0 | Warnings: 0 | Info: 0")
+	s.diagnosticsToggle = widget.NewButton("Collapse", func() {
+		s.toggleDiagnosticsPanel()
+	})
 	diagToolbar := container.NewHBox(
-		widget.NewLabel("Diagnostics"),
+		s.diagnosticSummary,
 		s.diagnosticFilter,
 		s.diagnosticSearch,
+		s.diagnosticsToggle,
 	)
+	diagSplit := container.NewVSplit(s.diagnosticsList, s.diagnosticDetail)
+	diagSplit.Offset = 0.62
 	diagPane := container.NewBorder(
 		diagToolbar,
 		nil, nil, nil,
-		container.NewVSplit(s.diagnosticsList, s.diagnosticDetail),
+		diagSplit,
 	)
-	outputPane := container.NewBorder(widget.NewLabel("Build Output"), nil, nil, nil, s.buildOutput)
-	manifestPane := container.NewBorder(widget.NewLabel("Manifest / Memory Summary"), nil, nil, nil, s.manifestOutput)
+	outputPane := s.buildOutput
+	manifestPane := s.manifestOutput
+	debugPane := s.debuggerOutput
 	s.bottomLeftTabs = container.NewAppTabs(
 		container.NewTabItem("Diagnostics", diagPane),
 		container.NewTabItem("Output", outputPane),
 		container.NewTabItem("Manifest", manifestPane),
+		container.NewTabItem("Debugger", debugPane),
 	)
 
 	s.editorPane = container.NewBorder(
-		container.NewVBox(widget.NewLabel("CoreLX Editor"), s.pathLabel),
+		s.pathLabel,
 		nil, nil, nil,
 		s.sourceEntry,
 	)
-	spriteLabPlaceholder := widget.NewLabel("Sprite Lab (coming next)\n\nPlanned: palette-index sprite editor + .clxasset round-trip export/import.")
+	spriteLabPane := s.buildSpriteLabPane()
 	tilemapPlaceholder := widget.NewLabel("Tilemap Editor (coming next)\n\nPlanned: grid placement + CoreLX asset export.")
 	soundStudioPlaceholder := widget.NewLabel("Sound Studio (coming next)\n\nPlanned: music/ambience/SFX authoring integrated with packaging.")
 	s.workbenchTabs = container.NewAppTabs(
 		container.NewTabItem("Code", s.editorPane),
-		container.NewTabItem("Sprite Lab", container.NewScroll(spriteLabPlaceholder)),
+		container.NewTabItem("Sprite Lab", spriteLabPane),
 		container.NewTabItem("Tilemap", container.NewScroll(tilemapPlaceholder)),
 		container.NewTabItem("Sound", container.NewScroll(soundStudioPlaceholder)),
-	)
-
-	leftSplit := container.NewVSplit(s.emulatorPane, s.bottomLeftTabs)
-	leftSplit.Offset = 0.53
-	fullSplit := container.NewHSplit(leftSplit, s.workbenchTabs)
-	fullSplit.Offset = 0.43
-	s.fullLayout = fullSplit
-
-	s.emulatorOnlyLayout = container.NewBorder(
-		container.NewVBox(widget.NewLabel("Emulator (Nitro-Core-DX Integrated View)"), s.emuLabel),
-		nil, nil, nil,
-		emuSurface,
 	)
 
 	s.centerHost = container.NewMax()
 	s.contentRoot = container.NewBorder(s.buildToolbar(), s.statusLabel, nil, nil, s.centerHost)
 	s.window.SetContent(s.contentRoot)
-	s.setViewMode(viewModeFull)
+	s.setViewMode(s.currentView)
+	s.refreshDebuggerOutput()
 }
 
 func newReadOnlyTextArea() *widget.Entry {
@@ -373,8 +450,8 @@ func newReadOnlyTextArea() *widget.Entry {
 }
 
 func (s *devKitState) buildToolbar() fyne.CanvasObject {
-	openBtn := widget.NewButton("Open", func() { s.openDialog() })
-	loadROMBtn := widget.NewButton("Load ROM", func() { s.openROMDialog() })
+	newProjectBtn := widget.NewButton("New", func() { s.showTemplateDialog() })
+	openProjectBtn := widget.NewButton("Open", func() { s.showOpenProjectDialog() })
 	saveBtn := widget.NewButton("Save", func() {
 		if err := s.save(); err != nil {
 			dialog.ShowError(err, s.window)
@@ -383,38 +460,90 @@ func (s *devKitState) buildToolbar() fyne.CanvasObject {
 		}
 		s.setStatus("Saved")
 	})
-	saveAsBtn := widget.NewButton("Save As", func() { s.saveAsDialog() })
+
 	buildBtn := widget.NewButton("Build", func() { s.runBuild(false) })
 	buildRunBtn := widget.NewButton("Build + Run", func() { s.runBuild(true) })
-	fullViewBtn := widget.NewButton("Full View", func() { s.setViewMode(viewModeFull) })
-	emuOnlyBtn := widget.NewButton("Emulator Only", func() { s.setViewMode(viewModeEmulatorOnly) })
+	buildRunBtn.Importance = widget.HighImportance
+
+	s.runBtn = widget.NewButton("Run", func() { s.runEmulator() })
+	s.pauseBtn = widget.NewButton("Pause", func() { s.pauseEmulator() })
+	s.stopBtn = widget.NewButton("Stop", func() { s.stopEmulator() })
+	s.stopBtn.Importance = widget.DangerImportance
+
+	stepFrameBtn := widget.NewButton("Step F", func() { s.stepFrame() })
+	stepCPUBtn := widget.NewButton("Step C", func() { s.stepCPU() })
+
+	s.splitViewBtn = widget.NewButton("Split View", func() { s.setViewMode(viewModeFull) })
+	s.emulatorFocusBtn = widget.NewButton("Emulator Focus", func() { s.setViewMode(viewModeEmulatorOnly) })
+	s.codeOnlyBtn = widget.NewButton("Code Only", func() { s.setViewMode(viewModeCodeOnly) })
+	s.refreshViewToggleButtons()
+
+	loadROMBtn := widget.NewButton("Load ROM", func() { s.openROMDialog() })
 
 	return container.NewHBox(
-		openBtn,
-		loadROMBtn,
+		newProjectBtn,
+		openProjectBtn,
 		saveBtn,
-		saveAsBtn,
+		loadROMBtn,
 		widget.NewSeparator(),
 		buildBtn,
 		buildRunBtn,
 		widget.NewSeparator(),
-		fullViewBtn,
-		emuOnlyBtn,
+		s.runBtn,
+		s.pauseBtn,
+		s.stopBtn,
+		stepFrameBtn,
+		stepCPUBtn,
+		widget.NewSeparator(),
+		s.codeOnlyBtn,
+		s.splitViewBtn,
+		s.emulatorFocusBtn,
 	)
 }
 
 func (s *devKitState) setViewMode(mode viewMode) {
+	s.captureLayoutState()
 	s.currentView = mode
-	if mode == viewModeEmulatorOnly {
-		s.centerHost.Objects = []fyne.CanvasObject{s.emulatorOnlyLayout}
-		s.setStatus("View: Emulator Only")
+	s.settings.ViewMode = string(mode)
+	s.persistSettings()
+
+	switch mode {
+	case viewModeEmulatorOnly:
+		emuLayout := container.NewBorder(
+			container.NewHBox(s.emuLabel, layout.NewSpacer(), s.captureCheck),
+			nil, nil, nil,
+			s.emuSurface,
+		)
+		s.centerHost.Objects = []fyne.CanvasObject{emuLayout}
+		s.setStatus("View: Emulator Focus")
 		if s.captureGameInput {
 			s.focusEmulatorInput()
 		}
-	} else {
-		s.centerHost.Objects = []fyne.CanvasObject{s.fullLayout}
-		s.setStatus("View: Full")
+	case viewModeCodeOnly:
+		codeLayout := container.NewVSplit(s.workbenchTabs, s.bottomLeftTabs)
+		codeLayout.Offset = 0.72
+		s.centerHost.Objects = []fyne.CanvasObject{codeLayout}
+		s.setStatus("View: Code Only")
+	default:
+		emuPane := container.NewBorder(
+			container.NewHBox(s.emuLabel, layout.NewSpacer(), s.captureCheck),
+			nil, nil, nil,
+			s.emuSurface,
+		)
+		s.leftSplit = container.NewVSplit(emuPane, s.bottomLeftTabs)
+		s.leftSplit.Offset = clampOffset(s.settings.LeftSplitOffset, defaultLeftSplitOffset)
+		if s.diagnosticsCollapsed {
+			s.leftSplit.Offset = 1.0
+			s.diagnosticsToggle.SetText("Expand")
+		} else {
+			s.diagnosticsToggle.SetText("Collapse")
+		}
+		s.mainSplit = container.NewHSplit(s.leftSplit, s.workbenchTabs)
+		s.mainSplit.Offset = clampOffset(s.settings.MainSplitOffset, defaultMainSplitOffset)
+		s.centerHost.Objects = []fyne.CanvasObject{s.mainSplit}
+		s.setStatus("View: Split View")
 	}
+	s.refreshViewToggleButtons()
 	s.centerHost.Refresh()
 	s.refreshTitle()
 }
@@ -429,7 +558,18 @@ func (s *devKitState) applyDiagnosticFilter() {
 		mode = s.diagnosticFilter.Selected
 	}
 	s.filteredDiagnostics = s.filteredDiagnostics[:0]
+	errCount := 0
+	warnCount := 0
+	infoCount := 0
 	for _, d := range s.diagnostics {
+		switch d.Severity {
+		case corelx.SeverityError:
+			errCount++
+		case corelx.SeverityWarning:
+			warnCount++
+		default:
+			infoCount++
+		}
 		if !diagnosticMatchesFilter(d, mode) {
 			continue
 		}
@@ -444,6 +584,9 @@ func (s *devKitState) applyDiagnosticFilter() {
 	if s.diagnosticsList != nil {
 		s.diagnosticsList.UnselectAll()
 		s.diagnosticsList.Refresh()
+	}
+	if s.diagnosticSummary != nil {
+		s.diagnosticSummary.SetText(fmt.Sprintf("Errors: %d | Warnings: %d | Info: %d", errCount, warnCount, infoCount))
 	}
 	s.updateDiagnosticDetailSelection()
 }
@@ -463,15 +606,161 @@ func (s *devKitState) openDialog() {
 			dialog.ShowError(readErr, s.window)
 			return
 		}
-		s.sourceEntry.SetText(string(data))
+		s.setSourceContent(string(data), false, true)
 		s.currentPath = uriPath(rc.URI())
-		s.dirty = false
 		s.refreshTitle()
 		s.pathLabel.SetText(displayPath(s.currentPath))
-		s.setStatus("Opened " + baseNameOr(s.currentPath, "buffer"))
+		s.rememberSourcePath(s.currentPath)
+		s.setStatus("Opened project: " + baseNameOr(s.currentPath, "buffer"))
 		s.appendBuildOutput("Opened " + s.currentPath)
 	}, s.window)
 	fd.SetFilter(storage.NewExtensionFileFilter([]string{".corelx", ".clx", ".txt"}))
+	if loc := dialogListableForDir(s.settings.LastSourceDir); loc != nil {
+		fd.SetLocation(loc)
+	}
+	fd.Show()
+}
+
+func (s *devKitState) showOpenProjectDialog() {
+	type filterOpt struct {
+		Label string
+		Kind  string
+	}
+	options := []filterOpt{
+		{Label: "CoreLX Project Source (*.corelx, *.clx, *.txt)", Kind: "source"},
+		{Label: "Build Output (*.rom)", Kind: "rom"},
+		{Label: "All Supported", Kind: "all"},
+	}
+	filterSel := widget.NewSelect([]string{options[0].Label, options[1].Label, options[2].Label}, nil)
+	filterSel.SetSelected(options[0].Label)
+
+	recentLabel := widget.NewLabel("Recent projects")
+	recentLabel.TextStyle = fyne.TextStyle{Bold: true}
+	preview := newReadOnlyTextArea()
+	preview.SetPlaceHolder("Select a recent project to preview.")
+	selectedRecent := ""
+
+	recentOptions := append([]string{}, s.settings.RecentFiles...)
+	recentSelect := widget.NewSelect(recentOptions, func(path string) {
+		selectedRecent = path
+		if path == "" {
+			return
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			preview.Enable()
+			preview.SetText("Preview unavailable: " + err.Error())
+			preview.Disable()
+			return
+		}
+		text := string(data)
+		if len(text) > 2000 {
+			text = text[:2000] + "\n... (preview truncated)"
+		}
+		preview.Enable()
+		preview.SetText(text)
+		preview.Disable()
+	})
+	if len(recentOptions) == 0 {
+		recentSelect.PlaceHolder = "No recent projects"
+	}
+
+	var d dialog.Dialog
+	openRecentBtn := widget.NewButton("Open Selected Recent", func() {
+		if selectedRecent == "" {
+			s.setStatus("Select a recent project first")
+			return
+		}
+		if strings.HasSuffix(strings.ToLower(selectedRecent), ".rom") {
+			data, err := os.ReadFile(selectedRecent)
+			if err != nil {
+				dialog.ShowError(err, s.window)
+				return
+			}
+			if err := s.loadROMIntoEmbedded(data); err != nil {
+				dialog.ShowError(err, s.window)
+				return
+			}
+			s.lastROMPath = selectedRecent
+			s.rememberROMPath(selectedRecent)
+			s.setStatus("Loaded project build artifact")
+			d.Hide()
+			return
+		}
+		if err := s.loadFile(selectedRecent, true); err != nil {
+			dialog.ShowError(err, s.window)
+			return
+		}
+		s.setStatus("Opened project")
+		d.Hide()
+	})
+	browseBtn := widget.NewButton("Browse...", func() {
+		switch filterSel.Selected {
+		case options[1].Label:
+			s.openROMDialog()
+		case options[2].Label:
+			s.openAnyProjectDialog()
+		default:
+			s.openDialog()
+		}
+		d.Hide()
+	})
+	openRecentBtn.Importance = widget.HighImportance
+	buttons := container.NewHBox(openRecentBtn, browseBtn)
+
+	content := container.NewBorder(
+		container.NewVBox(
+			widget.NewLabel("Open Project"),
+			filterSel,
+		),
+		buttons,
+		nil, nil,
+		container.NewVSplit(
+			container.NewVBox(recentLabel, recentSelect),
+			container.NewScroll(preview),
+		),
+	)
+
+	d = dialog.NewCustom("Open Project", "Close", content, s.window)
+	d.Resize(fyne.NewSize(860, 620))
+	d.Show()
+}
+
+func (s *devKitState) openAnyProjectDialog() {
+	fd := dialog.NewFileOpen(func(rc fyne.URIReadCloser, err error) {
+		if err != nil {
+			dialog.ShowError(err, s.window)
+			return
+		}
+		if rc == nil {
+			return
+		}
+		defer rc.Close()
+		path := uriPath(rc.URI())
+		data, readErr := io.ReadAll(rc)
+		if readErr != nil {
+			dialog.ShowError(readErr, s.window)
+			return
+		}
+		if strings.HasSuffix(strings.ToLower(path), ".rom") {
+			if loadErr := s.loadROMIntoEmbedded(data); loadErr != nil {
+				dialog.ShowError(loadErr, s.window)
+				return
+			}
+			s.lastROMPath = path
+			s.rememberROMPath(path)
+			s.setStatus("Loaded project build artifact")
+			return
+		}
+		s.setSourceContent(string(data), false, true)
+		s.currentPath = path
+		s.refreshTitle()
+		s.pathLabel.SetText(displayPath(s.currentPath))
+		s.rememberSourcePath(s.currentPath)
+		s.setStatus("Opened project")
+		s.appendBuildOutput("Opened " + s.currentPath)
+	}, s.window)
+	fd.SetFilter(storage.NewExtensionFileFilter([]string{".corelx", ".clx", ".txt", ".rom"}))
 	fd.Show()
 }
 
@@ -492,16 +781,20 @@ func (s *devKitState) openROMDialog() {
 		}
 		if loadErr := s.loadROMIntoEmbedded(data); loadErr != nil {
 			dialog.ShowError(loadErr, s.window)
-			s.appendBuildOutput("Load ROM failed: " + loadErr.Error())
-			s.setStatus("Load ROM failed")
+			s.appendBuildOutput("Load build artifact failed: " + loadErr.Error())
+			s.setStatus("Load project build failed")
 			return
 		}
 		s.lastROMPath = uriPath(rc.URI())
+		s.rememberROMPath(s.lastROMPath)
 		s.setViewMode(viewModeFull)
-		s.appendBuildOutput("Loaded ROM into embedded emulator: " + s.lastROMPath)
-		s.setStatus("ROM loaded in embedded emulator")
+		s.appendBuildOutput("Loaded build artifact into emulator subsystem: " + s.lastROMPath)
+		s.setStatus("Project build loaded")
 	}, s.window)
 	fd.SetFilter(storage.NewExtensionFileFilter([]string{".rom"}))
+	if loc := dialogListableForDir(s.settings.LastROMDir); loc != nil {
+		fd.SetLocation(loc)
+	}
 	fd.Show()
 }
 
@@ -523,10 +816,15 @@ func (s *devKitState) saveAsDialog() {
 		s.dirty = false
 		s.refreshTitle()
 		s.pathLabel.SetText(displayPath(s.currentPath))
+		s.rememberSourcePath(s.currentPath)
+		s.clearAutosaveJournal()
 		s.setStatus("Saved")
 		s.appendBuildOutput("Saved " + s.currentPath)
 	}, s.window)
 	fd.SetFilter(storage.NewExtensionFileFilter([]string{".corelx", ".clx", ".txt"}))
+	if loc := dialogListableForDir(s.settings.LastSourceDir); loc != nil {
+		fd.SetLocation(loc)
+	}
 	if s.currentPath != "" {
 		fd.SetFileName(baseNameOr(s.currentPath, "main.corelx"))
 	} else {
@@ -546,22 +844,37 @@ func (s *devKitState) save() error {
 	s.dirty = false
 	s.refreshTitle()
 	s.pathLabel.SetText(displayPath(s.currentPath))
+	s.rememberSourcePath(s.currentPath)
+	s.clearAutosaveJournal()
 	s.appendBuildOutput("Saved " + s.currentPath)
 	return nil
 }
 
-func (s *devKitState) loadFile(path string) error {
+func (s *devKitState) loadFile(path string, clearAutosave bool) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
-	s.sourceEntry.SetText(string(data))
+	s.setSourceContent(string(data), false, clearAutosave)
 	s.currentPath = path
-	s.dirty = false
 	s.refreshTitle()
 	s.pathLabel.SetText(displayPath(s.currentPath))
+	s.rememberSourcePath(s.currentPath)
 	s.appendBuildOutput("Opened " + s.currentPath)
 	return nil
+}
+
+func (s *devKitState) setSourceContent(text string, dirty bool, clearAutosave bool) {
+	s.suppressSourceChange = true
+	s.sourceEntry.SetText(text)
+	s.suppressSourceChange = false
+	s.dirty = dirty
+	if dirty {
+		s.writeAutosaveSnapshot(text)
+	} else if clearAutosave {
+		s.clearAutosaveJournal()
+	}
+	s.refreshTitle()
 }
 
 func (s *devKitState) refreshTitle() {
@@ -572,9 +885,14 @@ func (s *devKitState) refreshTitle() {
 	if s.dirty {
 		name += " *"
 	}
-	viewLabel := "Full"
-	if s.currentView == viewModeEmulatorOnly {
-		viewLabel = "Emulator Only"
+	var viewLabel string
+	switch s.currentView {
+	case viewModeEmulatorOnly:
+		viewLabel = "Emulator Focus"
+	case viewModeCodeOnly:
+		viewLabel = "Code Only"
+	default:
+		viewLabel = "Split View"
 	}
 	s.window.SetTitle("Nitro-Core-DX - " + name + " [" + viewLabel + "]")
 }
@@ -629,10 +947,10 @@ func (s *devKitState) runBuild(runAfter bool) {
 				return
 			}
 			s.setViewMode(viewModeFull)
-			s.appendBuildOutput("ROM loaded into embedded emulator")
-			s.setStatus("Build + Run loaded in embedded emulator")
+			s.appendBuildOutput("Project build loaded into emulator subsystem")
+			s.setStatus("Build + Run completed")
 		} else {
-			s.setStatus("Build succeeded (no ROM bytes emitted)")
+			s.setStatus("Build succeeded (no executable artifact emitted)")
 		}
 	}
 }
@@ -662,7 +980,7 @@ func (s *devKitState) appendBuildSummary(bundle corelx.CompileBundle, res *corel
 	sb.WriteString(fmt.Sprintf("Errors: %d  Warnings: %d  Info: %d\n",
 		bundle.Summary.ErrorCount, bundle.Summary.WarningCount, bundle.Summary.InfoCount))
 	if res != nil && res.Manifest != nil {
-		sb.WriteString(fmt.Sprintf("ROM bytes (emitted/planned): %d / %d\n",
+		sb.WriteString(fmt.Sprintf("Build output bytes (emitted/planned): %d / %d\n",
 			res.Manifest.EmittedROMSizeBytes, res.Manifest.PlannedROMSizeBytes))
 	}
 	sb.WriteString(fmt.Sprintf("Artifacts: %s\n", s.tempDir))
@@ -683,7 +1001,7 @@ func (s *devKitState) loadROMIntoEmbedded(romBytes []byte) error {
 	}
 
 	fyne.Do(func() {
-		s.emuLabel.SetText("Emulator: running (embedded)")
+		s.emuLabel.SetText("Hardware: running")
 		if s.captureGameInput {
 			s.focusEmulatorInput()
 		}
@@ -720,8 +1038,8 @@ func (s *devKitState) startEmulatorLoop() {
 			tick, err := s.backend.Tick(delta)
 			if err != nil {
 				fyne.Do(func() {
-					s.appendBuildOutput("Emulator frame error: " + err.Error())
-					s.setStatus("Emulator error")
+					s.appendBuildOutput("Hardware frame error: " + err.Error())
+					s.setStatus("Hardware error")
 				})
 				continue
 			}
@@ -745,7 +1063,8 @@ func (s *devKitState) startEmulatorLoop() {
 						if paused {
 							state = "paused"
 						}
-						s.emuLabel.SetText(fmt.Sprintf("Emulator: %s | FPS %.1f | CPU %d cycles/frame | Frame %d", state, fps, cycles, frameCount))
+						s.emuLabel.SetText(fmt.Sprintf("Hardware: %s | FPS %.1f | CPU %d cycles/frame | Frame %d", state, fps, cycles, frameCount))
+						s.refreshDebuggerOutput()
 					})
 				}
 			}
@@ -864,6 +1183,11 @@ func (s *devKitState) handleTypedKey(key *fyne.KeyEvent) {
 	if key == nil {
 		return
 	}
+	if s.shouldHandleTypedWindowKey(key.Name) {
+		if s.handleWindowHotkey(key.Name) {
+			return
+		}
+	}
 	s.keyMu.Lock()
 	if !s.desktopKeyEvents {
 		s.typedKeyUntil[key.Name] = time.Now().Add(450 * time.Millisecond)
@@ -874,6 +1198,9 @@ func (s *devKitState) handleTypedKey(key *fyne.KeyEvent) {
 
 func (s *devKitState) handleKeyDown(key *fyne.KeyEvent) {
 	if key == nil {
+		return
+	}
+	if s.handleWindowHotkey(key.Name) {
 		return
 	}
 	s.keyMu.Lock()
@@ -898,6 +1225,73 @@ func (s *devKitState) focusEmulatorInput() {
 		return
 	}
 	s.window.Canvas().Focus(s.emuKeys)
+}
+
+func (s *devKitState) shouldHandleTypedWindowKey(name fyne.KeyName) bool {
+	switch name {
+	case fyne.KeyF11:
+		s.keyMu.Lock()
+		desktop := s.desktopKeyEvents
+		s.keyMu.Unlock()
+		return !desktop
+	default:
+		return false
+	}
+}
+
+func (s *devKitState) handleWindowHotkey(name fyne.KeyName) bool {
+	switch name {
+	case fyne.KeyF11:
+		s.maximizeWindow()
+		return true
+	}
+	return false
+}
+
+// maximizeWindow resizes the window to fill the screen.
+func (s *devKitState) maximizeWindow() {
+	if s.window == nil {
+		return
+	}
+	if s.windowMaximized {
+		s.restoreWindow()
+		return
+	}
+	s.savedRestoreSize = s.window.Canvas().Size()
+	s.windowMaximized = true
+	s.window.Resize(fyne.NewSize(9999, 9999))
+	s.setStatus("Window: Maximized (F11 or View > Restore Window to restore)")
+}
+
+// restoreWindow restores the window size after a programmatic maximize.
+func (s *devKitState) restoreWindow() {
+	if s.window == nil || !s.windowMaximized {
+		return
+	}
+	s.windowMaximized = false
+	restore := s.savedRestoreSize
+	if restore.Width <= 0 || restore.Height <= 0 {
+		restore = fyne.NewSize(defaultWindowWidth, defaultWindowHeight)
+	}
+	s.window.Resize(restore)
+	s.setStatus("Window: Restored")
+	s.reapplyWindowHints()
+}
+
+// reapplyWindowHints ensures native WM maximize stays enabled after state changes.
+func (s *devKitState) reapplyWindowHints() {
+	if s.window == nil {
+		return
+	}
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		fyne.Do(func() {
+			if s.window != nil {
+				s.window.SetFixedSize(false)
+				_ = applyX11MaximizeHint(s.window)
+			}
+		})
+	}()
 }
 
 func (s *devKitState) shouldCaptureGameInput() bool {
@@ -1020,7 +1414,7 @@ func (s *devKitState) updateDiagnosticDetailSelection() {
 	if len(s.filteredDiagnostics) == 0 {
 		s.diagnosticDetail.Enable()
 		if len(s.diagnostics) == 0 {
-			s.diagnosticDetail.SetText("No diagnostics")
+			s.diagnosticDetail.SetText("No build issues")
 		} else {
 			s.diagnosticDetail.SetText("No diagnostics match current filter")
 		}
@@ -1044,6 +1438,249 @@ func (s *devKitState) appendBuildOutput(msg string) {
 
 func (s *devKitState) setStatus(msg string) {
 	s.statusLabel.SetText(msg)
+}
+
+func (s *devKitState) refreshViewToggleButtons() {
+	if s.splitViewBtn == nil || s.emulatorFocusBtn == nil || s.codeOnlyBtn == nil {
+		return
+	}
+	s.splitViewBtn.Importance = widget.MediumImportance
+	s.emulatorFocusBtn.Importance = widget.MediumImportance
+	s.codeOnlyBtn.Importance = widget.MediumImportance
+	switch s.currentView {
+	case viewModeEmulatorOnly:
+		s.emulatorFocusBtn.Importance = widget.HighImportance
+	case viewModeCodeOnly:
+		s.codeOnlyBtn.Importance = widget.HighImportance
+	default:
+		s.splitViewBtn.Importance = widget.HighImportance
+	}
+	s.splitViewBtn.Refresh()
+	s.emulatorFocusBtn.Refresh()
+	s.codeOnlyBtn.Refresh()
+}
+
+func (s *devKitState) runEmulator() {
+	snap := s.backend.Snapshot()
+	if !snap.Loaded {
+		s.runBuild(true)
+		return
+	}
+	if snap.Paused {
+		if _, err := s.backend.TogglePause(); err != nil {
+			s.appendBuildOutput("Run failed: " + err.Error())
+			s.setStatus("Run failed")
+			return
+		}
+	}
+	s.setStatus("Running")
+}
+
+func (s *devKitState) pauseEmulator() {
+	snap := s.backend.Snapshot()
+	if !snap.Loaded {
+		s.setStatus("No active project build")
+		return
+	}
+	if snap.Paused {
+		s.setStatus("Already paused")
+		return
+	}
+	if _, err := s.backend.TogglePause(); err != nil {
+		s.appendBuildOutput("Pause failed: " + err.Error())
+		s.setStatus("Pause failed")
+		return
+	}
+	s.setStatus("Paused")
+}
+
+func (s *devKitState) stopEmulator() {
+	snap := s.backend.Snapshot()
+	if !snap.Loaded {
+		s.setStatus("No active project build")
+		return
+	}
+	if !snap.Paused {
+		if _, err := s.backend.TogglePause(); err != nil {
+			s.appendBuildOutput("Stop failed: " + err.Error())
+			s.setStatus("Stop failed")
+			return
+		}
+	}
+	s.applyInputButtons(0)
+	s.setStatus("Stopped")
+}
+
+func (s *devKitState) hardwareReset() {
+	if err := s.backend.ResetEmulator(); err != nil {
+		s.setStatus("No active project build")
+		return
+	}
+	s.setStatus("Hardware reset complete")
+}
+
+func (s *devKitState) stepFrame() {
+	snap := s.backend.Snapshot()
+	if !snap.Loaded {
+		s.setStatus("No active project build")
+		return
+	}
+	if !snap.Paused {
+		s.setStatus("Pause before stepping frames")
+		return
+	}
+	frames := s.parseStepCount(s.stepFrameEntry.Text, 1)
+	if err := s.backend.StepFrame(frames); err != nil {
+		s.setStatus("Step frame failed")
+		s.appendBuildOutput("Step frame failed: " + err.Error())
+		return
+	}
+	s.refreshDebuggerOutput()
+	s.setStatus(fmt.Sprintf("Stepped %d frame(s)", frames))
+}
+
+func (s *devKitState) stepCPU() {
+	snap := s.backend.Snapshot()
+	if !snap.Loaded {
+		s.setStatus("No active project build")
+		return
+	}
+	if !snap.Paused {
+		s.setStatus("Pause before stepping CPU")
+		return
+	}
+	steps := s.parseStepCount(s.stepCPUEntry.Text, 1)
+	if err := s.backend.StepCPU(steps); err != nil {
+		s.setStatus("Step CPU failed")
+		s.appendBuildOutput("Step CPU failed: " + err.Error())
+		return
+	}
+	s.refreshDebuggerOutput()
+	s.setStatus(fmt.Sprintf("Stepped %d CPU instruction(s)", steps))
+}
+
+func (s *devKitState) toggleDiagnosticsPanel() {
+	if s.leftSplit == nil || s.diagnosticsToggle == nil {
+		return
+	}
+	s.diagnosticsCollapsed = !s.diagnosticsCollapsed
+	if s.diagnosticsCollapsed {
+		s.leftSplit.Offset = 1.0
+		s.diagnosticsToggle.SetText("Expand")
+		s.settings.DiagnosticsPanel = false
+	} else {
+		s.leftSplit.Offset = clampOffset(s.settings.LeftSplitOffset, defaultLeftSplitOffset)
+		s.diagnosticsToggle.SetText("Collapse")
+		s.settings.DiagnosticsPanel = true
+	}
+	s.persistSettings()
+	s.leftSplit.Refresh()
+}
+
+func (s *devKitState) captureLayoutState() {
+	if s.currentView == viewModeFull && s.mainSplit != nil {
+		s.settings.MainSplitOffset = clampOffset(s.mainSplit.Offset, defaultMainSplitOffset)
+		if s.leftSplit != nil && !s.diagnosticsCollapsed {
+			s.settings.LeftSplitOffset = clampOffset(s.leftSplit.Offset, defaultLeftSplitOffset)
+		}
+	}
+	s.settings.DiagnosticsPanel = !s.diagnosticsCollapsed
+}
+
+func (s *devKitState) setUIDensity(density string) {
+	s.settings.UIDensity = density
+	s.persistSettings()
+	if density == "standard" {
+		fyne.CurrentApp().Settings().SetTheme(newStandardTheme())
+	} else {
+		fyne.CurrentApp().Settings().SetTheme(newCompactTheme())
+	}
+	s.setStatus("UI density: " + density + " (applied)")
+}
+
+func (s *devKitState) applyLayoutPreset(preset string) {
+	switch preset {
+	case layoutPresetCodeFocus:
+		s.setViewMode(viewModeCodeOnly)
+		s.diagnosticsCollapsed = false
+	case layoutPresetArtMode:
+		s.settings.MainSplitOffset = 0.55
+		s.settings.LeftSplitOffset = 0.72
+		s.setViewMode(viewModeFull)
+		s.diagnosticsCollapsed = false
+	case layoutPresetDebugMode:
+		s.settings.MainSplitOffset = 0.50
+		s.settings.LeftSplitOffset = 0.42
+		s.setViewMode(viewModeFull)
+		s.diagnosticsCollapsed = false
+	case layoutPresetEmulatorFocus:
+		s.setViewMode(viewModeEmulatorOnly)
+		s.diagnosticsCollapsed = true
+	default:
+		preset = layoutPresetBalanced
+		s.settings.MainSplitOffset = defaultMainSplitOffset
+		s.settings.LeftSplitOffset = defaultLeftSplitOffset
+		s.setViewMode(viewModeFull)
+		s.diagnosticsCollapsed = false
+	}
+	if s.diagnosticsToggle != nil {
+		if s.diagnosticsCollapsed {
+			if s.leftSplit != nil {
+				s.leftSplit.Offset = 1.0
+			}
+			s.diagnosticsToggle.SetText("Expand")
+		} else {
+			s.diagnosticsToggle.SetText("Collapse")
+		}
+	}
+	s.settings.LayoutPreset = preset
+	s.captureLayoutState()
+	s.persistSettings()
+}
+
+func clampOffset(v, fallback float64) float64 {
+	if v <= 0 || v >= 1 {
+		return fallback
+	}
+	return v
+}
+
+func (s *devKitState) parseStepCount(text string, fallback int) int {
+	n, err := strconv.Atoi(strings.TrimSpace(text))
+	if err != nil || n <= 0 {
+		return fallback
+	}
+	if n > 10000 {
+		return 10000
+	}
+	return n
+}
+
+func (s *devKitState) refreshDebuggerOutput() {
+	if s.debuggerOutput == nil {
+		return
+	}
+
+	snap := s.backend.Snapshot()
+	pc := s.backend.GetPCState()
+	regs := s.backend.GetRegisters()
+
+	var sb strings.Builder
+	if !snap.Loaded || !pc.Loaded || !regs.Loaded {
+		sb.WriteString("No build loaded\n")
+		sb.WriteString("Use Build + Run to load a project and inspect CPU state.")
+	} else {
+		sb.WriteString(fmt.Sprintf("Running: %v\nPaused: %v\n", snap.Running, snap.Paused))
+		sb.WriteString(fmt.Sprintf("PC: %02X:%04X  PBR:%02X DBR:%02X SP:%04X\n", pc.PCBank, pc.PCOffset, pc.PBR, pc.DBR, pc.SP))
+		sb.WriteString(fmt.Sprintf("Flags: 0x%02X  Cycles: %d  Frame: %d\n", pc.Flags, pc.Cycles, snap.FrameCount))
+		sb.WriteString("\nRegisters:\n")
+		sb.WriteString(fmt.Sprintf("R0:%04X  R1:%04X  R2:%04X  R3:%04X\n", regs.R0, regs.R1, regs.R2, regs.R3))
+		sb.WriteString(fmt.Sprintf("R4:%04X  R5:%04X  R6:%04X  R7:%04X\n", regs.R4, regs.R5, regs.R6, regs.R7))
+	}
+
+	s.debuggerOutput.Enable()
+	s.debuggerOutput.SetText(sb.String())
+	s.debuggerOutput.Disable()
 }
 
 func formatDiagnostic(d corelx.Diagnostic) string {

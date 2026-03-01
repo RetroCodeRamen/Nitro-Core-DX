@@ -1,6 +1,7 @@
 package corelx
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -15,6 +16,7 @@ type CodeGenerator struct {
 	regAlloc         *RegisterAllocator
 	labelCounter     int
 	assets           map[string]*AssetDecl
+	assetIDs         map[string]uint16
 	normalizedAssets map[string]AssetIR
 	assetOffsets     map[string]uint16
 
@@ -47,6 +49,8 @@ type RegisterAllocator struct {
 	spill     []string // Spilled variables
 }
 
+var errUnknownBuiltin = errors.New("unknown builtin")
+
 // NewCodeGenerator creates a new code generator
 func NewCodeGenerator(program *Program, builder *rom.ROMBuilder) *CodeGenerator {
 	return &CodeGenerator{
@@ -56,6 +60,7 @@ func NewCodeGenerator(program *Program, builder *rom.ROMBuilder) *CodeGenerator 
 		regAlloc:         &RegisterAllocator{},
 		labelCounter:     0,
 		assets:           make(map[string]*AssetDecl),
+		assetIDs:         make(map[string]uint16),
 		normalizedAssets: make(map[string]AssetIR),
 		assetOffsets:     make(map[string]uint16),
 		variables:        make(map[string]*VariableInfo),
@@ -74,8 +79,9 @@ func (cg *CodeGenerator) SetNormalizedAssets(assets []AssetIR) {
 // Generate generates code for the program
 func (cg *CodeGenerator) Generate() error {
 	// Collect assets
-	for _, asset := range cg.program.Assets {
+	for i, asset := range cg.program.Assets {
 		cg.assets[asset.Name] = asset
+		cg.assetIDs[asset.Name] = uint16(i)
 	}
 
 	// Register symbols
@@ -522,9 +528,13 @@ func (cg *CodeGenerator) generateExpr(expr Expr, destReg uint8) error {
 			// Asset constant
 			assetName := strings.TrimPrefix(e.Name, "ASSET_")
 			if _, ok := cg.assets[assetName]; ok {
-				// Return asset offset (for now, just 0)
+				assetID, ok := cg.assetIDs[assetName]
+				if !ok {
+					return fmt.Errorf("missing asset ID for %s", assetName)
+				}
+				// Return compiler-assigned asset ID.
 				cg.builder.AddInstruction(rom.EncodeMOV(1, destReg, 0))
-				cg.builder.AddImmediate(0)
+				cg.builder.AddImmediate(assetID)
 				return nil
 			}
 		}
@@ -983,9 +993,12 @@ func (cg *CodeGenerator) generateCall(call *CallExpr, destReg uint8) error {
 		}
 	}
 
-	// Try built-in functions first
+	// Try built-in functions first.
+	// Propagate real builtin failures instead of masking them as "unknown function".
 	if err := cg.generateBuiltinCall(funcName, call.Args, destReg); err == nil {
 		return nil
+	} else if !errors.Is(err, errUnknownBuiltin) {
+		return err
 	}
 
 	// Check if it's a user-defined function
@@ -1570,39 +1583,10 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 			}
 		}
 
-		// Runtime asset loading (asset ID is a variable)
-		// Calculate VRAM address: base * 32 (each 8x8 tile is 32 bytes at 4bpp)
-		// Save base (R1) to R2
-		cg.builder.AddInstruction(rom.EncodeMOV(0, 2, 1)) // MOV R2, R1 (save base)
-
-		// Calculate VRAM address: base * 32 = base << 5
-		cg.builder.AddInstruction(rom.EncodeMOV(0, 3, 2)) // MOV R3, R2 (copy base)
-		cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #5
-		cg.builder.AddImmediate(5)
-		cg.builder.AddInstruction(rom.EncodeSHL(0, 3, 4)) // SHL R3, R4 -> R3 = base << 5 = base * 32
-
-		// Set VRAM_ADDR_L (0x800E)
-		cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #0x800E
-		cg.builder.AddImmediate(0x800E)
-		cg.builder.AddInstruction(rom.EncodeMOV(0, 5, 3)) // MOV R5, R3 (VRAM address low)
-		cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0)) // MOV R6, #0xFF
-		cg.builder.AddImmediate(0xFF)
-		cg.builder.AddInstruction(rom.EncodeAND(0, 5, 6)) // AND R5, R6 (mask to low byte)
-		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5)) // MOV [R4], R5 (write VRAM_ADDR_L)
-
-		// Set VRAM_ADDR_H (0x800F)
-		cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #0x800F
-		cg.builder.AddImmediate(0x800F)
-		cg.builder.AddInstruction(rom.EncodeMOV(0, 5, 3)) // MOV R5, R3 (VRAM address)
-		cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0)) // MOV R6, #8
-		cg.builder.AddImmediate(8)
-		cg.builder.AddInstruction(rom.EncodeSHR(0, 5, 6)) // SHR R5, R6 -> R5 = VRAM address >> 8 (high byte)
-		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5)) // MOV [R4], R5 (write VRAM_ADDR_H)
-
-		// TODO: Runtime asset loading would need asset data in ROM
-		// For now, return base (tile index) so code can continue
-		cg.builder.AddInstruction(rom.EncodeMOV(0, destReg, 2)) // MOV R{destReg}, R2 (return base)
-		return nil
+		if len(cg.program.Assets) == 0 {
+			return fmt.Errorf("gfx.load_tiles requires declared assets in this source file")
+		}
+		return cg.generateRuntimeTileLoadDispatch(destReg)
 
 	case "input.read":
 		// input.read() -> u16
@@ -1801,8 +1785,62 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		return nil
 
 	default:
-		return fmt.Errorf("unknown builtin: %s", name)
+		return fmt.Errorf("%w: %s", errUnknownBuiltin, name)
 	}
+}
+
+// generateRuntimeTileLoadDispatch generates runtime asset-ID dispatch for gfx.load_tiles.
+// Assumes R0=assetID, R1=base tile index.
+func (cg *CodeGenerator) generateRuntimeTileLoadDispatch(destReg uint8) error {
+	// Preserve runtime inputs across case probes.
+	cg.builder.AddInstruction(rom.EncodeMOV(0, 2, 1)) // MOV R2, R1 (base)
+	cg.builder.AddInstruction(rom.EncodeMOV(0, 3, 0)) // MOV R3, R0 (asset id)
+
+	jumpToEnd := make([]int, 0, len(cg.program.Assets))
+
+	for _, asset := range cg.program.Assets {
+		assetID, ok := cg.assetIDs[asset.Name]
+		if !ok {
+			return fmt.Errorf("missing runtime asset ID for %s", asset.Name)
+		}
+
+		// if R3 != assetID -> skip this case
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #assetID
+		cg.builder.AddImmediate(assetID)
+		cg.builder.AddInstruction(rom.EncodeCMP(0, 3, 4)) // CMP R3, R4
+		cg.builder.AddInstruction(rom.EncodeBNE())
+		skipOffsetPos := cg.builder.GetCodeLength()
+		cg.builder.AddImmediate(0) // patch after case body
+
+		// Matched case: restore base to R1 and inline-load the chosen asset.
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 1, 2)) // MOV R1, R2
+		if err := cg.generateInlineTileLoadFromBaseReg(asset, 1, destReg); err != nil {
+			return err
+		}
+
+		// Jump to common end after handling this match.
+		cg.builder.AddInstruction(rom.EncodeJMP())
+		jumpPos := cg.builder.GetCodeLength()
+		cg.builder.AddImmediate(0)
+		jumpToEnd = append(jumpToEnd, jumpPos)
+
+		nextCasePC := uint16(cg.builder.GetCodeLength() * 2)
+		currentPC := uint16(skipOffsetPos * 2)
+		offset := rom.CalculateBranchOffset(currentPC, nextCasePC)
+		cg.builder.SetImmediateAt(skipOffsetPos, uint16(offset))
+	}
+
+	// Unknown runtime ID: leave VRAM unchanged and return base.
+	cg.builder.AddInstruction(rom.EncodeMOV(0, destReg, 2)) // MOV R{destReg}, R2
+
+	endPC := uint16(cg.builder.GetCodeLength() * 2)
+	for _, jumpPos := range jumpToEnd {
+		currentPC := uint16(jumpPos * 2)
+		offset := rom.CalculateBranchOffset(currentPC, endPC)
+		cg.builder.SetImmediateAt(jumpPos, uint16(offset))
+	}
+
+	return nil
 }
 
 // generateInlineTileLoad generates code to load tile data from an asset directly to VRAM
@@ -1814,67 +1852,77 @@ func (cg *CodeGenerator) generateInlineTileLoad(asset *AssetDecl, baseExpr Expr,
 	if err := cg.generateExpr(baseExpr, 1); err != nil {
 		return err
 	}
-	// R1 now has base tile index
+	return cg.generateInlineTileLoadFromBaseReg(asset, 1, destReg)
+}
 
-	// Calculate VRAM address based on tile size
-	// For tiles8: base * 32 = base << 5 (32 bytes per tile)
-	// For tiles16: base * 128 = base << 7 (128 bytes per tile)
-	cg.builder.AddInstruction(rom.EncodeMOV(0, 2, 1)) // MOV R2, R1 (save base)
-	cg.builder.AddInstruction(rom.EncodeMOV(0, 3, 2)) // MOV R3, R2 (copy base)
+func (cg *CodeGenerator) generateInlineTileLoadFromBaseReg(asset *AssetDecl, baseReg uint8, destReg uint8) error {
+	// Calculate VRAM address from the base tile index.
+	cg.builder.AddInstruction(rom.EncodeMOV(0, 2, baseReg)) // MOV R2, R{baseReg} (save base)
+	cg.builder.AddInstruction(rom.EncodeMOV(0, 3, 2))       // MOV R3, R2 (working copy)
 
 	if asset.Type == "tiles16" {
 		// 16x16 tile: base * 128 = base << 7
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #7
 		cg.builder.AddImmediate(7)
-		cg.builder.AddInstruction(rom.EncodeSHL(0, 3, 4)) // SHL R3, R4 -> R3 = base << 7 = base * 128
+		cg.builder.AddInstruction(rom.EncodeSHL(0, 3, 4))
 	} else {
 		// 8x8 tile: base * 32 = base << 5
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #5
 		cg.builder.AddImmediate(5)
-		cg.builder.AddInstruction(rom.EncodeSHL(0, 3, 4)) // SHL R3, R4 -> R3 = base << 5 = base * 32
+		cg.builder.AddInstruction(rom.EncodeSHL(0, 3, 4))
 	}
 
-	// Set VRAM_ADDR_L (0x800E)
+	// Set VRAM address low/high registers.
 	cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #0x800E
 	cg.builder.AddImmediate(0x800E)
-	cg.builder.AddInstruction(rom.EncodeMOV(0, 5, 3)) // MOV R5, R3 (VRAM address low)
+	cg.builder.AddInstruction(rom.EncodeMOV(0, 5, 3))
 	cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0)) // MOV R6, #0xFF
 	cg.builder.AddImmediate(0xFF)
-	cg.builder.AddInstruction(rom.EncodeAND(0, 5, 6)) // AND R5, R6 (mask to low byte)
-	cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5)) // MOV [R4], R5 (write VRAM_ADDR_L)
+	cg.builder.AddInstruction(rom.EncodeAND(0, 5, 6))
+	cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5))
 
-	// Set VRAM_ADDR_H (0x800F)
 	cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #0x800F
 	cg.builder.AddImmediate(0x800F)
-	cg.builder.AddInstruction(rom.EncodeMOV(0, 5, 3)) // MOV R5, R3 (VRAM address)
+	cg.builder.AddInstruction(rom.EncodeMOV(0, 5, 3))
 	cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0)) // MOV R6, #8
 	cg.builder.AddImmediate(8)
-	cg.builder.AddInstruction(rom.EncodeSHR(0, 5, 6)) // SHR R5, R6 -> R5 = VRAM address >> 8 (high byte)
-	cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5)) // MOV [R4], R5 (write VRAM_ADDR_H)
+	cg.builder.AddInstruction(rom.EncodeSHR(0, 5, 6))
+	cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5))
 
 	dataBytes, err := cg.inlineTileAssetBytes(asset)
 	if err != nil {
 		return err
 	}
-	vramDataAddr := uint16(0x8010)
-	cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #0x8010
-	cg.builder.AddImmediate(vramDataAddr)
+	cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #0x8010 (VRAM_DATA)
+	cg.builder.AddImmediate(0x8010)
 
-	tileSize := 32 // 8x8 tile at 4bpp = 32 bytes
-	if asset.Type == "tiles16" {
-		tileSize = 128 // 16x16 tile at 4bpp = 128 bytes
+	bytesToWrite := len(dataBytes)
+	switch asset.Type {
+	case "tiles8":
+		// tiles8 maps to a single 8x8 tile payload.
+		if bytesToWrite > 32 {
+			bytesToWrite = 32
+		}
+	case "tiles16":
+		// tiles16 maps to a single 16x16 tile payload.
+		if bytesToWrite > 128 {
+			bytesToWrite = 128
+		}
+	default:
+		// sprite/tileset payloads may represent multiple contiguous tiles.
+		// Write the full normalized payload so tools can emit larger data blocks.
 	}
 	for i, value := range dataBytes {
-		if i >= tileSize {
+		if i >= bytesToWrite {
 			break
 		}
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #value
 		cg.builder.AddImmediate(uint16(value))
-		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5)) // MOV [R4], R5
+		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5))
 	}
 
-	// Return base tile index
-	cg.builder.AddInstruction(rom.EncodeMOV(0, destReg, 2)) // MOV R{destReg}, R2 (return base)
+	// Return base tile index.
+	cg.builder.AddInstruction(rom.EncodeMOV(0, destReg, 2))
 	return nil
 }
 

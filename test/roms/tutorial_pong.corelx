@@ -1,0 +1,249 @@
+-- Tutorial Pong (CoreLX)
+-- A small Pong-style game used by the programming guide.
+-- Controls:
+--   - Up / W    : move left paddle up
+--   - Down / S  : move left paddle down
+--   - Z         : reset scores + serve
+
+asset PaddleTile: tiles16
+    hex
+        00 00 00 00 11 11 11 11 11 11 11 11 00 00 00 00
+        00 00 00 00 11 11 11 11 11 11 11 11 00 00 00 00
+        00 00 00 00 11 11 11 11 11 11 11 11 00 00 00 00
+        00 00 00 00 11 11 11 11 11 11 11 11 00 00 00 00
+        00 00 00 00 11 11 11 11 11 11 11 11 00 00 00 00
+        00 00 00 00 11 11 11 11 11 11 11 11 00 00 00 00
+        00 00 00 00 11 11 11 11 11 11 11 11 00 00 00 00
+        00 00 00 00 11 11 11 11 11 11 11 11 00 00 00 00
+        00 00 00 00 11 11 11 11 11 11 11 11 00 00 00 00
+        00 00 00 00 11 11 11 11 11 11 11 11 00 00 00 00
+        00 00 00 00 11 11 11 11 11 11 11 11 00 00 00 00
+        00 00 00 00 11 11 11 11 11 11 11 11 00 00 00 00
+        00 00 00 00 11 11 11 11 11 11 11 11 00 00 00 00
+        00 00 00 00 11 11 11 11 11 11 11 11 00 00 00 00
+        00 00 00 00 11 11 11 11 11 11 11 11 00 00 00 00
+        00 00 00 00 11 11 11 11 11 11 11 11 00 00 00 00
+
+asset BallTile: tiles16
+    hex
+        00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+        00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+        00 00 00 00 00 22 22 22 22 22 00 00 00 00 00 00
+        00 00 00 00 22 22 22 22 22 22 22 00 00 00 00 00
+        00 00 00 22 22 22 22 22 22 22 22 22 00 00 00 00
+        00 00 22 22 22 22 22 22 22 22 22 22 22 00 00 00
+        00 00 22 22 22 22 22 22 22 22 22 22 22 00 00 00
+        00 00 22 22 22 22 22 22 22 22 22 22 22 00 00 00
+        00 00 22 22 22 22 22 22 22 22 22 22 22 00 00 00
+        00 00 22 22 22 22 22 22 22 22 22 22 22 00 00 00
+        00 00 22 22 22 22 22 22 22 22 22 22 22 00 00 00
+        00 00 00 22 22 22 22 22 22 22 22 22 00 00 00 00
+        00 00 00 00 22 22 22 22 22 22 22 00 00 00 00 00
+        00 00 00 00 00 22 22 22 22 22 00 00 00 00 00 00
+        00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+        00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+
+asset ScorePipTile: tiles16
+    hex
+        00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+        00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+        00 00 00 00 00 00 33 33 33 33 00 00 00 00 00 00
+        00 00 00 00 00 33 33 33 33 33 33 00 00 00 00 00
+        00 00 00 00 33 33 33 33 33 33 33 33 00 00 00 00
+        00 00 00 33 33 33 33 33 33 33 33 33 33 00 00 00
+        00 00 33 33 33 33 33 33 33 33 33 33 33 33 00 00
+        00 00 33 33 33 33 33 33 33 33 33 33 33 33 00 00
+        00 00 33 33 33 33 33 33 33 33 33 33 33 33 00 00
+        00 00 33 33 33 33 33 33 33 33 33 33 33 33 00 00
+        00 00 00 33 33 33 33 33 33 33 33 33 33 00 00 00
+        00 00 00 00 33 33 33 33 33 33 33 33 00 00 00 00
+        00 00 00 00 00 33 33 33 33 33 33 00 00 00 00 00
+        00 00 00 00 00 00 33 33 33 33 00 00 00 00 00 00
+        00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+        00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+
+function Start()
+    ppu.enable_display()
+
+    -- Backdrop + sprite palettes (RGB555)
+    gfx.set_palette(0, 0, 0x0000)  -- backdrop black
+
+    gfx.set_palette(1, 1, 0x7FFF)  -- left paddle / score white
+    gfx.set_palette(2, 1, 0x03FF)  -- right paddle / score cyan
+    gfx.set_palette(3, 2, 0x7FE0)  -- ball yellow (tile uses color index 2)
+    gfx.set_palette(3, 3, 0x4210)  -- score pip color when using palette 3 (if needed)
+
+    paddle_base := gfx.load_tiles(ASSET_PaddleTile, 0)
+    ball_base := gfx.load_tiles(ASSET_BallTile, 1)
+    pip_base := gfx.load_tiles(ASSET_ScorePipTile, 2)
+
+    left_x := 12
+    right_x := 292
+    left_y := 92
+    right_y := 92
+
+    ball_x := 152
+    ball_y := 92
+    ball_vx := 2
+    ball_vy := 1
+
+    left_score := 0
+    right_score := 0
+
+    flash_frames := 0
+    flash_color := 0x0000
+
+    prev_buttons := 0
+    last_frame := frame_counter()
+
+    paddle_left_attr := SPR_PAL(1) | SPR_PRI(0)
+    paddle_right_attr := SPR_PAL(2) | SPR_PRI(0)
+    ball_attr := SPR_PAL(3) | SPR_PRI(0)
+    pip_left_attr := SPR_PAL(1) | SPR_PRI(0)
+    pip_right_attr := SPR_PAL(2) | SPR_PRI(0)
+
+    sprite16 := SPR_ENABLE() | SPR_SIZE_16()
+
+    -- First visible frame setup
+    wait_vblank()
+    oam.write_sprite_data(0, left_x, left_y, paddle_base, paddle_left_attr, sprite16)
+    oam.write_sprite_data(1, right_x, right_y, paddle_base, paddle_right_attr, sprite16)
+    oam.write_sprite_data(2, ball_x, ball_y, ball_base, ball_attr, sprite16)
+    oam.flush()
+
+    while true
+        -- Frame-edge gating (wait_vblank is level-based in current builds)
+        while frame_counter() == last_frame
+            wait_vblank()
+        last_frame = frame_counter()
+
+        buttons := input.read(0)
+
+        -- Reset scores on A button edge (Z)
+        if (buttons & 0x10) != 0 and (prev_buttons & 0x10) == 0
+            left_score = 0
+            right_score = 0
+            left_y = 92
+            right_y = 92
+            ball_x = 152
+            ball_y = 92
+            ball_vx = 2
+            ball_vy = 1
+            flash_frames = 18
+            flash_color = 0x03E0
+
+        prev_buttons = buttons
+
+        -- Player paddle (left)
+        if (buttons & 0x01) != 0
+            if left_y > 4
+                left_y = left_y - 2
+
+        if (buttons & 0x02) != 0
+            if left_y < 180
+                left_y = left_y + 2
+
+        -- Simple AI paddle (right)
+        if ball_y + 8 < right_y + 8
+            if right_y > 4
+                right_y = right_y - 1
+        if ball_y + 8 > right_y + 8
+            if right_y < 180
+                right_y = right_y + 1
+
+        -- Move ball
+        ball_x = ball_x + ball_vx
+        ball_y = ball_y + ball_vy
+
+        -- Bounce off top/bottom walls
+        if ball_y <= 4
+            ball_y = 4
+            if ball_vy < 0
+                ball_vy = 0 - ball_vy
+        if ball_y >= 180
+            ball_y = 180
+            if ball_vy > 0
+                ball_vy = 0 - ball_vy
+
+        -- Left paddle collision
+        if ball_vx < 0
+            if ball_x <= left_x + 15 and ball_x + 15 >= left_x
+                if ball_y <= left_y + 15 and ball_y + 15 >= left_y
+                    ball_x = left_x + 16
+                    ball_vx = 0 - ball_vx
+                    if ball_y + 8 < left_y + 5
+                        ball_vy = -2
+                    if ball_y + 8 > left_y + 11
+                        ball_vy = 2
+
+        -- Right paddle collision
+        if ball_vx > 0
+            if ball_x <= right_x + 15 and ball_x + 15 >= right_x
+                if ball_y <= right_y + 15 and ball_y + 15 >= right_y
+                    ball_x = right_x - 16
+                    ball_vx = 0 - ball_vx
+                    if ball_y + 8 < right_y + 5
+                        ball_vy = -2
+                    if ball_y + 8 > right_y + 11
+                        ball_vy = 2
+
+        -- Scoring and serve reset
+        if ball_x < -8
+            right_score = right_score + 1
+            ball_x = 152
+            ball_y = 92
+            ball_vx = -2
+            ball_vy = 1
+            flash_frames = 12
+            flash_color = 0x7C00
+
+        if ball_x > 312
+            left_score = left_score + 1
+            ball_x = 152
+            ball_y = 92
+            ball_vx = 2
+            ball_vy = -1
+            flash_frames = 12
+            flash_color = 0x001F
+
+        -- Keep scores in a small range for simple pip display
+        if left_score > 5
+            left_score = 5
+        if right_score > 5
+            right_score = 5
+
+        -- Backdrop flash feedback on score/reset
+        if flash_frames > 0
+            gfx.set_palette(0, 0, flash_color)
+            flash_frames = flash_frames - 1
+        else
+            gfx.set_palette(0, 0, 0x0000)
+
+        -- Main sprites
+        oam.write_sprite_data(0, left_x, left_y, paddle_base, paddle_left_attr, sprite16)
+        oam.write_sprite_data(1, right_x, right_y, paddle_base, paddle_right_attr, sprite16)
+        oam.write_sprite_data(2, ball_x, ball_y, ball_base, ball_attr, sprite16)
+
+        -- Left score pips (slots 3..7)
+        i := 0
+        left_pip_x := 90
+        while i < 5
+            if i < left_score
+                oam.write_sprite_data(3 + i, left_pip_x, 8, pip_base, pip_left_attr, sprite16)
+            else
+                oam.clear_sprite(3 + i)
+            i = i + 1
+            left_pip_x = left_pip_x + 18
+
+        -- Right score pips (slots 8..12)
+        j := 0
+        right_pip_x := 230
+        while j < 5
+            if j < right_score
+                oam.write_sprite_data(8 + j, right_pip_x, 8, pip_base, pip_right_attr, sprite16)
+            else
+                oam.clear_sprite(8 + j)
+            j = j + 1
+            right_pip_x = right_pip_x + 18
+
+        oam.flush()

@@ -227,3 +227,86 @@ function Start()
 		t.Fatalf("expected present frame on paused refresh")
 	}
 }
+
+func TestServiceStepFrameWhilePaused(t *testing.T) {
+	tmpDir := t.TempDir()
+	svc := NewService(tmpDir)
+	defer svc.Shutdown()
+
+	src := `
+function Start()
+    apu.enable()
+    while true
+        wait_vblank()
+`
+	build, err := svc.BuildSource(src, "step_frame.corelx")
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if err := svc.LoadROMBytes(build.Result.ROMBytes); err != nil {
+		t.Fatalf("load rom: %v", err)
+	}
+	if _, err := svc.TogglePause(); err != nil {
+		t.Fatalf("pause: %v", err)
+	}
+
+	before := svc.Snapshot()
+	if !before.Paused {
+		t.Fatalf("expected paused snapshot before StepFrame")
+	}
+	if err := svc.StepFrame(1); err != nil {
+		t.Fatalf("step frame: %v", err)
+	}
+	after := svc.Snapshot()
+	if !after.Paused {
+		t.Fatalf("expected paused=true after StepFrame")
+	}
+	if after.FrameCount <= before.FrameCount {
+		t.Fatalf("expected frame count to increase, before=%d after=%d", before.FrameCount, after.FrameCount)
+	}
+}
+
+func TestServiceStepCPUAndSnapshots(t *testing.T) {
+	tmpDir := t.TempDir()
+	svc := NewService(tmpDir)
+	defer svc.Shutdown()
+
+	src := `
+function Start()
+    apu.enable()
+    while true
+        wait_vblank()
+`
+	build, err := svc.BuildSource(src, "step_cpu.corelx")
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if err := svc.LoadROMBytes(build.Result.ROMBytes); err != nil {
+		t.Fatalf("load rom: %v", err)
+	}
+	if _, err := svc.TogglePause(); err != nil {
+		t.Fatalf("pause: %v", err)
+	}
+
+	beforePC := svc.GetPCState()
+	beforeRegs := svc.GetRegisters()
+	if !beforePC.Loaded || !beforeRegs.Loaded {
+		t.Fatalf("expected loaded snapshots")
+	}
+
+	if err := svc.StepCPU(1); err != nil {
+		t.Fatalf("step cpu: %v", err)
+	}
+
+	afterPC := svc.GetPCState()
+	afterRegs := svc.GetRegisters()
+	if !afterPC.Loaded || !afterRegs.Loaded {
+		t.Fatalf("expected loaded snapshots after step")
+	}
+	if afterPC.Cycles <= beforePC.Cycles {
+		t.Fatalf("expected cycle count to increase, before=%d after=%d", beforePC.Cycles, afterPC.Cycles)
+	}
+	if afterPC.PCBank == beforePC.PCBank && afterPC.PCOffset == beforePC.PCOffset {
+		t.Fatalf("expected PC to change after CPU step (%02X:%04X)", afterPC.PCBank, afterPC.PCOffset)
+	}
+}

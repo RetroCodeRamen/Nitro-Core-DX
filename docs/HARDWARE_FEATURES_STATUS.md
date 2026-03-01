@@ -1,8 +1,8 @@
 # Nitro-Core-DX Hardware Features Status
 
-**Last Updated:** February 24, 2026
+**Last Updated:** February 28, 2026
 
-This document tracks the implementation status of all hardware features for the emulated console itself (not emulator UI or dev tools).
+This document tracks the implementation status of all hardware features for the emulated console itself (not emulator UI or dev tools). For Dev Kit and tooling status, see the README.md project status section.
 
 ---
 
@@ -85,16 +85,7 @@ This document tracks the implementation status of all hardware features for the 
 
 ---
 
-## ❌ Not Yet Implemented
-
-### CPU Features
-- ✅ **Interrupt System** - ✅ NEWLY COMPLETED
-  - ✅ IRQ/NMI handlers implemented
-  - ✅ Interrupt vector table (bank 0, addresses 0xFFE0-0xFFE3)
-  - ✅ Interrupt enable/disable (I flag)
-  - ✅ VBlank interrupt (IRQ) triggered automatically
-  - ✅ Interrupt state saving (PC, flags to stack)
-  - ✅ Non-maskable interrupt (NMI) support
+## 🚧 Remaining / In Progress
 
 ### PPU Features
 - ❌ **Vertical Sprites for Matrix Mode**
@@ -103,40 +94,7 @@ This document tracks the implementation status of all hardware features for the 
   - **Needs:** Depth sorting for 3D sprites
   - **Needs:** World coordinate system for sprites
 
-- ✅ **Matrix Mode Outside-Screen Handling** - ✅ NEWLY COMPLETED
-  - ✅ Repeat/wrap mode (default)
-  - ✅ Backdrop mode (render backdrop color)
-  - ✅ Character #0 mode (render tile 0)
-
-- ✅ **Matrix Mode Direct Color Mode** - ✅ NEWLY COMPLETED
-  - ✅ Direct color rendering (bypass CGRAM, use direct RGB)
-  - ✅ 4-bit per channel color expansion
-
-- ❌ **Sprite-to-Background Priority**
-  - Sprites always render on top
-  - **Needs:** Proper priority interaction (sprites can be behind backgrounds)
-
-- ✅ **Color Math/Blending** - ✅ NEWLY COMPLETED
-  - ✅ Layers render in priority order (natural blending)
-  - ✅ Sprites blend with backgrounds using blend modes
-
-- ✅ **Mosaic Effect** - ✅ NEWLY COMPLETED
-  - ✅ Per-layer mosaic support
-  - ✅ Configurable mosaic size (1-15 pixels)
-  - ✅ Pixel grouping for mosaic effect
-
 ### APU Features
-- ✅ **Audio Output** - ✅ ALREADY IMPLEMENTED
-  - ✅ Samples generated during frame execution
-  - ✅ Audio queued to SDL2 in UI layer
-  - ✅ Stereo output (44,100 Hz, 735 samples per frame)
-
-- ✅ **PCM Playback** - ✅ NEWLY COMPLETED
-  - ✅ PCM channel support (one per audio channel)
-  - ✅ 8-bit signed PCM sample playback
-  - ✅ Loop and one-shot playback modes
-  - ✅ PCM volume control
-
 - 🚧 **FM Synthesis Extension** (In Progress)
   - ✅ FM host interface (`FM_ADDR`, `FM_DATA`, `FM_STATUS`, `FM_CONTROL`, `FM_MIX_L/R`)
   - ✅ Timer/status/IRQ bridge behavior (deterministic placeholder timing)
@@ -149,52 +107,39 @@ This document tracks the implementation status of all hardware features for the 
   - Basic tilemap rendering works
   - **Needs:** Extended tilemap support, tile stitching, seamless large worlds
 
-- ✅ **DMA System** - ✅ NEWLY COMPLETED
-  - ✅ Memory to VRAM/CGRAM/OAM transfers
-  - ✅ VRAM fill mode
-  - ✅ DMA registers (control, source, destination, length)
-  - ✅ Fast memory transfers for graphics data
-
 ---
 
 ## Priority Recommendations
 
-### High Priority (Core Functionality)
-1. ✅ **Sprite Priority System** - ✅ COMPLETED
-2. ✅ **Audio Output** - ✅ COMPLETED (already working)
-3. ✅ **Interrupt System** - ✅ COMPLETED
-4. ✅ **Sprite-to-Background Priority** - ✅ COMPLETED
+### High Priority (Active Implementation)
+1. **HDMA Full Implementation** - Per-layer scroll updates beyond current structure/table read path
+2. **FM Synthesis Extension Accuracy/Polish** - Continue from OPM-lite subset toward fuller YM2151 behavior
 
 ### Medium Priority (Enhanced Features)
 1. **Vertical Sprites for Matrix Mode** - Enables 3D sprite rendering
-2. **Sprite Blending/Alpha** - Enables transparency effects
-3. **Color Math/Blending** - Enables advanced visual effects
-4. **HDMA Full Implementation** - Per-layer scroll updates
+2. **Large World Tilemap Support** - Extended tilemap stitching/seamless world workflows
 
 ### Low Priority (Nice to Have)
-1. **Matrix Mode Outside-Screen Handling** - Advanced Mode 7 features
-2. **Matrix Mode Direct Color Mode** - Advanced Mode 7 features
-3. **Mosaic Effect** - Visual effect
-4. **PCM Playback** - Audio enhancement
-5. **Large World Tilemap Support** - Advanced feature
-6. **DMA System** - Performance optimization
+1. **Additional FM Preset/Content Tooling** - Improve timbre authoring workflows once accuracy stabilizes
+2. **Matrix-Mode-Oriented Visual Extras** - Advanced rendering extensions beyond current core target
 
 ---
 
 ## Summary
 
-**Core Hardware:** ✅ **100% COMPLETE**
+**Core Hardware:** ✅ **Stable and Software-Ready**
 - CPU: ✅ Complete (including interrupts)
 - Memory: ✅ Complete
-- PPU: ✅ Complete (priority, blending, mosaic, DMA, Matrix Mode enhancements)
+- PPU: ✅ Core-complete (priority, blending, mosaic, DMA, Matrix Mode enhancements)
 - APU: ✅ Complete (legacy audio + PCM) with 🚧 FM extension in progress
 - Input: ✅ Complete
-- Matrix Mode: ✅ Complete (per-layer, HDMA updates, outside-screen handling, direct color)
+- Matrix Mode: ✅ Per-layer transforms complete (outside-screen handling and direct color implemented)
 - DMA: ✅ Complete (VRAM/CGRAM/OAM transfers)
 
 **Optional Enhancements (Not Required for Core System):**
 - Vertical sprites for Matrix Mode (advanced 3D feature - can be added later)
 - FM extension accuracy/polish (already started; continue incrementally)
+- Large world tilemap workflows
 
 **System Status:** ✅ **READY FOR SOFTWARE DEVELOPMENT**
 

@@ -8,7 +8,7 @@
 
 ```bash
 # From project root
-go build -o testrom_input ./cmd/testrom_input
+go build -o testrom_input ./cmd/testrom/input
 ./testrom_input test/roms/input_test.rom
 ```
 
@@ -89,7 +89,7 @@ echo "=========================================="
 
 # Build test ROM
 echo "Building input test ROM..."
-go build -o testrom_input ./cmd/testrom_input
+go build -o testrom_input ./cmd/testrom/input
 ./testrom_input test/roms/input_test.rom
 
 if [ $? -ne 0 ]; then

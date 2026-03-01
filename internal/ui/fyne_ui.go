@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"image"
+	"io"
 	"math"
 	"sync"
 	"time"
@@ -18,6 +19,8 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/driver/desktop"
+	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/widget"
 	"github.com/veandco/go-sdl2/sdl"
 )
@@ -399,12 +402,55 @@ func (ui *FyneUI) updateLayout() {
 	}
 }
 
+func (ui *FyneUI) loadROMBytes(data []byte) error {
+	if len(data) == 0 {
+		return fmt.Errorf("ROM file is empty")
+	}
+
+	ui.emulator.Stop()
+	if err := ui.emulator.LoadROM(data); err != nil {
+		return err
+	}
+	ui.emulator.Reset()
+	ui.emulator.SetInputButtons(0)
+	if ui.audioDev != 0 {
+		sdl.ClearQueuedAudio(ui.audioDev)
+	}
+	ui.emulator.Start()
+	return nil
+}
+
 // createMenus creates the native Fyne menus
 func createMenus(window fyne.Window, emu *emulator.Emulator, ui *FyneUI) {
 	// File menu
 	fileMenu := fyne.NewMenu("File",
 		fyne.NewMenuItem("Open ROM...", func() {
-			// TODO: File dialog
+			openDialog := dialog.NewFileOpen(func(reader fyne.URIReadCloser, err error) {
+				if err != nil {
+					dialog.ShowError(fmt.Errorf("failed to open ROM: %w", err), window)
+					return
+				}
+				if reader == nil {
+					return
+				}
+				defer reader.Close()
+
+				data, readErr := io.ReadAll(reader)
+				if readErr != nil {
+					dialog.ShowError(fmt.Errorf("failed to read ROM: %w", readErr), window)
+					return
+				}
+
+				if loadErr := ui.loadROMBytes(data); loadErr != nil {
+					dialog.ShowError(fmt.Errorf("failed to load ROM: %w", loadErr), window)
+					return
+				}
+
+				romName := reader.URI().Name()
+				ui.statusLabel.SetText(fmt.Sprintf("Loaded ROM: %s", romName))
+			}, window)
+			openDialog.SetFilter(storage.NewExtensionFileFilter([]string{".rom"}))
+			openDialog.Show()
 		}),
 		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("Exit", func() {
@@ -614,7 +660,11 @@ func createMenus(window fyne.Window, emu *emulator.Emulator, ui *FyneUI) {
 	// Help menu
 	helpMenu := fyne.NewMenu("Help",
 		fyne.NewMenuItem("About", func() {
-			// TODO: About dialog
+			dialog.ShowInformation(
+				"About Nitro-Core-DX Emulator",
+				"Nitro-Core-DX Emulator is the standalone emulator UI for Nitro-Core-DX.\n\nUse File > Open ROM... to load a .rom file, then use Emulation controls to start/pause/reset.",
+				window,
+			)
 		}),
 	)
 

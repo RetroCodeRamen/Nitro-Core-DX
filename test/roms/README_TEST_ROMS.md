@@ -2,9 +2,20 @@
 
 This directory contains test ROMs that verify CoreLX language features work correctly.
 
+## Current vs Archived ROM Binaries
+
+To keep this folder usable during active development, older prebuilt `.rom` binaries have been moved to:
+
+- `test/roms/archive/legacy_roms/`
+
+Current/manual diagnostics and frequently referenced ROMs stay in `test/roms/` (for quick loading in Nitro-Core-DX and docs examples).
+Sources (`.corelx`) and ROM generator programs (`build_*.go`) remain in `test/roms/` so archived ROMs can be rebuilt when needed.
+
 ## Assembly / Diagnostic ROM Generators
 
 Several Go-based ROM generator utilities also live in this directory. They are excluded from default builds/tests using the `testrom_tools` build tag (to avoid multiple `main()` conflicts).
+
+**Important:** Each generator is a **single-file utility**. Run one at a time with `go run -tags testrom_tools ./test/roms/<filename>.go <args>`. Do **not** run `go test -tags testrom_tools ./test/roms` or build the whole package with the tag—that would try to compile multiple `main()` in one package and fail.
 
 ### `build_input_visual_diagnostic.go`
 **Purpose**: Manual emulator input diagnostics with obvious on-screen feedback
@@ -15,7 +26,6 @@ Several Go-based ROM generator utilities also live in this directory. They are e
 - `Z` (A button): background color toggle (gray <-> cyan)
 - `X` (B button): sprite color toggle (white <-> green)
 - `C` (Y button): reset sprite to start position
-- `Q` (L): trigger a short one-shot SFX (CH3 noise burst)
 - `Q` (L): trigger a short one-shot "bewp" jump SFX (pitch sweep)
 - `E` (R): toggle a layered music loop while moving (melody + bass + percussion, plus FM MMIO/timer traffic)
 - Music loop also exercises the FM MMIO/timer path in the background (diagnostic traffic)

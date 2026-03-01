@@ -104,7 +104,7 @@ For detailed information about the development process and challenges, see [Deve
 
 ## Project Status
 
-**Validation Snapshot (2026-02-24):**
+**Validation Snapshot (2026-02-28):**
 - `go build -tags no_sdl_ttf -o nitro-core-dx ./cmd/emulator` passes locally.
 - `go test -tags no_sdl_ttf ./... -timeout 180s` passes in a local environment without SDL2_ttf development libraries.
 - Some ROM generator helper programs are intentionally gated behind the `testrom_tools` build tag to avoid multiple-`main` conflicts during normal test runs.
@@ -125,14 +125,25 @@ For detailed information about the development process and challenges, see [Deve
   - FM/OPM extension host interface + audible OPM-lite synthesis path (in progress)
 - **Interrupt System**: Complete IRQ/NMI handling with vector table
 - **ROM Loading**: Complete ROM header parsing and execution
-- **Developer Tooling Baseline**: Nitro-Core-DX integrated app (editor + embedded emulator), optional standalone emulator UI, structured compiler diagnostics, manifest output, register/memory viewers, cycle logger
 - **Test Suite**: Broad regression coverage across CPU/PPU/APU/emulator paths (includes some long-running timing tests)
 - **Assembly Toolchain v1**: text assembler (`.asm` -> `.rom`) for advanced low-level workflows
-- **Nitro-Core-DX App MVP**: integrated CoreLX editor + Build/Build+Run + diagnostics + embedded emulator
+- **Nitro-Core-DX App (Dev Kit)**: Professional integrated development environment
+  - Traditional IDE menu bar (File, Edit, View, Build, Debug, Tools, Help)
+  - Domain-grouped toolbar (Project, Build, Run/Debug, View)
+  - CoreLX editor with structured diagnostics panel
+  - Embedded hardware emulator with Build + Run workflow
+  - Three view modes: Split View, Emulator Focus, Code Only
+  - Project templates: Blank Game, Minimal Loop, Sprite Demo, Tilemap Demo, Shmup Starter, Matrix Mode Demo
+  - Sprite Lab: pixel-art editor with 16 palette banks, RGB555 color editing, undo/redo, import/export, CoreLX code generation
+  - Autosave with crash recovery
+  - Settings persistence (view mode, split offsets, recent files, UI density)
+  - UI density modes (Compact / Standard) for workspace efficiency
+  - F11 maximize/restore, resizable panels, layout presets
+  - Load ROM for direct `.rom` testing without recompilation
 
 ### 🚧 In Progress
 
-- **Nitro-Core-DX App Expansion**: Sprite Lab, Tilemap Editor, Sound Studio, richer editor UX
+- **Nitro-Core-DX App Expansion**: Tilemap Editor, Sound Studio, richer editor UX (syntax highlighting, find/replace)
 - **CoreLX Toolchain**: unified asset model, packaging flow, structured assets, banked linker integration
 - **FM Audio**: moving from OPM-lite subset toward fuller YM2151-style behavior
 
@@ -206,7 +217,7 @@ After extracting:
 - **Linux**: run `./nitrocoredx`
 - **Windows**: run `nitrocoredx.exe`
 
-Use **Emulator Only** view inside the app if you just want to load and play/test ROMs.
+Use **Emulator Focus** view inside the app if you just want to load and play/test ROMs, or **Code Only** view for editing without the emulator visible.
 
 ### Option B: Build from Source (Developer Workflow)
 
@@ -251,10 +262,14 @@ Use **Emulator Only** view inside the app if you just want to load and play/test
 go run ./cmd/corelx_devkit
 ```
 
-- Use `Load ROM` to run a known-good `.rom` directly in the embedded emulator
-- Use `Open` + `Build + Run` for CoreLX files (`.corelx`)
-- Use `Emulator Only` view when you want a play/test-focused layout in the same app
-- Use `Capture Game Input` when you want keyboard input routed to the embedded emulator while editing
+- Use **New** to create a project from a template (Blank Game, Minimal Loop, Sprite Demo, Tilemap Demo, Shmup Starter, Matrix Mode Demo)
+- Use **Open** to load an existing `.corelx` file, or **Load ROM** to run a prebuilt `.rom` directly
+- Click **Build + Run** to compile and run in the embedded emulator
+- Switch views: **Split View** (editor + emulator), **Emulator Focus** (emulator only), **Code Only** (editor only)
+- Press **F11** to toggle maximize/restore
+- Use **Tools > UI Density** to switch between Compact and Standard spacing
+- Use **Capture Game Input** when you want keyboard input routed to the embedded emulator
+- Open the **Sprite Lab** tab to create pixel-art sprites and generate CoreLX asset code
 - Example CoreLX validation file: `test/roms/devkit_moving_box_test.corelx`
 
 Known-good ROMs for embedded emulator testing (after generating them locally):
@@ -326,9 +341,9 @@ Note: Test ROMs can map controls differently. Use the ROM-specific docs/comments
 - Clean and rebuild (no SDL2_ttf): `go clean -cache && go build -tags no_sdl_ttf ./...`
 - Fast regression suite: `make test-fast` (recommended before longer test runs)
 
-**ROM Generator Utilities (multiple mains):**
-- Some helper generators in `cmd/testrom` and `test/roms` are excluded from default builds/tests with the `testrom_tools` build tag
-- Run explicitly with `go run -tags testrom_tools <path-to-generator.go>`
+**ROM Generator Utilities:**
+- `cmd/testrom` has one main (default); extra tools live in `cmd/testrom/input`, `cmd/testrom/minimal`, `cmd/testrom/cpu-execution`, `cmd/testrom/verify-bytecode` (build with `go build ./cmd/testrom/input`, etc.).
+- Generators under `test/roms` (e.g. `build_*.go`) each have their own `main()`; run as single-file utilities with `go run -tags testrom_tools ./test/roms/<file>.go <args>`. Do not run `go test -tags testrom_tools ./test/roms` (multiple mains in one package).
 
 **Runtime Errors:**
 - Check that the ROM file exists and is readable
@@ -403,7 +418,8 @@ The project documentation is organized into several main documents:
 
 ### Tooling
 
-- **Nitro-Core-DX App (MVP)**: CoreLX editor, Build/Build+Run, structured diagnostics panel, manifest/build output panels, embedded emulator
+- **Nitro-Core-DX App (Dev Kit)**: Professional IDE with menu bar, domain-grouped toolbar, CoreLX editor, Build/Build+Run, diagnostics panel, embedded emulator, Sprite Lab, project templates, autosave, settings persistence, UI density modes, three view modes (Split View, Emulator Focus, Code Only)
+- **Sprite Lab**: Pixel-art sprite editor with 8x8 to 64x64 canvas, 16 palette banks (16 colors each), RGB555 editing, grid overlay, mirror painting, undo/redo history, `.clxsprite` import/export, and one-click CoreLX asset code generation
 - **CoreLX Compiler**: structured diagnostics, manifest JSON, compile bundle JSON, asset normalization groundwork
 - **Assembler v1 (`cmd/asm`)**: text assembly to ROM for low-level workflows
 - **Logging & Debug Support**: component logging, cycle logger, register/memory viewers, debugger CLI components
@@ -420,10 +436,20 @@ nitro-core-dx/
 ├── cmd/
 │   ├── emulator/          # Standalone emulator application
 │   ├── corelx/            # CoreLX compiler CLI
-│   ├── corelx_devkit/     # Integrated Dev Kit (editor + embedded emulator)
+│   ├── corelx_devkit/     # Integrated Dev Kit IDE
+│   │   ├── main.go            # App entry, UI init, toolbar, view modes
+│   │   ├── sprite_lab.go      # Sprite Lab pixel editor
+│   │   ├── templates.go       # Project templates and New Project dialog
+│   │   ├── settings.go        # Settings persistence (JSON)
+│   │   ├── autosave.go        # Autosave and crash recovery
+│   │   ├── help_center.go     # Menu bar structure (File/Edit/View/Build/Debug/Tools/Help)
+│   │   └── compact_theme.go   # UI density theme (Compact/Standard)
 │   ├── asm/               # v1 text assembler CLI
-│   ├── testrom/           # Test ROM generator
-│   ├── testrom_input/     # Input test ROM generator
+│   ├── testrom/           # Default test ROM generator
+│   │   ├── input/         # Input test ROM generator
+│   │   ├── minimal/       # Minimal sprite test ROM generator
+│   │   ├── cpu-execution/ # CPU execution simulator (ROM analysis)
+│   │   └── verify-bytecode/ # ROM bytecode/JMP/branch verifier
 │   └── ...
 ├── internal/
 │   ├── cpu/               # CPU emulation
@@ -438,12 +464,13 @@ nitro-core-dx/
 │   ├── devkit/            # UI-agnostic Dev Kit backend
 │   └── debug/             # Debugging tools
 ├── test/
-│   └── roms/              # Test ROMs
+│   └── roms/              # Test ROMs and example CoreLX programs
 ├── docs/
 │   ├── issues/            # Known issues and fixes
 │   ├── testing/           # Testing guides
+│   ├── planning/          # V1 charter, acceptance criteria, risks
 │   ├── specifications/    # Hardware specifications
-│   └── ...
+│   └── guides/            # Programming guides and tutorials
 ├── README.md              # This file
 ├── SYSTEM_MANUAL.md       # System architecture
 ├── PROGRAMMING_MANUAL.md  # Programming guide

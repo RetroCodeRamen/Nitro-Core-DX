@@ -68,4 +68,4 @@ Some tests are intentionally long-running (especially emulator audio timing test
 
 If SDL2_ttf development libraries are not installed locally, use the `no_sdl_ttf` build tag for emulator/UI-related builds and tests.
 
-Generator utilities under `cmd/testrom` and `test/roms` are gated behind the `testrom_tools` build tag to avoid multiple `main()` conflicts during default `go test ./...` runs.
+Generator utilities: `cmd/testrom` has subcommands in `cmd/testrom/input`, `cmd/testrom/minimal`, `cmd/testrom/cpu-execution`, `cmd/testrom/verify-bytecode` (one `main` per package). Those under `test/roms` are single-file utilities gated by the `testrom_tools` build tag; run with `go run -tags testrom_tools ./test/roms/<file>.go` (do not run `go test -tags testrom_tools ./test/roms`).

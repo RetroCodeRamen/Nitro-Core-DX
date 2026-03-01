@@ -49,7 +49,7 @@ If LEFT (bit 2 = 0x04) is always being read as pressed, the box will continuousl
 ## Quick Fix to Try
 
 If the issue is that input is stuck, try:
-1. Rebuild the test ROM: `./testrom_input test/roms/input_test.rom`
+1. Rebuild the test ROM: `go build -o testrom_input ./cmd/testrom/input && ./testrom_input test/roms/input_test.rom`
 2. Rebuild the emulator: `go build -tags "no_sdl_ttf" -o nitro-core-dx ./cmd/emulator`
 3. Run again: `./nitro-core-dx -rom test/roms/input_test.rom`
 

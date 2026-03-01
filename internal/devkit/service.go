@@ -43,6 +43,29 @@ type TickResult struct {
 	AudioFrames   [][]int16        `json:"-"`
 }
 
+type CPURegistersSnapshot struct {
+	Loaded bool
+	R0     uint16
+	R1     uint16
+	R2     uint16
+	R3     uint16
+	R4     uint16
+	R5     uint16
+	R6     uint16
+	R7     uint16
+}
+
+type PCStateSnapshot struct {
+	Loaded   bool
+	PCBank   uint8
+	PCOffset uint16
+	PBR      uint8
+	DBR      uint8
+	SP       uint16
+	Flags    uint8
+	Cycles   uint32
+}
+
 // Backend defines the UI-agnostic Dev Kit contract intended for frontend wrappers.
 // Frontends may be rewritten freely as long as they target this contract (or a compatible superset)
 // and preserve emulator input/output semantics.
@@ -56,9 +79,13 @@ type Backend interface {
 	TogglePause() (bool, error)
 	SetInputButtons(buttons uint16)
 	RunFrame() error
+	StepFrame(frames int) error
+	StepCPU(steps int) error
 	Tick(delta time.Duration) (TickResult, error)
 	FramebufferCopy() []uint32
 	AudioSamplesFixedCopy() []int16
+	GetRegisters() CPURegistersSnapshot
+	GetPCState() PCStateSnapshot
 }
 
 // Service is the UI-agnostic Dev Kit backend wrapper.
@@ -228,6 +255,52 @@ func (s *Service) RunFrame() error {
 	return s.emu.RunFrame()
 }
 
+func (s *Service) StepFrame(frames int) error {
+	if frames <= 0 {
+		return fmt.Errorf("frames must be > 0")
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.emu == nil {
+		return fmt.Errorf("no ROM loaded")
+	}
+
+	wasPaused := s.emu.Paused
+	if wasPaused {
+		s.emu.Paused = false
+		defer func() {
+			s.emu.Paused = true
+		}()
+	}
+
+	for i := 0; i < frames; i++ {
+		if err := s.emu.RunFrame(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) StepCPU(steps int) error {
+	if steps <= 0 {
+		return fmt.Errorf("steps must be > 0")
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.emu == nil {
+		return fmt.Errorf("no ROM loaded")
+	}
+
+	for i := 0; i < steps; i++ {
+		if err := s.emu.CPU.ExecuteInstruction(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *Service) Tick(delta time.Duration) (TickResult, error) {
 	const (
 		emuHz            = 60
@@ -316,6 +389,45 @@ func (s *Service) AudioSamplesFixedCopy() []int16 {
 		return nil
 	}
 	return copyAudioLocked(s.emu)
+}
+
+func (s *Service) GetRegisters() CPURegistersSnapshot {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.emu == nil {
+		return CPURegistersSnapshot{}
+	}
+	st := s.emu.CPU.State
+	return CPURegistersSnapshot{
+		Loaded: true,
+		R0:     st.R0,
+		R1:     st.R1,
+		R2:     st.R2,
+		R3:     st.R3,
+		R4:     st.R4,
+		R5:     st.R5,
+		R6:     st.R6,
+		R7:     st.R7,
+	}
+}
+
+func (s *Service) GetPCState() PCStateSnapshot {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.emu == nil {
+		return PCStateSnapshot{}
+	}
+	st := s.emu.CPU.State
+	return PCStateSnapshot{
+		Loaded:   true,
+		PCBank:   st.PCBank,
+		PCOffset: st.PCOffset,
+		PBR:      st.PBR,
+		DBR:      st.DBR,
+		SP:       st.SP,
+		Flags:    st.Flags,
+		Cycles:   st.Cycles,
+	}
 }
 
 func baseNameOr(path, fallback string) string {
