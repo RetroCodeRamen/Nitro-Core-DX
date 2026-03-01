@@ -214,23 +214,10 @@ jobs:
           name: nitrocoredx-windows-amd64
           path: dist/windows
 
-      - name: Create release notes intro
-        run: |
-          cat > RELEASE_BODY.md <<'EOF'
-          Nitro-Core-DX integrated app release.
-
-          Includes:
-          - Linux amd64 package (`.tar.gz`)
-          - Windows amd64 package (`.zip`)
-
-          Use **Emulator Focus** view for a play/test-focused layout, or **Code Only** view for focused editing.
-          EOF
-
       - name: Create / update GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
-          body_path: RELEASE_BODY.md
+          body_path: RELEASE_NOTES.md
           files: |
             dist/linux/*.tar.gz
             dist/windows/*.zip
