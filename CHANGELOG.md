@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Added
+- Start 0.1.9 development cycle.
+
+---
+
 ## [0.1.8] - 2026-03-06
 
 ### Added
@@ -110,7 +117,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
+## [Historical Notes (Pre-0.1.7 Reconstruction)]
 
 ### Added
 - **Integrated Dev Kit (CoreLX + Embedded Emulator) MVP** (2026-02-24)
