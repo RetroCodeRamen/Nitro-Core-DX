@@ -82,7 +82,7 @@ func (s *devKitState) tryRecoverAutosave() {
 		s.clearAutosaveJournal()
 		return
 	}
-	if journal.Content == s.sourceEntry.Text {
+	if journal.Content == s.sourceEditor.Text() {
 		s.clearAutosaveJournal()
 		return
 	}

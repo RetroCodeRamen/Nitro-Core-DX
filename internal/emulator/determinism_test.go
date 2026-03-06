@@ -56,9 +56,10 @@ func (e *Emulator) ComputeFrameState() FrameState {
 	wramHash := sha256.Sum256(e.Bus.WRAM[:])
 	state.WRAMHash = hex.EncodeToString(wramHash[:])
 
-	// Compute framebuffer hash (convert uint32 to byte slice)
-	fbBytes := make([]byte, len(e.PPU.OutputBuffer)*4)
-	for i, pixel := range e.PPU.OutputBuffer {
+	// Compute framebuffer hash from the presented output path.
+	framebuffer := e.GetOutputBuffer()
+	fbBytes := make([]byte, len(framebuffer)*4)
+	for i, pixel := range framebuffer {
 		fbBytes[i*4] = byte(pixel & 0xFF)
 		fbBytes[i*4+1] = byte((pixel >> 8) & 0xFF)
 		fbBytes[i*4+2] = byte((pixel >> 16) & 0xFF)
@@ -274,7 +275,7 @@ func TestDeterminism(t *testing.T) {
 		// ROM header: 32 bytes
 		// Make ROM larger: 32 bytes header + 32 bytes code (16 words)
 		romData := make([]byte, 32+32)
-		
+
 		// Header
 		romData[0] = 'R'
 		romData[1] = 'M'
@@ -292,7 +293,7 @@ func TestDeterminism(t *testing.T) {
 		romData[13] = 0x80
 		romData[14] = 0x00 // Mapper flags
 		romData[15] = 0x00
-		
+
 		// Code at 0x8000: Main loop
 		// MOV R0, #0x1234 (mode 1 = immediate, reg1=0, reg2=0)
 		// MOV instruction: 0x1000 | (mode<<8) | (reg1<<4) | reg2
@@ -301,49 +302,49 @@ func TestDeterminism(t *testing.T) {
 		romData[33] = 0x11
 		romData[34] = 0x34 // Immediate: 0x1234 (little-endian)
 		romData[35] = 0x12
-		
+
 		// NOP: 0x0000
 		romData[36] = 0x00
 		romData[37] = 0x00
-		
+
 		// JMP back: 0xD000 (little-endian)
 		romData[38] = 0x00
 		romData[39] = 0xD0
 		// Offset: -4 bytes = -2 words = 0xFFFE (little-endian)
 		romData[40] = 0xFE
 		romData[41] = 0xFF
-		
+
 		// Main code at 0x8000: Simple infinite loop
 		// MOV R0, #0x1234
 		romData[32] = 0x00 // MOV instruction: 0x1100
 		romData[33] = 0x11
 		romData[34] = 0x34 // Immediate: 0x1234
 		romData[35] = 0x12
-		
+
 		// NOP: 0x0000
 		romData[36] = 0x00
 		romData[37] = 0x00
-		
+
 		// NOP: 0x0000 (another NOP to pad)
 		romData[38] = 0x00
 		romData[39] = 0x00
-		
+
 		// JMP back to start: 0xD000 (little-endian)
 		romData[40] = 0x00
 		romData[41] = 0xD0
 		// Offset: -6 bytes = -3 words = 0xFFFD (little-endian)
 		romData[42] = 0xFD
 		romData[43] = 0xFF
-		
+
 		// Fill rest with NOPs to prevent reading garbage
 		for i := 44; i < 64; i += 2 {
 			romData[i] = 0x00
 			romData[i+1] = 0x00
 		}
-		
+
 		return romData
 	}()
-	
+
 	// Create harnesses and set interrupt vector to RET instruction
 	harnessDebug, err := NewDeterminismHarness(true)
 	if err != nil {
@@ -361,7 +362,7 @@ func TestDeterminism(t *testing.T) {
 	// setting the I flag, or we can put RET at 0x8000 and change entry point
 	// For simplicity, let's disable interrupts by setting I flag in CPU
 	harnessDebug.Emulator.CPU.SetFlag(cpu.FlagI, true) // Disable interrupts
-	
+
 	harnessOpt, err := NewDeterminismHarness(false)
 	if err != nil {
 		t.Fatalf("Failed to create optimized determinism harness: %v", err)
@@ -371,11 +372,11 @@ func TestDeterminism(t *testing.T) {
 		t.Fatalf("Failed to load ROM in optimized mode: %v", err)
 	}
 	harnessOpt.Emulator.CPU.SetFlag(cpu.FlagI, true) // Disable interrupts
-	
+
 	// Run determinism test: 5 frames, no input
 	numFrames := 5
 	inputSequence := []uint16{0, 0, 0, 0, 0}
-	
+
 	// Run frames
 	if err := harnessDebug.RunFrames(numFrames, inputSequence); err != nil {
 		t.Fatalf("Failed to run frames in debug mode: %v", err)
@@ -383,7 +384,7 @@ func TestDeterminism(t *testing.T) {
 	if err := harnessOpt.RunFrames(numFrames, inputSequence); err != nil {
 		t.Fatalf("Failed to run frames in optimized mode: %v", err)
 	}
-	
+
 	// Compare results
 	var allDiffs []string
 	for i := 0; i < numFrames; i++ {
@@ -399,7 +400,7 @@ func TestDeterminism(t *testing.T) {
 			}
 		}
 	}
-	
+
 	if len(allDiffs) > 0 {
 		t.Errorf("Debug and optimized modes produced different results:")
 		for _, diff := range allDiffs {

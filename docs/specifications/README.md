@@ -7,7 +7,7 @@ This directory contains hardware specifications, pin definitions, FPGA documenta
 - `COMPLETE_HARDWARE_SPECIFICATION_V2.1.md`
   - Current evidence-based base hardware spec (CPU/PPU/APU/input/timing/registers)
 - `APU_FM_OPM_EXTENSION_SPEC.md`
-  - Current FM extension design + implementation status (legacy APU + FM host interface)
+  - Current FM extension runtime design + implementation status (legacy APU + FM host interface; OPM-lite transitional path)
 - `CARTRIDGE_PIN_SPECIFICATION.md`
   - Cartridge connector pinout/spec
 - `CONTROLLER_PIN_SPECIFICATION.md`
@@ -32,3 +32,4 @@ This directory contains hardware specifications, pin definitions, FPGA documenta
   1. `COMPLETE_HARDWARE_SPECIFICATION_V2.1.md`
   2. `APU_FM_OPM_EXTENSION_SPEC.md` (for FM-specific behavior/status)
   3. current source code/tests
+  4. `docs/planning/V1_CHARTER.md` / `V1_ACCEPTANCE.md` for release-target direction (YM2608 is the V1 target)

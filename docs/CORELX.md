@@ -264,64 +264,81 @@ hero.ctrl = SPR_ENABLE()
 
 ## Assets
 
-### Asset Declaration
+### Asset declaration for sprites
+
+- **`tiles8`** — One 8×8 tile (32 bytes). Use for 8×8 sprites.
+- **`tiles16`** — One 16×16 tile (128 bytes). Use for 16×16 sprites.
+- **`tileset`** — Contiguous tile data (e.g. 128 bytes for one 16×16 “tile”). For a 128-byte tileset, the compiler uses the same VRAM stride as 16×16 sprites (base × 128).
 
 ```corelx
 asset MyTiles: tiles8
     hex
         FF FF FF FF FF FF FF FF
         00 00 00 00 00 00 00 00
+
+asset Ship: tileset
+    hex
+        -- 16 rows × 8 bytes = 128 bytes for one 16×16
+        ...
 ```
 
-### Using Assets
+### Loading tiles into VRAM
 
 ```corelx
 base := gfx.load_tiles(ASSET_MyTiles, 0)
 ```
 
-**Note**: `gfx.load_tiles` accepts either an `ASSET_*` constant or a runtime `u16` variable that contains one of the compiler-assigned asset IDs for assets declared in the same source file.
-When the first argument is an `ASSET_*` literal, tile writes are inlined at compile time. Runtime IDs are dispatched across declared assets at runtime.
+The second argument is the **tile index** (VRAM slot). The compiler chooses the correct stride (32 for 8×8, 128 for 16×16/128-byte tileset). To avoid the background repeating your sprite art, load sprites at **non-zero** indices (e.g. 16, 17) so BG tile 0 stays separate.
+
+**Note**: The first argument can be an `ASSET_*` literal or a runtime `u16` asset ID for a declared asset. With an `ASSET_*` literal, tile data is inlined at compile time.
 
 ---
 
 ## Sprites and OAM
 
-### Creating Sprites
+### Creating and configuring sprites
+
+Set position with `sprite.set_pos`; set `tile` (from `gfx.load_tiles`), `attr` (palette + priority), and `ctrl` (enable + size). Color index 0 is transparent.
 
 ```corelx
 hero := Sprite()
 sprite.set_pos(&hero, 160, 100)
 hero.tile = base
-hero.attr = SPR_PAL(0)
-hero.ctrl = SPR_ENABLE()
+hero.attr = SPR_PAL(1) | SPR_PRI(0)
+hero.ctrl = SPR_ENABLE() | SPR_SIZE_16()
 ```
 
 ### Writing to OAM
 
+Each sprite uses an OAM slot (0, 1, 2, …). Write all visible sprites, then flush once per frame.
+
 ```corelx
 oam.write(0, &hero)
+oam.write(1, &enemy)
 oam.flush()
 ```
 
-### Sprite Helpers
+### Sprite helpers
 
 ```corelx
-palette := SPR_PAL(1)      -- Palette 0-3
-priority := SPR_PRI(2)      -- Priority 0-3
-hflip := SPR_HFLIP()        -- Horizontal flip
-vflip := SPR_VFLIP()        -- Vertical flip
-enabled := SPR_ENABLE()     -- Enable sprite
-size8 := SPR_SIZE_8()       -- 8×8 size
-size16 := SPR_SIZE_16()     -- 16×16 size
-blend := SPR_BLEND(1)       -- Blend mode
-alpha := SPR_ALPHA(15)      -- Alpha value
+SPR_PAL(n)         -- Palette bank 0-15 (lower 4 bits of attr)
+SPR_PRI(n)         -- Priority 0-3
+SPR_HFLIP()        -- Horizontal flip
+SPR_VFLIP()        -- Vertical flip
+SPR_ENABLE()       -- Enable sprite
+SPR_SIZE_8()       -- 8×8 size
+SPR_SIZE_16()      -- 16×16 size
+SPR_BLEND(n)       -- Blend mode
+SPR_ALPHA(n)       -- Alpha value
 ```
+
+For setup order, tile indices, palettes, and multiple sprites, see **docs/guides/PROGRAMMING_GUIDE.md** → “Working with Sprites (Real-World Guide)” and the example `Games/SpriteProbe/ship.corelx`.
 
 ---
 
 ## Audio (APU)
 
-Note: CoreLX currently exposes the legacy 4-channel APU built-ins documented below. The newer FM/OPM extension exists in the emulator/APU (`0x9100-0x91FF`) but does not yet have stable CoreLX language-level APIs.
+Note: CoreLX currently exposes the legacy 4-channel APU built-ins documented below. The in-progress FM extension exists in the emulator/APU (`0x9100-0x91FF`) but does not yet have stable CoreLX language-level APIs. Current runtime FM behavior is OPM-lite; the V1 release target has moved to YM2608.
 
 ### Enabling APU
 
@@ -360,7 +377,7 @@ apu.note_off(0)
 ### Graphics
 
 - `ppu.enable_display()` - Enable PPU display
-- `gfx.load_tiles(asset, base) -> u16` - Load declared tile asset into VRAM (`asset` may be an `ASSET_*` literal or a runtime asset-ID value for a declared asset)
+- `gfx.load_tiles(asset, base) -> u16` - Load tile asset into VRAM at tile index `base`; returns `base`. Stride is 32 for 8×8, 128 for 16×16/128-byte tileset. Use non-zero `base` for sprites to avoid BG tile 0.
 
 ### Sprites
 
@@ -413,8 +430,13 @@ apu.note_off(0)
 
 ### 🚧 In Progress
 
-- Asset embedding (assets can be declared but not yet embedded into ROM)
 - Variable storage optimization (basic implementation works, but can be improved)
+
+### Asset Build Notes (Current)
+
+- In-source `asset ...` declarations are compiled through the normal build path.
+- The compiler service path also supports external asset manifests via `corelx.assets.json` (loaded from the source directory when present).
+- Dev Kit lab tools are source-edit helpers; compiler outputs (manifest/bundle/ROM) are the authoritative build result.
 
 ### 📋 Planned
 

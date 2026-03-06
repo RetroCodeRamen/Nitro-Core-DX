@@ -91,13 +91,6 @@ func (s *devKitState) buildMainMenu() *fyne.MainMenu {
 		fyne.NewMenuItem("Emulator Focus", func() {
 			s.setViewMode(viewModeEmulatorOnly)
 		}),
-		fyne.NewMenuItemSeparator(),
-		fyne.NewMenuItem("Maximize Window (F11)", func() {
-			s.maximizeWindow()
-		}),
-		fyne.NewMenuItem("Restore Window", func() {
-			s.restoreWindow()
-		}),
 	)
 
 	buildMenu := fyne.NewMenu("Build",
@@ -168,7 +161,7 @@ func (s *devKitState) buildMainMenu() *fyne.MainMenu {
 		fyne.NewMenuItem("About Nitro-Core-DX", func() {
 			dialog.ShowInformation(
 				"About Nitro-Core-DX",
-				"Nitro-Core-DX is a project-centric SDK with an integrated emulator subsystem.\n\nUse Build + Run for the primary workflow. Code Only hides the emulator for focused development. Split View shows code and hardware output side by side. Emulator Focus isolates hardware output testing.\n\nPress F11 to maximize/restore the window.",
+				"Nitro-Core-DX is a project-centric SDK with an integrated emulator subsystem.\n\nUse Build + Run for the primary workflow. Code Only hides the emulator for focused development. Split View shows code and hardware output side by side. Emulator Focus isolates hardware output testing.\n\nWindow maximize/restore is handled by your operating system title bar controls.",
 				s.window,
 			)
 		}),

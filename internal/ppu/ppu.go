@@ -4,6 +4,12 @@ import (
 	"nitro-core-dx/internal/debug"
 )
 
+type textCmd struct {
+	x, y  int
+	color uint32
+	char  rune
+}
+
 // PPU represents the Picture Processing Unit
 // It implements the memory.IOHandler interface
 type PPU struct {
@@ -97,8 +103,19 @@ type PPU struct {
 	OAMAddr         uint8
 	OAMByteIndex    uint8 // Current byte index within sprite (0-5)
 
-	// Output buffer (320×200, RGB888)
+	// Text rendering state (MMIO 0x8070-0x8076)
+	TextX     uint16 // cursor X (auto-advances by 8 after each char)
+	TextY     uint8  // cursor Y
+	TextR     uint8  // text color red
+	TextG     uint8  // text color green
+	TextB     uint8  // text color blue
+	textCmds  [512]textCmd
+	textCount int
+
+	// Output buffer (320×200, RGB888) - back buffer, rendered to by PPU
 	OutputBuffer [320 * 200]uint32
+	// Display buffer - front buffer, presented after text overlay in endFrame
+	DisplayBuffer [320 * 200]uint32
 
 	// Scratch buffers used by dot renderer to avoid per-pixel allocations.
 	// PPU rendering is single-threaded, so reusing these buffers is safe.
@@ -131,6 +148,11 @@ func (p *PPU) GetDot() int {
 // GetOAMByteIndex returns the current OAM byte index (for debugging)
 func (p *PPU) GetOAMByteIndex() uint8 {
 	return p.OAMByteIndex
+}
+
+// GetTextCount returns the current number of buffered text commands (for debugging)
+func (p *PPU) GetTextCount() int {
+	return p.textCount
 }
 
 // BackgroundLayer represents a background layer
@@ -660,6 +682,32 @@ func (p *PPU) Write8(offset uint16, value uint8) {
 		p.DMALength = (p.DMALength & 0xFF00) | uint16(value)
 	case 0x67: // DMA_LENGTH_H
 		p.DMALength = (p.DMALength & 0x00FF) | (uint16(value) << 8)
+
+	// Text rendering registers (0x70-0x76)
+	case 0x70: // TEXT_X_L
+		p.TextX = (p.TextX & 0xFF00) | uint16(value)
+	case 0x71: // TEXT_X_H
+		p.TextX = (p.TextX & 0x00FF) | (uint16(value) << 8)
+	case 0x72: // TEXT_Y
+		p.TextY = value
+	case 0x73: // TEXT_COLOR_R
+		p.TextR = value
+	case 0x74: // TEXT_COLOR_G
+		p.TextG = value
+	case 0x75: // TEXT_COLOR_B
+		p.TextB = value
+	case 0x76: // TEXT_CHAR - buffers character for end-of-frame rendering, advances X by 8
+		if p.textCount < len(p.textCmds) {
+			p.textCmds[p.textCount] = textCmd{
+				x:     int(p.TextX),
+				y:     int(p.TextY),
+				color: (uint32(p.TextR) << 16) | (uint32(p.TextG) << 8) | uint32(p.TextB),
+				char:  rune(value),
+			}
+			p.textCount++
+		}
+		p.TextX += 8
+
 	default:
 		// Unknown register, ignore
 	}

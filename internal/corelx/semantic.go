@@ -62,16 +62,16 @@ func AnalyzeWithDiagnostics(program *Program) []Diagnostic {
 		analyzer.analyzeFunction(fn)
 	}
 
-	// Check for Start() function
-	hasStart := false
+	// Check for entry point function (Start or __Boot)
+	hasEntry := false
 	for _, fn := range program.Functions {
-		if fn.Name == "Start" {
-			hasStart = true
+		if fn.Name == "Start" || fn.Name == "__Boot" {
+			hasEntry = true
 			break
 		}
 	}
-	if !hasStart {
-		analyzer.addDiagnostic(Position{}, CategoryValidationError, "E_MISSING_ENTRYPOINT", "missing required function: Start()", "")
+	if !hasEntry {
+		analyzer.addDiagnostic(Position{}, CategoryValidationError, "E_MISSING_ENTRYPOINT", "missing required function: Start() or __Boot()", "")
 	}
 
 	return analyzer.diagnostics
@@ -106,6 +106,8 @@ func (a *SemanticAnalyzer) registerBuiltinFunctions() {
 		"SPR_PAL", "SPR_HFLIP", "SPR_VFLIP", "SPR_PRI",
 		"SPR_ENABLE", "SPR_SIZE_8", "SPR_SIZE_16",
 		"SPR_BLEND", "SPR_ALPHA",
+		"mem.write", "mem.read",
+		"bg.set_scroll", "bg.enable",
 	}
 	for _, name := range builtins {
 		a.symbols[name] = &Symbol{
@@ -177,7 +179,6 @@ func (a *SemanticAnalyzer) registerFunctionDecls() {
 
 func (a *SemanticAnalyzer) analyzeFunction(fn *FunctionDecl) {
 	if fn.Name == "Start" || fn.Name == "__Boot" {
-		// Entry points are special
 		if len(fn.Params) > 0 {
 			a.addDiagnostic(fn.Position, CategoryValidationError, "E_ENTRY_PARAMS", fmt.Sprintf("function %s() must have no parameters", fn.Name), "")
 		}
@@ -185,9 +186,25 @@ func (a *SemanticAnalyzer) analyzeFunction(fn *FunctionDecl) {
 
 	oldFunc := a.currentFunc
 	a.currentFunc = fn
-	defer func() { a.currentFunc = oldFunc }()
+	// Save and restore symbol table so function-scoped locals don't leak.
+	savedSymbols := make(map[string]*Symbol, len(a.symbols))
+	for k, v := range a.symbols {
+		savedSymbols[k] = v
+	}
+	defer func() {
+		a.currentFunc = oldFunc
+		a.symbols = savedSymbols
+	}()
 
-	// Analyze function body
+	// Register parameters as local variables.
+	for _, param := range fn.Params {
+		a.symbols[param.Name] = &Symbol{
+			Name:     param.Name,
+			Type:     param.Type,
+			Position: param.Position,
+		}
+	}
+
 	for _, stmt := range fn.Body {
 		a.analyzeStmt(stmt)
 	}
@@ -292,6 +309,7 @@ func (a *SemanticAnalyzer) analyzeExpr(expr Expr) {
 		// Check if it's a built-in namespace (ppu, sprite, oam, apu, gfx)
 		builtinNamespaces := map[string]bool{
 			"ppu": true, "sprite": true, "oam": true, "apu": true, "gfx": true, "input": true,
+			"mem": true, "bg": true,
 		}
 		if builtinNamespaces[e.Name] {
 			// Built-in namespace, valid

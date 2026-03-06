@@ -21,8 +21,8 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
-	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/driver/desktop"
+	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
@@ -130,39 +130,40 @@ type devKitState struct {
 	diagnostics         []corelx.Diagnostic
 	filteredDiagnostics []corelx.Diagnostic
 
-	window         fyne.Window
-	centerHost     *fyne.Container
-	contentRoot    *fyne.Container
-	currentView    viewMode
-	statusLabel    *widget.Label
-	pathLabel      *widget.Label
-	sourceEntry    *widget.Entry
-	buildOutput    *widget.Entry
-	manifestOutput *widget.Entry
-	debuggerOutput *widget.Entry
+	window          fyne.Window
+	centerHost      *fyne.Container
+	contentRoot     *fyne.Container
+	currentView     viewMode
+	statusLabel     *widget.Label
+	buildStateLabel *widget.Label
+	pathLabel       *widget.Label
+	sourceEditor    *coreLXCodeEditor
+	buildOutput     *widget.Entry
+	manifestOutput  *widget.Entry
+	debuggerOutput  *widget.Entry
 
-	diagnosticFilter *widget.Select
-	diagnosticSearch *widget.Entry
-	diagnosticsList  *widget.List
-	diagnosticDetail *widget.Entry
+	diagnosticFilter  *widget.Select
+	diagnosticSearch  *widget.Entry
+	diagnosticsList   *widget.List
+	diagnosticDetail  *widget.Entry
 	diagnosticSummary *widget.Label
 	diagnosticsToggle *widget.Button
-	stepFrameEntry   *widget.Entry
-	stepCPUEntry     *widget.Entry
+	stepFrameEntry    *widget.Entry
+	stepCPUEntry      *widget.Entry
 
-	emuSurface     fyne.CanvasObject
-	captureCheck   *widget.Check
-	bottomLeftTabs *container.AppTabs
-	leftSplit      *container.Split
-	mainSplit      *container.Split
-	editorPane     fyne.CanvasObject
-	workbenchTabs  *container.AppTabs
-	splitViewBtn       *widget.Button
-	emulatorFocusBtn   *widget.Button
-	codeOnlyBtn        *widget.Button
-	runBtn             *widget.Button
-	pauseBtn           *widget.Button
-	stopBtn            *widget.Button
+	emuSurface       fyne.CanvasObject
+	captureCheck     *widget.Check
+	bottomLeftTabs   *container.AppTabs
+	leftSplit        *container.Split
+	mainSplit        *container.Split
+	editorPane       fyne.CanvasObject
+	workbenchTabs    *container.AppTabs
+	splitViewBtn     *widget.Button
+	emulatorFocusBtn *widget.Button
+	codeOnlyBtn      *widget.Button
+	runBtn           *widget.Button
+	pauseBtn         *widget.Button
+	stopBtn          *widget.Button
 
 	emuScale   int
 	emuImage   *canvas.Image
@@ -182,13 +183,12 @@ type devKitState struct {
 	typedKeyUntil    map[fyne.KeyName]time.Time
 	desktopKeyEvents bool
 	captureGameInput bool
+	spriteLabHotkey  func(fyne.KeyName) bool
+	spriteLabUndo    func()
+	spriteLabRedo    func()
 
 	suppressSourceChange bool
 	diagnosticsCollapsed bool
-
-	// programmatic maximize workaround when WM title-bar Maximize is greyed out
-	savedRestoreSize fyne.Size
-	windowMaximized  bool
 }
 
 func main() {
@@ -202,6 +202,9 @@ func main() {
 	}
 
 	a := app.New()
+	if iconRes := loadDevKitIconResource(); iconRes != nil {
+		a.SetIcon(iconRes)
+	}
 
 	settingsPath := devKitSettingsPath()
 	settings, settingsErr := loadDevKitSettings(settingsPath)
@@ -225,25 +228,26 @@ func main() {
 	}
 
 	state := &devKitState{
-		tempDir:             tempDir,
-		settingsPath:        settingsPath,
-		settings:            settings,
-		autosavePath:        devKitAutosavePath(settingsPath),
-		window:              w,
-		currentView:         initialView,
-		statusLabel:         widget.NewLabel("Ready"),
-		pathLabel:           widget.NewLabel("Untitled.corelx"),
-		diagnostics:         make([]corelx.Diagnostic, 0),
-		filteredDiagnostics: make([]corelx.Diagnostic, 0),
-		buildOutput:         newReadOnlyTextArea(),
-		manifestOutput:      newReadOnlyTextArea(),
-		diagnosticDetail:    newReadOnlyTextArea(),
-		emuScale:            2,
-		keyStates:           make(map[fyne.KeyName]bool),
-		typedKeyUntil:       make(map[fyne.KeyName]time.Time),
-		captureGameInput:    settings.CaptureGameInput,
-		updateLoopStop:      make(chan struct{}),
-		audioFrame:          make([]byte, 735*2*4),
+		tempDir:              tempDir,
+		settingsPath:         settingsPath,
+		settings:             settings,
+		autosavePath:         devKitAutosavePath(settingsPath),
+		window:               w,
+		currentView:          initialView,
+		statusLabel:          widget.NewLabel("Ready"),
+		buildStateLabel:      widget.NewLabel("Build State: Draft"),
+		pathLabel:            widget.NewLabel("Untitled.corelx"),
+		diagnostics:          make([]corelx.Diagnostic, 0),
+		filteredDiagnostics:  make([]corelx.Diagnostic, 0),
+		buildOutput:          newReadOnlyTextArea(),
+		manifestOutput:       newReadOnlyTextArea(),
+		diagnosticDetail:     newReadOnlyTextArea(),
+		emuScale:             2,
+		keyStates:            make(map[fyne.KeyName]bool),
+		typedKeyUntil:        make(map[fyne.KeyName]time.Time),
+		captureGameInput:     settings.CaptureGameInput,
+		updateLoopStop:       make(chan struct{}),
+		audioFrame:           make([]byte, 735*2*4),
 		diagnosticsCollapsed: !settings.DiagnosticsPanel,
 	}
 	if settingsErr != nil {
@@ -281,7 +285,7 @@ func main() {
 
 	w.SetCloseIntercept(func() {
 		state.captureLayoutState()
-		state.writeAutosaveSnapshot(state.sourceEntry.Text)
+		state.writeAutosaveSnapshot(state.sourceEditor.Text())
 		state.stopEmulatorLoop()
 		state.shutdownEmbeddedEmulator()
 		state.shutdownAudio()
@@ -294,7 +298,9 @@ func main() {
 		fyne.Do(func() {
 			if w != nil {
 				w.SetFixedSize(false)
-				_ = applyX11MaximizeHint(w)
+				if err := applyX11MaximizeHint(w); err != nil {
+					fmt.Fprintf(os.Stderr, "window hint warning: %v\n", err)
+				}
 			}
 		})
 	}()
@@ -303,17 +309,17 @@ func main() {
 }
 
 func (s *devKitState) initUI() {
-	s.sourceEntry = widget.NewMultiLineEntry()
-	s.sourceEntry.SetText(defaultTemplate)
-	s.sourceEntry.Wrapping = fyne.TextWrapOff
-	s.sourceEntry.OnChanged = func(text string) {
+	s.sourceEditor = newCoreLXCodeEditor()
+	s.sourceEditor.SetText(defaultTemplate)
+	s.sourceEditor.SetOnChanged(func(text string) {
 		if s.suppressSourceChange {
 			return
 		}
 		s.dirty = true
 		s.refreshTitle()
 		s.writeAutosaveSnapshot(text)
-	}
+		s.setBuildState("Draft")
+	})
 
 	s.diagnosticFilter = widget.NewSelect([]string{"All", "Errors", "Warnings", "Info"}, func(string) {
 		s.applyDiagnosticFilter()
@@ -421,23 +427,35 @@ func (s *devKitState) initUI() {
 	)
 
 	s.editorPane = container.NewBorder(
-		s.pathLabel,
+		container.NewVBox(s.pathLabel, s.buildStateLabel),
 		nil, nil, nil,
-		s.sourceEntry,
+		s.sourceEditor,
 	)
 	spriteLabPane := s.buildSpriteLabPane()
-	tilemapPlaceholder := widget.NewLabel("Tilemap Editor (coming next)\n\nPlanned: grid placement + CoreLX asset export.")
+	tilemapPane := s.buildTilemapPane()
 	soundStudioPlaceholder := widget.NewLabel("Sound Studio (coming next)\n\nPlanned: music/ambience/SFX authoring integrated with packaging.")
 	s.workbenchTabs = container.NewAppTabs(
 		container.NewTabItem("Code", s.editorPane),
 		container.NewTabItem("Sprite Lab", spriteLabPane),
-		container.NewTabItem("Tilemap", container.NewScroll(tilemapPlaceholder)),
+		container.NewTabItem("Tilemap", tilemapPane),
 		container.NewTabItem("Sound", container.NewScroll(soundStudioPlaceholder)),
 	)
 
 	s.centerHost = container.NewMax()
 	s.contentRoot = container.NewBorder(s.buildToolbar(), s.statusLabel, nil, nil, s.centerHost)
 	s.window.SetContent(s.contentRoot)
+	s.window.Canvas().AddShortcut(&desktop.CustomShortcut{KeyName: fyne.KeyZ, Modifier: fyne.KeyModifierControl}, func(fyne.Shortcut) {
+		if !s.spriteLabHotkeysEnabled() || s.spriteLabUndo == nil {
+			return
+		}
+		s.spriteLabUndo()
+	})
+	s.window.Canvas().AddShortcut(&desktop.CustomShortcut{KeyName: fyne.KeyY, Modifier: fyne.KeyModifierControl}, func(fyne.Shortcut) {
+		if !s.spriteLabHotkeysEnabled() || s.spriteLabRedo == nil {
+			return
+		}
+		s.spriteLabRedo()
+	})
 	s.setViewMode(s.currentView)
 	s.refreshDebuggerOutput()
 }
@@ -808,7 +826,7 @@ func (s *devKitState) saveAsDialog() {
 			return
 		}
 		defer wc.Close()
-		if _, writeErr := wc.Write([]byte(s.sourceEntry.Text)); writeErr != nil {
+		if _, writeErr := wc.Write([]byte(s.sourceEditor.Text())); writeErr != nil {
 			dialog.ShowError(writeErr, s.window)
 			return
 		}
@@ -838,7 +856,7 @@ func (s *devKitState) save() error {
 		s.saveAsDialog()
 		return nil
 	}
-	if err := os.WriteFile(s.currentPath, []byte(s.sourceEntry.Text), 0644); err != nil {
+	if err := os.WriteFile(s.currentPath, []byte(s.sourceEditor.Text()), 0644); err != nil {
 		return err
 	}
 	s.dirty = false
@@ -866,8 +884,9 @@ func (s *devKitState) loadFile(path string, clearAutosave bool) error {
 
 func (s *devKitState) setSourceContent(text string, dirty bool, clearAutosave bool) {
 	s.suppressSourceChange = true
-	s.sourceEntry.SetText(text)
+	s.sourceEditor.SetText(text)
 	s.suppressSourceChange = false
+	s.setBuildState("Draft")
 	s.dirty = dirty
 	if dirty {
 		s.writeAutosaveSnapshot(text)
@@ -910,9 +929,10 @@ func (s *devKitState) runBuild(runAfter bool) {
 
 	start := time.Now()
 	s.setStatus("Building...")
+	s.setBuildState("Validating...")
 	s.appendBuildOutput(fmt.Sprintf("Build started (%s)", sourcePath))
 
-	buildResult, err := s.backend.BuildSource(s.sourceEntry.Text, sourcePath)
+	buildResult, err := s.backend.BuildSource(s.sourceEditor.Text(), sourcePath)
 	elapsed := time.Since(start)
 	var bundle corelx.CompileBundle
 	var res *corelx.CompileResult
@@ -933,10 +953,12 @@ func (s *devKitState) runBuild(runAfter bool) {
 	s.appendBuildSummary(bundle, res, err, elapsed)
 
 	if err != nil {
+		s.setBuildState("Error")
 		s.setStatus(fmt.Sprintf("Build failed (%d errors)", bundle.Summary.ErrorCount))
 		return
 	}
 
+	s.setBuildState("Validated")
 	s.setStatus("Build succeeded")
 	if runAfter {
 		if res != nil && len(res.ROMBytes) > 0 {
@@ -953,6 +975,13 @@ func (s *devKitState) runBuild(runAfter bool) {
 			s.setStatus("Build succeeded (no executable artifact emitted)")
 		}
 	}
+}
+
+func (s *devKitState) setBuildState(state string) {
+	if s.buildStateLabel == nil {
+		return
+	}
+	s.buildStateLabel.SetText("Build State: " + state)
 }
 
 func (s *devKitState) updateManifestPane(bundle corelx.CompileBundle, res *corelx.CompileResult) {
@@ -1162,6 +1191,9 @@ func (s *devKitState) renderEmbeddedFrame(buf []uint32) (image.Image, error) {
 }
 
 func (s *devKitState) setupKeyboardInput() {
+	s.window.Canvas().SetOnTypedRune(func(r rune) {
+		s.handleTypedRune(r)
+	})
 	s.window.Canvas().SetOnTypedKey(func(key *fyne.KeyEvent) {
 		s.handleTypedKey(key)
 	})
@@ -1179,14 +1211,82 @@ func (s *devKitState) setupKeyboardInput() {
 	}
 }
 
+func (s *devKitState) handleTypedRune(r rune) {
+	if s.spriteLabHotkeysEnabled() {
+		switch r {
+		case 'b', 'B':
+			if s.spriteLabHotkey(fyne.KeyB) {
+				return
+			}
+		case 'e', 'E':
+			if s.spriteLabHotkey(fyne.KeyE) {
+				return
+			}
+		case 'x', 'X':
+			if s.spriteLabHotkey(fyne.KeyX) {
+				return
+			}
+		case 'g', 'G':
+			if s.spriteLabHotkey(fyne.KeyG) {
+				return
+			}
+		case 't', 'T':
+			if s.spriteLabHotkey(fyne.KeyT) {
+				return
+			}
+		}
+	}
+	if s.isSourceEditorFocused() || !s.shouldCaptureGameInput() {
+		if !s.dispatchTypedRuneToFocused(r) {
+			s.dispatchTypedRuneToSourceEditor(r)
+		}
+		return
+	}
+
+	// Preserve emulator input fallback behavior for typed-rune-only backends.
+	s.keyMu.Lock()
+	if !s.desktopKeyEvents {
+		switch r {
+		case 'w', 'W':
+			s.typedKeyUntil[fyne.KeyW] = time.Now().Add(450 * time.Millisecond)
+		case 'a', 'A':
+			s.typedKeyUntil[fyne.KeyA] = time.Now().Add(450 * time.Millisecond)
+		case 's', 'S':
+			s.typedKeyUntil[fyne.KeyS] = time.Now().Add(450 * time.Millisecond)
+		case 'd', 'D':
+			s.typedKeyUntil[fyne.KeyD] = time.Now().Add(450 * time.Millisecond)
+		case 'z', 'Z':
+			s.typedKeyUntil[fyne.KeyZ] = time.Now().Add(450 * time.Millisecond)
+		case 'x', 'X':
+			s.typedKeyUntil[fyne.KeyX] = time.Now().Add(450 * time.Millisecond)
+		case 'c', 'C':
+			s.typedKeyUntil[fyne.KeyC] = time.Now().Add(450 * time.Millisecond)
+		case 'v', 'V':
+			s.typedKeyUntil[fyne.KeyV] = time.Now().Add(450 * time.Millisecond)
+		case 'q', 'Q':
+			s.typedKeyUntil[fyne.KeyQ] = time.Now().Add(450 * time.Millisecond)
+		case 'e', 'E':
+			s.typedKeyUntil[fyne.KeyE] = time.Now().Add(450 * time.Millisecond)
+		}
+	}
+	s.keyMu.Unlock()
+	s.routeInputToEmulator()
+}
+
 func (s *devKitState) handleTypedKey(key *fyne.KeyEvent) {
 	if key == nil {
 		return
 	}
-	if s.shouldHandleTypedWindowKey(key.Name) {
-		if s.handleWindowHotkey(key.Name) {
+	if s.spriteLabHotkeysEnabled() {
+		if s.spriteLabHotkey(key.Name) {
 			return
 		}
+	}
+	if s.isSourceEditorFocused() || !s.shouldCaptureGameInput() {
+		if !s.dispatchTypedKeyToFocused(key) {
+			s.dispatchTypedKeyToSourceEditor(key)
+		}
+		return
 	}
 	s.keyMu.Lock()
 	if !s.desktopKeyEvents {
@@ -1200,7 +1300,13 @@ func (s *devKitState) handleKeyDown(key *fyne.KeyEvent) {
 	if key == nil {
 		return
 	}
-	if s.handleWindowHotkey(key.Name) {
+	if s.spriteLabHotkeysEnabled() {
+		if s.spriteLabHotkey(key.Name) {
+			return
+		}
+	}
+	if s.isSourceEditorFocused() || !s.shouldCaptureGameInput() {
+		s.dispatchKeyDownToFocused(key)
 		return
 	}
 	s.keyMu.Lock()
@@ -1209,8 +1315,23 @@ func (s *devKitState) handleKeyDown(key *fyne.KeyEvent) {
 	s.routeInputToEmulator()
 }
 
+func (s *devKitState) spriteLabHotkeysEnabled() bool {
+	if s.spriteLabHotkey == nil || s.workbenchTabs == nil {
+		return false
+	}
+	tab := s.workbenchTabs.CurrentTab()
+	if tab == nil {
+		return false
+	}
+	return tab.Text == "Sprite Lab"
+}
+
 func (s *devKitState) handleKeyUp(key *fyne.KeyEvent) {
 	if key == nil {
+		return
+	}
+	if s.isSourceEditorFocused() || !s.shouldCaptureGameInput() {
+		s.dispatchKeyUpToFocused(key)
 		return
 	}
 	s.keyMu.Lock()
@@ -1227,73 +1348,6 @@ func (s *devKitState) focusEmulatorInput() {
 	s.window.Canvas().Focus(s.emuKeys)
 }
 
-func (s *devKitState) shouldHandleTypedWindowKey(name fyne.KeyName) bool {
-	switch name {
-	case fyne.KeyF11:
-		s.keyMu.Lock()
-		desktop := s.desktopKeyEvents
-		s.keyMu.Unlock()
-		return !desktop
-	default:
-		return false
-	}
-}
-
-func (s *devKitState) handleWindowHotkey(name fyne.KeyName) bool {
-	switch name {
-	case fyne.KeyF11:
-		s.maximizeWindow()
-		return true
-	}
-	return false
-}
-
-// maximizeWindow resizes the window to fill the screen.
-func (s *devKitState) maximizeWindow() {
-	if s.window == nil {
-		return
-	}
-	if s.windowMaximized {
-		s.restoreWindow()
-		return
-	}
-	s.savedRestoreSize = s.window.Canvas().Size()
-	s.windowMaximized = true
-	s.window.Resize(fyne.NewSize(9999, 9999))
-	s.setStatus("Window: Maximized (F11 or View > Restore Window to restore)")
-}
-
-// restoreWindow restores the window size after a programmatic maximize.
-func (s *devKitState) restoreWindow() {
-	if s.window == nil || !s.windowMaximized {
-		return
-	}
-	s.windowMaximized = false
-	restore := s.savedRestoreSize
-	if restore.Width <= 0 || restore.Height <= 0 {
-		restore = fyne.NewSize(defaultWindowWidth, defaultWindowHeight)
-	}
-	s.window.Resize(restore)
-	s.setStatus("Window: Restored")
-	s.reapplyWindowHints()
-}
-
-// reapplyWindowHints ensures native WM maximize stays enabled after state changes.
-func (s *devKitState) reapplyWindowHints() {
-	if s.window == nil {
-		return
-	}
-	go func() {
-		time.Sleep(200 * time.Millisecond)
-		fyne.Do(func() {
-			if s.window != nil {
-				s.window.SetFixedSize(false)
-				_ = applyX11MaximizeHint(s.window)
-			}
-		})
-	}()
-}
-
 func (s *devKitState) shouldCaptureGameInput() bool {
 	if !s.captureGameInput {
 		return false
@@ -1302,6 +1356,85 @@ func (s *devKitState) shouldCaptureGameInput() bool {
 	// embedded emulator regardless of which editor widget currently has focus.
 	// This matches user expectation for Build+Run testing inside the Dev Kit.
 	return true
+}
+
+func (s *devKitState) isSourceEditorFocused() bool {
+	if s.window == nil || s.window.Canvas() == nil || s.sourceEditor == nil {
+		return false
+	}
+	return s.window.Canvas().Focused() == s.sourceEditor
+}
+
+func (s *devKitState) dispatchTypedRuneToFocused(r rune) bool {
+	if s.window == nil || s.window.Canvas() == nil {
+		return false
+	}
+	if focused := s.window.Canvas().Focused(); focused != nil {
+		if s.emuKeys != nil && focused == s.emuKeys {
+			return false
+		}
+		focused.TypedRune(r)
+		return true
+	}
+	return false
+}
+
+func (s *devKitState) dispatchTypedKeyToFocused(key *fyne.KeyEvent) bool {
+	if key == nil || s.window == nil || s.window.Canvas() == nil {
+		return false
+	}
+	if focused := s.window.Canvas().Focused(); focused != nil {
+		if s.emuKeys != nil && focused == s.emuKeys {
+			return false
+		}
+		focused.TypedKey(key)
+		return true
+	}
+	return false
+}
+
+func (s *devKitState) dispatchTypedRuneToSourceEditor(r rune) {
+	if s.window == nil || s.window.Canvas() == nil || s.sourceEditor == nil {
+		return
+	}
+	s.window.Canvas().Focus(s.sourceEditor)
+	s.sourceEditor.TypedRune(r)
+}
+
+func (s *devKitState) dispatchTypedKeyToSourceEditor(key *fyne.KeyEvent) {
+	if key == nil || s.window == nil || s.window.Canvas() == nil || s.sourceEditor == nil {
+		return
+	}
+	s.window.Canvas().Focus(s.sourceEditor)
+	s.sourceEditor.TypedKey(key)
+}
+
+func (s *devKitState) dispatchKeyDownToFocused(key *fyne.KeyEvent) {
+	if key == nil || s.window == nil || s.window.Canvas() == nil {
+		return
+	}
+	if focused := s.window.Canvas().Focused(); focused != nil {
+		if s.emuKeys != nil && focused == s.emuKeys {
+			return
+		}
+		if k, ok := focused.(desktop.Keyable); ok {
+			k.KeyDown(key)
+		}
+	}
+}
+
+func (s *devKitState) dispatchKeyUpToFocused(key *fyne.KeyEvent) {
+	if key == nil || s.window == nil || s.window.Canvas() == nil {
+		return
+	}
+	if focused := s.window.Canvas().Focused(); focused != nil {
+		if s.emuKeys != nil && focused == s.emuKeys {
+			return
+		}
+		if k, ok := focused.(desktop.Keyable); ok {
+			k.KeyUp(key)
+		}
+	}
 }
 
 func (s *devKitState) routeInputToEmulator() {
@@ -1382,10 +1515,8 @@ func (s *devKitState) jumpToDiagnostic(d corelx.Diagnostic) {
 	if d.Column > 0 {
 		col = d.Column - 1
 	}
-	s.window.Canvas().Focus(s.sourceEntry)
-	s.sourceEntry.CursorRow = maxInt(0, row)
-	s.sourceEntry.CursorColumn = maxInt(0, col)
-	s.sourceEntry.Refresh()
+	s.window.Canvas().Focus(s.sourceEditor)
+	s.sourceEditor.SetCursor(maxInt(0, row), maxInt(0, col))
 }
 
 func (s *devKitState) showDiagnosticDetail(d corelx.Diagnostic) {
@@ -1681,6 +1812,27 @@ func (s *devKitState) refreshDebuggerOutput() {
 	s.debuggerOutput.Enable()
 	s.debuggerOutput.SetText(sb.String())
 	s.debuggerOutput.Disable()
+}
+
+func loadDevKitIconResource() fyne.Resource {
+	candidates := []string{
+		filepath.Join("Images", "ncdxiconbg.png"),
+		filepath.Join("..", "..", "Images", "ncdxiconbg.png"),
+	}
+	if exe, err := os.Executable(); err == nil {
+		base := filepath.Dir(exe)
+		candidates = append(candidates,
+			filepath.Join(base, "Images", "ncdxiconbg.png"),
+			filepath.Join(base, "..", "Images", "ncdxiconbg.png"),
+		)
+	}
+	for _, p := range candidates {
+		res, err := fyne.LoadResourceFromPath(p)
+		if err == nil && res != nil {
+			return res
+		}
+	}
+	return nil
 }
 
 func formatDiagnostic(d corelx.Diagnostic) string {

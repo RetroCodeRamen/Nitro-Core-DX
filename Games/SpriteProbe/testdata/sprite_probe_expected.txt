@@ -1,0 +1,11 @@
+Expected 2x2 grid at (152,92), each cell 8x8:
+  top-left: RED    (R high, G,B low)
+  top-right: GREEN (G high, R,B low)
+  bottom-left: BLUE (B high, R,G low)
+  bottom-right: YELLOW (R,G high, B low)
+
+Actual quadrant center colors (from test run):
+  top-left (red) (156,96): R=255 G=0 B=0 0xFF0000
+  top-right (green) (164,96): R=0 G=255 B=0 0x00FF00
+  bottom-left (blue) (156,104): R=0 G=0 B=255 0x0000FF
+  bottom-right (yellow) (164,104): R=255 G=255 B=0 0xFFFF00

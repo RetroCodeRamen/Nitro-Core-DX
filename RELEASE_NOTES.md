@@ -1,31 +1,61 @@
-# Nitro-Core-DX v0.1.7
+# Nitro-Core-DX v0.1.8
 
-## What's New
+## What Changed (Plain-English)
 
-### Sprite Editor
-The IDE now includes a built-in **Sprite Lab** — a pixel-art editor for creating game sprites directly inside the development environment. Draw sprites from 8x8 up to 64x64, manage 16 color palettes, and export your artwork straight into CoreLX code with one click. Supports undo/redo, mirror painting, grid overlays, and `.clxsprite` file import/export.
+This release focuses on making the Dev Kit feel more reliable and more "real tool" than prototype.
 
-### IDE Redesign
-The entire interface has been restructured to feel like a professional development environment rather than a collection of features bolted together. There's now a proper menu bar, the toolbar is organized into logical groups (Project, Build, Run/Debug, View), and the layout supports three view modes — **Split View**, **Emulator Focus**, and a new **Code Only** mode that hides the emulator entirely when you just want to write code.
+### 1) The Code Editor Is More Stable
 
-### Project Templates
-Starting a new project is much easier now. Choose from six built-in templates (Blank Game, Minimal Loop, Sprite Demo, Tilemap Demo, Shmup Starter, Matrix Mode Demo) instead of starting from scratch every time.
+We started moving to a native editor foundation so typing and editing behavior is handled by one owner instead of a fragile hybrid path.
 
-### Quality of Life
-- **UI density modes** — switch between Compact and Standard spacing to fit more on screen
-- **Autosave** — your work is automatically saved so you don't lose progress on a crash
-- **Settings persistence** — view mode, split positions, recent files, and preferences are remembered between sessions
-- **Load ROM button** — quickly test ROM files without having to rebuild every time
-- **F11 maximize/restore** — proper window management on Linux
+What that means for you:
+- better input consistency while typing
+- fewer weird cursor/selection edge cases
+- cleaner path for future editor upgrades (find/replace, symbol tools, richer diagnostics)
 
-### Bug Fixes
-- Fixed pixel alignment and grid line consistency in the Sprite Lab
-- Fixed split view not rendering correctly after switching view modes
-- Fixed window maximize not working on Linux (title bar double-click and right-click menu)
-- Improved Sprite Lab painting performance — no more lag while drawing
+### 2) Sprite Lab Got Better for Real Work
 
----
+Sprite Lab picked up practical workflow upgrades:
 
-**Downloads:**
-- **Linux:** `nitrocoredx-v0.1.7-linux-amd64.tar.gz`
-- **Windows:** `nitrocoredx-v0.1.7-windows-amd64.zip`
+- **Wrap Shift Controls** for sprites (Up/Down/Left/Right)
+  - move all pixels one step and wrap at edges
+  - useful for quick animation/frame tweaks
+- **Palette RGB555 Slider + Full Hex Flow**
+  - easier color dialing with slider control
+  - hex value stays visible and synchronized
+- **Preview Aspect Fix**
+  - sprite preview now keeps correct proportions when resizing windows
+  - no more stretched/wide preview distortion
+
+### 3) Native Window Behavior Was Locked Down
+
+We cleaned up maximize/minimize behavior and added guardrails so window management regressions are less likely to come back.
+
+- system title-bar maximize/minimize remains the expected behavior
+- fullscreen remains distinct from maximize
+- guard test added to keep platform-specific hinting constrained
+
+### 4) V1 Plan Direction Updated: YM2608
+
+The V1 audio target is now **YM2608**.
+
+This does **not** mean YM2608 is fully implemented in this release. It means the release plan has been updated so the final V1 sound target is clear.
+
+Execution order is now explicitly gated:
+1. finish Sprite Lab + Dev Kit stabilization
+2. complete required tilemap flow
+3. start Sound Studio
+4. then begin YM2608 implementation
+
+## Why v0.1.8 Matters
+
+v0.1.8 is less about flashy new subsystems and more about maturity:
+- stronger editor behavior
+- stronger art workflow
+- cleaner planning discipline for V1
+- fewer regressions in core UX
+
+## Downloads
+
+- **Linux:** `nitrocoredx-v0.1.8-linux-amd64.tar.gz`
+- **Windows:** `nitrocoredx-v0.1.8-windows-amd64.zip`

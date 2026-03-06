@@ -10,6 +10,7 @@ This directory contains setup, installation, and procedural guides.
 - `PROGRAMMING_GUIDE.md`
 - `RELEASE_BINARIES.md`
 - `CREATING_A_RELEASE.md`
+- `PRE_DEPLOYMENT_DOC_REVIEW_2026-03-06.md`
 
 ## Notes
 
@@ -22,3 +23,5 @@ This directory contains setup, installation, and procedural guides.
 - **END_OF_DAY_PROCEDURE.md** - End-of-day cleanup and documentation procedure
 - **RELEASE_BINARIES.md** - Build/package release archives for Linux and Windows
 - **CREATING_A_RELEASE.md** - Tag-based GitHub Release page creation workflow
+- **PRE_DEPLOYMENT_DOC_REVIEW_2026-03-06.md** - Pre-release doc audit checklist and outcomes for v0.1.8 prep
+- **PROGRAMMING_GUIDE.md** - Practical CoreLX + Dev Kit workflow guide (templates, Sprite Lab, Tilemap Lab, build flow)

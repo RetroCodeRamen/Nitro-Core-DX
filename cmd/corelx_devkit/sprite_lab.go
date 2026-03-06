@@ -7,6 +7,7 @@ import (
 	"image/color"
 	"io"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -17,6 +18,11 @@ import (
 	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/widget"
+	"nitro-core-dx/internal/corelx"
+)
+
+var (
+	spriteLabAssetHeaderRegex = regexp.MustCompile(`(?m)^asset\s+([A-Za-z_][A-Za-z0-9_]*)\s*:`)
 )
 
 const (
@@ -168,7 +174,9 @@ func (s *devKitState) buildSpriteLabPane() fyne.CanvasObject {
 	statusLabel := widget.NewLabel("Sprite Lab ready")
 	coordLabel := widget.NewLabel("Cursor: --")
 	selectedLabel := widget.NewLabel("Color: 1")
+	modeSummaryLabel := widget.NewLabel("")
 	selectedValueLabel := widget.NewLabel("RGB555: 0x0000")
+	paletteSliderLabel := widget.NewLabel("RGB555 Slider: 0x0000 (0)")
 	statsLabel := widget.NewLabel("Active pixels: 0/0")
 	historyLabel := widget.NewLabel("History: 1/1")
 	sizeLabel := widget.NewLabel("Size: 24x24")
@@ -177,9 +185,17 @@ func (s *devKitState) buildSpriteLabPane() fyne.CanvasObject {
 	gEntry := widget.NewEntry()
 	bEntry := widget.NewEntry()
 	hexColorEntry := widget.NewEntry()
+	hexColorEntry.SetPlaceHolder("0x0000")
+	paletteValueSlider := widget.NewSlider(0, 0x7FFF)
+	paletteValueSlider.Step = 1
+	suppressPaletteSlider := false
 
 	hexPreview := newReadOnlyTextArea()
 	hexPreview.SetMinRowsVisible(8)
+	hexColorMap := canvas.NewImageFromImage(image.NewNRGBA(image.Rect(0, 0, 1, 1)))
+	hexColorMap.FillMode = canvas.ImageFillContain
+	hexColorMap.ScaleMode = canvas.ImageScaleFastest
+	hexColorMap.SetMinSize(fyne.NewSize(280, 140))
 
 	editorImage := canvas.NewImageFromImage(image.NewNRGBA(image.Rect(0, 0, 1, 1)))
 	editorImage.FillMode = canvas.ImageFillStretch
@@ -187,9 +203,10 @@ func (s *devKitState) buildSpriteLabPane() fyne.CanvasObject {
 	editorImage.SetMinSize(spriteLabEditorDisplaySize(spriteW, spriteH))
 
 	previewImage := canvas.NewImageFromImage(image.NewNRGBA(image.Rect(0, 0, 1, 1)))
-	previewImage.FillMode = canvas.ImageFillStretch
+	previewImage.FillMode = canvas.ImageFillContain
 	previewImage.ScaleMode = canvas.ImageScalePixels
 	previewImage.SetMinSize(spriteLabPreviewDisplaySize(spriteW, spriteH))
+	previewHolder := container.NewCenter(previewImage)
 
 	paletteButtons := make([]*widget.Button, spriteLabColorsPerBank)
 	paletteChips := make([]*canvas.Image, spriteLabColorsPerBank)
@@ -259,6 +276,15 @@ func (s *devKitState) buildSpriteLabPane() fyne.CanvasObject {
 		return true
 	}
 
+	shiftSprite := func(dx, dy int) bool {
+		next, changed := shiftSpritePixelsWrap(pixels, spriteW, spriteH, dx, dy)
+		if !changed {
+			return false
+		}
+		copy(pixels, next)
+		return true
+	}
+
 	setColorEditors := func() {
 		idx := selectedPaletteOffset()
 		val := palettes[idx]
@@ -266,7 +292,11 @@ func (s *devKitState) buildSpriteLabPane() fyne.CanvasObject {
 		rEntry.SetText(strconv.Itoa(int(r)))
 		gEntry.SetText(strconv.Itoa(int(g)))
 		bEntry.SetText(strconv.Itoa(int(b)))
-		hexColorEntry.SetText(fmt.Sprintf("%04X", val))
+		hexColorEntry.SetText(fmt.Sprintf("0x%04X", val))
+		suppressPaletteSlider = true
+		paletteValueSlider.SetValue(float64(val))
+		suppressPaletteSlider = false
+		paletteSliderLabel.SetText(fmt.Sprintf("RGB555 Slider: 0x%04X (%d)", val, val))
 		if transparentZero && selectedColor == spriteLabTransparentIx {
 			selectedValueLabel.SetText(fmt.Sprintf("RGB555: 0x%04X (transparent index)", val))
 		} else {
@@ -333,7 +363,13 @@ func (s *devKitState) buildSpriteLabPane() fyne.CanvasObject {
 		)
 		previewImage.Refresh()
 		refreshSpriteLabHexPreview(hexPreview, pixels, spriteW, spriteH)
+		hexColorMap.Image = renderSpriteLabHexColorMapImage(pixels, palettes, selectedBank, spriteW, spriteH, transparentZero)
+		hexColorMap.Refresh()
 		selectedLabel.SetText(fmt.Sprintf("Color: %X (Bank %d)", selectedColor, selectedBank))
+		modeSummaryLabel.SetText(fmt.Sprintf(
+			"Tool: %s | Size: %dx%d | Bank: %d | Color: %X | MirrorX: %t | Index0 Transparent: %t",
+			currentTool, spriteW, spriteH, selectedBank, selectedColor, mirrorX, transparentZero,
+		))
 		statsLabel.SetText(fmt.Sprintf("Active pixels: %d/%d", nonZeroPixels(), spriteW*spriteH))
 		refreshPaletteButtons()
 		refreshHistoryButtons()
@@ -528,6 +564,8 @@ func (s *devKitState) buildSpriteLabPane() fyne.CanvasObject {
 			refreshVisuals()
 		}
 	}
+	s.spriteLabUndo = undoButton.OnTapped
+	s.spriteLabRedo = redoButton.OnTapped
 
 	clearButton := widget.NewButton("Clear", func() {
 		if !applyFill(0) {
@@ -547,6 +585,43 @@ func (s *devKitState) buildSpriteLabPane() fyne.CanvasObject {
 		commitHistory()
 		refreshVisuals()
 		statusLabel.SetText(fmt.Sprintf("Filled sprite with color %X", selectedColor))
+	})
+
+	shiftUpButton := widget.NewButton("Shift Up", func() {
+		if !shiftSprite(0, -1) {
+			statusLabel.SetText("Shift Up made no changes")
+			return
+		}
+		commitHistory()
+		refreshVisuals()
+		statusLabel.SetText("Shifted sprite up (wrapped)")
+	})
+	shiftDownButton := widget.NewButton("Shift Down", func() {
+		if !shiftSprite(0, 1) {
+			statusLabel.SetText("Shift Down made no changes")
+			return
+		}
+		commitHistory()
+		refreshVisuals()
+		statusLabel.SetText("Shifted sprite down (wrapped)")
+	})
+	shiftLeftButton := widget.NewButton("Shift Left", func() {
+		if !shiftSprite(-1, 0) {
+			statusLabel.SetText("Shift Left made no changes")
+			return
+		}
+		commitHistory()
+		refreshVisuals()
+		statusLabel.SetText("Shifted sprite left (wrapped)")
+	})
+	shiftRightButton := widget.NewButton("Shift Right", func() {
+		if !shiftSprite(1, 0) {
+			statusLabel.SetText("Shift Right made no changes")
+			return
+		}
+		commitHistory()
+		refreshVisuals()
+		statusLabel.SetText("Shifted sprite right (wrapped)")
 	})
 
 	applyRGBButton := widget.NewButton("Apply RGB", func() {
@@ -576,6 +651,22 @@ func (s *devKitState) buildSpriteLabPane() fyne.CanvasObject {
 		}
 		setSelectedPaletteColor(v, fmt.Sprintf("Updated bank %d color %X from hex", selectedBank, selectedColor))
 	})
+
+	paletteValueSlider.OnChanged = func(v float64) {
+		if suppressPaletteSlider {
+			return
+		}
+		val := uint16(v + 0.5)
+		hexColorEntry.SetText(fmt.Sprintf("0x%04X", val))
+		paletteSliderLabel.SetText(fmt.Sprintf("RGB555 Slider: 0x%04X (%d)", val, val))
+	}
+	paletteValueSlider.OnChangeEnded = func(v float64) {
+		if suppressPaletteSlider {
+			return
+		}
+		val := uint16(v + 0.5)
+		setSelectedPaletteColor(val, fmt.Sprintf("Updated bank %d color %X from slider", selectedBank, selectedColor))
+	}
 
 	copyHexButton := widget.NewButton("Copy Tile Hex", func() {
 		if s.window != nil && s.window.Clipboard() != nil {
@@ -683,7 +774,7 @@ func (s *devKitState) buildSpriteLabPane() fyne.CanvasObject {
 			dialog.ShowError(err, s.window)
 			return
 		}
-		next := s.sourceEntry.Text
+		next := s.sourceEditor.Text()
 		if strings.TrimSpace(next) != "" {
 			next = strings.TrimRight(next, "\n") + "\n\n"
 		}
@@ -705,6 +796,134 @@ func (s *devKitState) buildSpriteLabPane() fyne.CanvasObject {
 		s.appendBuildOutput("Sprite Lab inserted asset: " + name)
 		statusLabel.SetText("Inserted CoreLX asset snippet")
 	})
+	insertButton.Importance = widget.HighImportance
+
+	applyProjectButton := widget.NewButton("Apply To Project", func() {
+		name := sanitizeSpriteLabName(nameEntry.Text)
+		assetSnippet, err := spriteLabCoreLXAssetSnippet(name, pixels, spriteW, spriteH)
+		if err != nil {
+			dialog.ShowError(err, s.window)
+			return
+		}
+		paletteSnippet := ""
+		if includePaletteCheck.Checked {
+			paletteSnippet, err = spriteLabPaletteInitSnippet(selectedBank, palettes)
+			if err != nil {
+				dialog.ShowError(err, s.window)
+				return
+			}
+		}
+		next, summary, err := upsertSpriteLabBlocksIntoSource(s.sourceEditor.Text(), name, assetSnippet, includePaletteCheck.Checked, selectedBank, paletteSnippet)
+		if err != nil {
+			dialog.ShowError(err, s.window)
+			return
+		}
+		s.setSourceContent(next, true, false)
+		if s.workbenchTabs != nil {
+			s.workbenchTabs.SelectIndex(0)
+		}
+		s.setStatus(summary)
+		s.appendBuildOutput(summary)
+		statusLabel.SetText(summary)
+	})
+	applyProjectButton.Importance = widget.HighImportance
+
+	applyManifestButton := widget.NewButton("Apply To Manifest", func() {
+		name := sanitizeSpriteLabName(nameEntry.Text)
+		hexData, err := spriteLabAssetHexData(pixels, spriteW, spriteH)
+		if err != nil {
+			dialog.ShowError(err, s.window)
+			return
+		}
+		record := corelx.ProjectAssetRecord{
+			Name:     name,
+			Type:     spriteLabAssetTypeForDimensions(spriteW, spriteH),
+			Encoding: "hex",
+			Data:     hexData,
+		}
+		manifestPath, state, err := upsertProjectAssetManifestRecord(s.currentPath, record)
+		if err != nil {
+			dialog.ShowError(err, s.window)
+			return
+		}
+		s.rememberSourcePath(manifestPath)
+		s.setStatus(fmt.Sprintf("Applied sprite asset %s (%s) to %s", name, state, filepath.Base(manifestPath)))
+		s.appendBuildOutput(fmt.Sprintf("Manifest upsert: %s (%s) -> %s", name, state, manifestPath))
+		statusLabel.SetText(fmt.Sprintf("Manifest updated: %s (%s)", name, state))
+	})
+	applyManifestButton.Importance = widget.MediumImportance
+
+	s.spriteLabHotkey = func(name fyne.KeyName) bool {
+		switch name {
+		case fyne.KeyB:
+			currentTool = spriteLabToolPencil
+			toolGroup.SetSelected(string(spriteLabToolPencil))
+			statusLabel.SetText("Tool: Pencil")
+			refreshVisuals()
+			return true
+		case fyne.KeyE:
+			currentTool = spriteLabToolErase
+			toolGroup.SetSelected(string(spriteLabToolErase))
+			statusLabel.SetText("Tool: Erase")
+			refreshVisuals()
+			return true
+		case fyne.KeyX:
+			mirrorX = !mirrorX
+			mirrorCheck.SetChecked(mirrorX)
+			if mirrorX {
+				statusLabel.SetText("Mirror painting enabled")
+			} else {
+				statusLabel.SetText("Mirror painting disabled")
+			}
+			refreshVisuals()
+			return true
+		case fyne.KeyG:
+			showGrid = !showGrid
+			gridCheck.SetChecked(showGrid)
+			refreshVisuals()
+			return true
+		case fyne.KeyT:
+			transparentZero = !transparentZero
+			transparencyCheck.SetChecked(transparentZero)
+			if transparentZero {
+				statusLabel.SetText("Transparency enabled for color index 0")
+			} else {
+				statusLabel.SetText("Transparency disabled in Sprite Lab preview")
+			}
+			refreshVisuals()
+			return true
+		case fyne.KeyI:
+			if shiftSprite(0, -1) {
+				commitHistory()
+				refreshVisuals()
+				statusLabel.SetText("Shifted sprite up (wrapped)")
+			}
+			return true
+		case fyne.KeyK:
+			if shiftSprite(0, 1) {
+				commitHistory()
+				refreshVisuals()
+				statusLabel.SetText("Shifted sprite down (wrapped)")
+			}
+			return true
+		case fyne.KeyJ:
+			if shiftSprite(-1, 0) {
+				commitHistory()
+				refreshVisuals()
+				statusLabel.SetText("Shifted sprite left (wrapped)")
+			}
+			return true
+		case fyne.KeyL:
+			if shiftSprite(1, 0) {
+				commitHistory()
+				refreshVisuals()
+				statusLabel.SetText("Shifted sprite right (wrapped)")
+			}
+			return true
+		default:
+			return false
+		}
+	}
 
 	canvasPanel := container.NewBorder(
 		container.NewVBox(
@@ -712,6 +931,7 @@ func (s *devKitState) buildSpriteLabPane() fyne.CanvasObject {
 			container.NewHBox(widget.NewLabel("Canvas Size"), resizeSelect, sizeLabel),
 			toolGroup,
 			container.NewHBox(mirrorCheck, gridCheck, transparencyCheck),
+			modeSummaryLabel,
 		),
 		container.NewHBox(coordLabel, widget.NewSeparator(), selectedLabel),
 		nil,
@@ -729,41 +949,62 @@ func (s *devKitState) buildSpriteLabPane() fyne.CanvasObject {
 			widget.NewLabel("B"),
 			bEntry,
 		),
-		container.NewHBox(
-			widget.NewLabel("Hex"),
-			hexColorEntry,
-			applyHexButton,
-		),
+		container.NewBorder(nil, nil, widget.NewLabel("Hex"), applyHexButton, hexColorEntry),
+		paletteSliderLabel,
+		paletteValueSlider,
 		container.NewHBox(applyRGBButton, selectedColorChip),
 		selectedValueLabel,
 	)
 
-	rightPanel := container.NewVBox(
-		widget.NewLabel("Asset Name"),
-		nameEntry,
-		widget.NewSeparator(),
+	paletteTab := container.NewVBox(
 		widget.NewLabel("Palette Bank"),
 		paletteBankSelect,
 		widget.NewLabel("Palette Colors (16 colors in current bank)"),
 		paletteGrid,
 		colorEditorPanel,
+	)
+
+	assetTab := container.NewVBox(
+		widget.NewLabel("Asset Name"),
+		nameEntry,
 		container.NewGridWithColumns(2, undoButton, redoButton),
 		historyLabel,
 		container.NewGridWithColumns(2, clearButton, fillButton),
-		container.NewGridWithColumns(2, loadButton, saveButton),
-		includePaletteCheck,
-		insertButton,
-		widget.NewSeparator(),
+		container.NewGridWithColumns(2, shiftLeftButton, shiftRightButton),
+		container.NewGridWithColumns(2, shiftUpButton, shiftDownButton),
 		widget.NewLabel("Preview"),
-		previewImage,
+		previewHolder,
 		statsLabel,
-		widget.NewSeparator(),
-		widget.NewLabel("Packed 4bpp bytes"),
-		hexPreview,
-		copyHexButton,
 	)
 
-	split := container.NewHSplit(canvasPanel, container.NewScroll(rightPanel))
+	exportTab := container.NewVBox(
+		container.NewGridWithColumns(2, loadButton, saveButton),
+		includePaletteCheck,
+		applyManifestButton,
+		applyProjectButton,
+		insertButton,
+		copyHexButton,
+		widget.NewLabel("Hotkeys: B pencil, E erase, X mirror, G grid, T transparency, I/J/K/L shift wrap, Ctrl+Z/Ctrl+Y undo/redo"),
+	)
+
+	inspectorAccordion := widget.NewAccordion(
+		widget.NewAccordionItem("Packed 4bpp Bytes", hexPreview),
+		widget.NewAccordionItem("Hex Color Map", hexColorMap),
+	)
+	inspectorAccordion.MultiOpen = true
+	inspectorAccordion.Open(0)
+	inspectorAccordion.Open(1)
+	inspectorTab := container.NewVBox(inspectorAccordion)
+
+	rightTabs := container.NewAppTabs(
+		container.NewTabItem("Palette", container.NewScroll(paletteTab)),
+		container.NewTabItem("Asset", container.NewScroll(assetTab)),
+		container.NewTabItem("Export/Code", container.NewScroll(exportTab)),
+		container.NewTabItem("Inspector", container.NewScroll(inspectorTab)),
+	)
+	rightTabs.SetTabLocation(container.TabLocationTop)
+
+	split := container.NewHSplit(canvasPanel, rightTabs)
 	split.Offset = 0.58
 
 	commitHistory()
@@ -1014,6 +1255,64 @@ func spriteLabCheckerColor(x, y, block int) color.NRGBA {
 	return b
 }
 
+func renderSpriteLabHexColorMapImage(
+	pixels []uint8,
+	palettes []uint16,
+	bank int,
+	width int,
+	height int,
+	transparentZero bool,
+) image.Image {
+	if width <= 0 || height <= 0 || len(pixels) < width*height {
+		return image.NewNRGBA(image.Rect(0, 0, 1, 1))
+	}
+	cell := 7
+	gap := 1
+	byteGap := 2
+
+	mapWidth := width*cell + (width-1)*gap + ((width/2)-1)*byteGap
+	mapHeight := height*cell + (height-1)*gap
+	if mapWidth < 1 {
+		mapWidth = 1
+	}
+	if mapHeight < 1 {
+		mapHeight = 1
+	}
+
+	img := image.NewNRGBA(image.Rect(0, 0, mapWidth, mapHeight))
+	for i := range img.Pix {
+		img.Pix[i] = 0x10
+	}
+
+	paletteBase := clampInt(bank, 0, spriteLabPaletteBanks-1) * spriteLabColorsPerBank
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			idx := y*width + x
+			pix := int(pixels[idx] & 0x0F)
+			c := rgb555ToNRGBA(palettes[paletteBase+pix])
+			if transparentZero && pix == spriteLabTransparentIx {
+				c = spriteLabCheckerColor(x*cell, y*cell, maxInt(1, cell/2))
+			}
+			xGap := x * gap
+			if x >= 2 {
+				xGap += (x / 2) * byteGap
+			}
+			px := x*cell + xGap
+			py := y*cell + y*gap
+			for dy := 0; dy < cell; dy++ {
+				for dx := 0; dx < cell; dx++ {
+					off := img.PixOffset(px+dx, py+dy)
+					img.Pix[off+0] = c.R
+					img.Pix[off+1] = c.G
+					img.Pix[off+2] = c.B
+					img.Pix[off+3] = 0xFF
+				}
+			}
+		}
+	}
+	return img
+}
+
 func refreshSpriteLabHexPreview(entry *widget.Entry, pixels []uint8, width, height int) {
 	packed, err := packSpriteLabPixels(pixels, width, height)
 	if err != nil {
@@ -1039,6 +1338,31 @@ func refreshSpriteLabHexPreview(entry *widget.Entry, pixels []uint8, width, heig
 	entry.Enable()
 	entry.SetText(sb.String())
 	entry.Disable()
+}
+
+func shiftSpritePixelsWrap(pixels []uint8, width, height, dx, dy int) ([]uint8, bool) {
+	if width <= 0 || height <= 0 || len(pixels) != width*height {
+		return append([]uint8(nil), pixels...), false
+	}
+	if dx == 0 && dy == 0 {
+		return append([]uint8(nil), pixels...), false
+	}
+	next := make([]uint8, len(pixels))
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			srcX := ((x-dx)%width + width) % width
+			srcY := ((y-dy)%height + height) % height
+			next[y*width+x] = pixels[srcY*width+srcX]
+		}
+	}
+	changed := false
+	for i := range pixels {
+		if next[i] != pixels[i] {
+			changed = true
+			break
+		}
+	}
+	return next, changed
 }
 
 func marshalSpriteLabAsset(name string, pixels []uint8, width, height int, paletteBank int, palettes []uint16) ([]byte, error) {
@@ -1122,7 +1446,7 @@ func spriteLabCoreLXAssetSnippet(name string, pixels []uint8, width, height int)
 	assetType := spriteLabAssetTypeForDimensions(width, height)
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("// Sprite Lab asset (%dx%d, 4bpp)\n", width, height))
+	sb.WriteString(fmt.Sprintf("-- Sprite Lab asset (%dx%d, 4bpp)\n", width, height))
 	sb.WriteString("asset ")
 	sb.WriteString(sanitizeSpriteLabName(name))
 	sb.WriteString(": ")
@@ -1146,6 +1470,14 @@ func spriteLabCoreLXAssetSnippet(name string, pixels []uint8, width, height int)
 	return sb.String(), nil
 }
 
+func spriteLabAssetHexData(pixels []uint8, width, height int) (string, error) {
+	packed, err := packSpriteLabPixels(pixels, width, height)
+	if err != nil {
+		return "", err
+	}
+	return bytesToHexFields(packed), nil
+}
+
 func spriteLabAssetTypeForDimensions(width, height int) string {
 	if width == 8 && height == 8 {
 		return "tiles8"
@@ -1164,7 +1496,7 @@ func spriteLabPaletteInitSnippet(bank int, palettes []uint16) (string, error) {
 		return "", fmt.Errorf("palette data length must be %d", spriteLabPaletteCount)
 	}
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("// Sprite Lab palette bank %d\n", bank))
+	sb.WriteString(fmt.Sprintf("-- Sprite Lab palette bank %d\n", bank))
 	base := bank * spriteLabColorsPerBank
 	for i := 0; i < spriteLabColorsPerBank; i++ {
 		sb.WriteString(fmt.Sprintf("gfx.set_palette(%d, %d, 0x%04X)", bank, i, palettes[base+i]))
@@ -1173,6 +1505,110 @@ func spriteLabPaletteInitSnippet(bank int, palettes []uint16) (string, error) {
 		}
 	}
 	return sb.String(), nil
+}
+
+func upsertSpriteLabBlocksIntoSource(source, assetName, assetSnippet string, includePalette bool, paletteBank int, paletteSnippet string) (string, string, error) {
+	updated := strings.TrimRight(source, "\n")
+	if updated == "" {
+		updated = assetSnippet
+		assetMsg := fmt.Sprintf("Applied Sprite Lab asset %s (new)", assetName)
+		if includePalette {
+			updated += "\n\n" + paletteSnippet
+			return updated + "\n", assetMsg + fmt.Sprintf(" + palette bank %d (new)", paletteBank), nil
+		}
+		return updated + "\n", assetMsg, nil
+	}
+
+	assetReplaced := false
+	lines := strings.Split(updated, "\n")
+	if start, end, ok := findSpriteLabAssetBlock(lines, assetName); ok {
+		repl := strings.Split(assetSnippet, "\n")
+		nextLines := make([]string, 0, len(lines)-((end-start)+1)+len(repl))
+		nextLines = append(nextLines, lines[:start]...)
+		nextLines = append(nextLines, repl...)
+		nextLines = append(nextLines, lines[end+1:]...)
+		lines = nextLines
+		assetReplaced = true
+	} else {
+		lines = append(lines, "")
+		lines = append(lines, strings.Split(assetSnippet, "\n")...)
+	}
+
+	paletteReplaced := false
+	if includePalette {
+		if start, end, ok := findSpriteLabPaletteBlock(lines, paletteBank); ok {
+			repl := strings.Split(paletteSnippet, "\n")
+			nextLines := make([]string, 0, len(lines)-((end-start)+1)+len(repl))
+			nextLines = append(nextLines, lines[:start]...)
+			nextLines = append(nextLines, repl...)
+			nextLines = append(nextLines, lines[end+1:]...)
+			lines = nextLines
+			paletteReplaced = true
+		} else {
+			lines = append(lines, "")
+			lines = append(lines, strings.Split(paletteSnippet, "\n")...)
+		}
+	}
+
+	assetState := "new"
+	if assetReplaced {
+		assetState = "updated"
+	}
+	msg := fmt.Sprintf("Applied Sprite Lab asset %s (%s)", assetName, assetState)
+	if includePalette {
+		palState := "new"
+		if paletteReplaced {
+			palState = "updated"
+		}
+		msg += fmt.Sprintf(" + palette bank %d (%s)", paletteBank, palState)
+	}
+	return strings.Join(lines, "\n") + "\n", msg, nil
+}
+
+func findSpriteLabAssetBlock(lines []string, assetName string) (int, int, bool) {
+	for i := 0; i < len(lines); i++ {
+		m := spriteLabAssetHeaderRegex.FindStringSubmatch(strings.TrimSpace(lines[i]))
+		if len(m) != 2 || m[1] != assetName {
+			continue
+		}
+		end := i
+		for j := i + 1; j < len(lines); j++ {
+			trimmed := strings.TrimSpace(lines[j])
+			if trimmed == "" || strings.HasPrefix(trimmed, "--") {
+				end = j
+				continue
+			}
+			if !isIndentedLine(lines[j]) {
+				break
+			}
+			end = j
+		}
+		return i, end, true
+	}
+	return 0, 0, false
+}
+
+func findSpriteLabPaletteBlock(lines []string, bank int) (int, int, bool) {
+	header := fmt.Sprintf("-- Sprite Lab palette bank %d", bank)
+	for i := 0; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) != header {
+			continue
+		}
+		end := i
+		for j := i + 1; j < len(lines); j++ {
+			trimmed := strings.TrimSpace(lines[j])
+			if trimmed == "" {
+				break
+			}
+			if strings.HasPrefix(trimmed, fmt.Sprintf("gfx.set_palette(%d,", bank)) {
+				end = j
+				continue
+			}
+			break
+		}
+		return i, end, true
+	}
+	return 0, 0, false
 }
 
 func packSpriteLabPixels(pixels []uint8, width, height int) ([]byte, error) {

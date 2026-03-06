@@ -16,6 +16,7 @@ type CompileOptions struct {
 	ManifestOutputPath    string
 	DiagnosticsOutputPath string
 	BundleOutputPath      string
+	AssetManifestPath     string
 	EntryBank             uint8
 	EntryOffset           uint16
 	MaxROMBytes           uint32
@@ -29,6 +30,7 @@ type CompileOptions struct {
 type CompileResult struct {
 	Program          *Program
 	NormalizedAssets []AssetIR
+	AssetSourceFiles []string
 	ROMBytes         []byte
 	Manifest         *BuildManifest
 	ManifestJSON     []byte
@@ -194,6 +196,17 @@ func CompileSource(source, sourcePath string, opts *CompileOptions) (result *Com
 	}
 	result.Program = program
 
+	currentStage = StageAsset
+	externalAssets, externalSources, externalDiags := loadProjectAssets(sourcePath, cfg)
+	result.Diagnostics = append(result.Diagnostics, externalDiags...)
+	if HasErrors(result.Diagnostics) {
+		return result, &DiagnosticsError{Diagnostics: result.Diagnostics}
+	}
+	if len(externalAssets) > 0 {
+		program.Assets = append(program.Assets, externalAssets...)
+		result.AssetSourceFiles = append(result.AssetSourceFiles, externalSources...)
+	}
+
 	currentStage = StageSemantic
 	semDiags := AnalyzeWithDiagnostics(program)
 	stampDiagnosticsFile(semDiags, sourcePath)
@@ -245,6 +258,9 @@ func CompileSource(source, sourcePath string, opts *CompileOptions) (result *Com
 		result.ROMBytes = romBytes
 	}
 	result.Manifest = buildManifestFromCompileState(sourcePath, cfg.EntryBank, cfg.EntryOffset, codeBytes, uint32(len(romBytes)), program, assets)
+	if result.Manifest != nil && len(result.AssetSourceFiles) > 0 {
+		result.Manifest.SourceFiles = uniqueStrings(append(result.Manifest.SourceFiles, result.AssetSourceFiles...))
+	}
 	currentStage = StagePack
 	packDiags := validatePackBudgets(result.Manifest, cfg, sourcePath)
 	result.Diagnostics = append(result.Diagnostics, packDiags...)
@@ -311,6 +327,9 @@ func mergeCompileOptions(dst *CompileOptions, src CompileOptions) {
 	}
 	if src.BundleOutputPath != "" {
 		dst.BundleOutputPath = src.BundleOutputPath
+	}
+	if src.AssetManifestPath != "" {
+		dst.AssetManifestPath = src.AssetManifestPath
 	}
 	if src.EntryBank != 0 {
 		dst.EntryBank = src.EntryBank

@@ -526,9 +526,12 @@ func (c *CPU) executeCALL() error {
 	offset := int16(c.FetchImmediate())
 	c.State.Cycles++
 
-	// Push return address (PBR:PC) - use PCBank as authoritative
-	c.Push16(uint16(c.State.PCBank))
-	c.Push16(c.State.PCOffset)
+	// Push return address and flags (matching RET pop order: Flags, PCOffset, PBR).
+	// RET pops 3 words: Flags first, then PCOffset, then PBR.
+	// Push in the reverse order so LIFO matches.
+	c.Push16(uint16(c.State.PCBank)) // PBR  (popped last by RET)
+	c.Push16(c.State.PCOffset)       // PCOffset (popped second by RET)
+	c.Push16(uint16(c.State.Flags))  // Flags (popped first by RET)
 
 	// Jump to target
 	newOffset := int32(c.State.PCOffset) + int32(offset)

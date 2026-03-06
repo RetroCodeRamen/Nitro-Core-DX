@@ -24,7 +24,30 @@ type CodeGenerator struct {
 	variables   map[string]*VariableInfo
 	varCounter  int
 	stackOffset uint16 // Current stack offset for spilled variables
+
+	// Function call support
+	functionAddrs map[string]int // function name -> code word index of function start
+	callPatches   []callPatch    // pending CALL offset patches
+	globalStack   uint16         // tracks per-function stack base to avoid overlap
 }
+
+// callPatch records a pending CALL that needs its offset patched once the
+// target function address is known.
+type callPatch struct {
+	offsetPos int    // word index of the offset immediate
+	target    string // target function name
+}
+
+const (
+	// Top of WRAM stack region used by CPU Push16/Pop16.
+	stackTopAddr = uint16(0x1FFF)
+	// Reserve top 256 bytes for CALL/RET return stack frames.
+	callStackReserveBytes = uint16(0x0100)
+	// Compiler-managed locals/params must stay above this floor.
+	stackMinAddr = uint16(0x0100)
+	// Initial per-function reservation window before spill growth adjustment.
+	functionStackWindow = uint16(0x0100)
+)
 
 // VariableInfo tracks where a variable is stored
 type VariableInfo struct {
@@ -65,7 +88,10 @@ func NewCodeGenerator(program *Program, builder *rom.ROMBuilder) *CodeGenerator 
 		assetOffsets:     make(map[string]uint16),
 		variables:        make(map[string]*VariableInfo),
 		varCounter:       0,
-		stackOffset:      0x1FFF, // Start at top of stack (grows downward)
+		stackOffset:      stackTopAddr - callStackReserveBytes, // Below CALL stack reserve
+		functionAddrs:    make(map[string]int),
+		callPatches:      nil,
+		globalStack:      stackTopAddr - callStackReserveBytes, // Reserve top bytes for CALL/RET stack
 	}
 }
 
@@ -123,27 +149,65 @@ func (cg *CodeGenerator) Generate() error {
 		}
 	}
 
-	// Generate code for each function
+	// Generate code for each function, recording start addresses.
 	for _, fn := range functions {
+		cg.functionAddrs[fn.Name] = cg.builder.GetCodeLength()
 		if err := cg.generateFunction(fn); err != nil {
 			return err
 		}
+	}
+
+	// Patch all pending CALL offsets now that every function address is known.
+	for _, patch := range cg.callPatches {
+		targetWordIdx, ok := cg.functionAddrs[patch.target]
+		if !ok {
+			return fmt.Errorf("undefined function: %s", patch.target)
+		}
+		currentPC := uint16(patch.offsetPos * 2)
+		targetPC := uint16(targetWordIdx * 2)
+		offset := rom.CalculateBranchOffset(currentPC, targetPC)
+		cg.builder.SetImmediateAt(patch.offsetPos, uint16(offset))
 	}
 
 	return nil
 }
 
 func (cg *CodeGenerator) generateFunction(fn *FunctionDecl) error {
-	// Reset variable tracking for each function
+	// Reset variable tracking for each function.
 	cg.variables = make(map[string]*VariableInfo)
 	cg.regAlloc = &RegisterAllocator{}
-	cg.stackOffset = 0x1FFF // Reset stack for each function
 
-	// Function prologue
-	// For now, we'll use a simple calling convention:
-	// - Parameters passed in R0-R7
-	// - Return value in R0
-	// - Caller saves registers
+	// Each function gets its own non-overlapping stack region (256 bytes).
+	// Entry function starts at 0x1FFF, each additional function is 256 bytes lower.
+	if cg.globalStack < stackMinAddr+2 {
+		return fmt.Errorf("stack allocation exhausted before function %s (global stack base 0x%04X)", fn.Name, cg.globalStack)
+	}
+	cg.stackOffset = cg.globalStack
+	startStack := cg.globalStack
+	if cg.globalStack < stackMinAddr+functionStackWindow {
+		return fmt.Errorf("stack allocation exhausted reserving frame for function %s (base 0x%04X)", fn.Name, cg.globalStack)
+	}
+	cg.globalStack -= functionStackWindow
+
+	// Function prologue: save parameters from registers to local stack variables.
+	for i, param := range fn.Params {
+		if i >= 8 {
+			return fmt.Errorf("function %s: too many parameters (max 8)", fn.Name)
+		}
+		stackAddr, err := cg.allocateStack(2, "function parameter "+param.Name)
+		if err != nil {
+			return fmt.Errorf("function %s: %w", fn.Name, err)
+		}
+		// Save R{i} to stack
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
+		cg.builder.AddImmediate(stackAddr)
+		cg.builder.AddInstruction(rom.EncodeMOV(3, 7, uint8(i)))
+		cg.variables[param.Name] = &VariableInfo{
+			Name:      param.Name,
+			Location:  VarLocationStack,
+			StackAddr: stackAddr,
+		}
+	}
 
 	// Generate function body
 	for _, stmt := range fn.Body {
@@ -153,12 +217,15 @@ func (cg *CodeGenerator) generateFunction(fn *FunctionDecl) error {
 	}
 
 	// Function epilogue
-	if fn.ReturnType == nil {
-		// Void return - just return
-		cg.builder.AddInstruction(rom.EncodeRET())
-	} else {
-		// Return value should already be in R0
-		cg.builder.AddInstruction(rom.EncodeRET())
+	cg.builder.AddInstruction(rom.EncodeRET())
+
+	// Record how much stack this function used so the next function doesn't overlap.
+	used := startStack - cg.stackOffset
+	if used > functionStackWindow {
+		if startStack < used || startStack-used < stackMinAddr {
+			return fmt.Errorf("function %s exceeds available stack (used %d bytes from base 0x%04X)", fn.Name, used, startStack)
+		}
+		cg.globalStack = startStack - used
 	}
 
 	return nil
@@ -213,8 +280,10 @@ func (cg *CodeGenerator) generateVarDecl(stmt *VarDeclStmt) error {
 				// We'll need to store R0 somewhere and track it
 				// Pre-alpha simplification: keep long-lived locals on stack because
 				// builtins use R0-R7 freely and there is no caller/callee-save contract yet.
-				cg.stackOffset -= 2
-				stackAddr := cg.stackOffset
+				stackAddr, err := cg.allocateStack(2, "struct variable "+stmt.Name)
+				if err != nil {
+					return err
+				}
 				cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0)) // MOV R7, #stackAddr
 				cg.builder.AddImmediate(stackAddr)
 				cg.builder.AddInstruction(rom.EncodeMOV(3, 7, 0)) // MOV [R7], R0
@@ -236,8 +305,10 @@ func (cg *CodeGenerator) generateVarDecl(stmt *VarDeclStmt) error {
 	// Value is now in R0
 	// Pre-alpha simplification: store locals on stack. This avoids register clobbering
 	// by builtins until a real calling convention/register allocator is implemented.
-	cg.stackOffset -= 2 // Allocate 2 bytes (16-bit value)
-	stackAddr := cg.stackOffset
+	stackAddr, err := cg.allocateStack(2, "variable "+stmt.Name) // Allocate 2 bytes (16-bit value)
+	if err != nil {
+		return err
+	}
 	cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0)) // MOV R7, #stackAddr
 	cg.builder.AddImmediate(stackAddr)
 	cg.builder.AddInstruction(rom.EncodeMOV(3, 7, 0)) // MOV [R7], R0
@@ -579,123 +650,131 @@ func (cg *CodeGenerator) generateExpr(expr Expr, destReg uint8) error {
 			cg.builder.AddInstruction(rom.EncodeMOV(0, destReg, 1)) // MOV R{destReg}, R1 (restore left)
 			cg.builder.AddInstruction(rom.EncodeSUB(0, destReg, 2)) // SUB R{destReg}, R2
 		case TOKEN_STAR:
-			// Multiplication - use repeated addition for small values
-			// For now, only support multiplication by powers of 2 (shifts)
-			// General multiplication would need a helper function
-			// Check if right is a power of 2
+			// General constant multiplication via shift-add decomposition.
+			// For runtime multipliers, fall back to shift-add loop.
 			if numExpr, ok := e.Right.(*NumberExpr); ok {
 				val := numExpr.Value
-				if val == 1 {
-					// x * 1 = x, already in destReg
-					return nil
-				}
-				if val == 2 {
-					// x * 2 = x << 1
-					cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
-					cg.builder.AddImmediate(1)
-					cg.builder.AddInstruction(rom.EncodeSHL(0, destReg, 7))
-					return nil
-				}
-				if val == 4 {
-					cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
-					cg.builder.AddImmediate(2)
-					cg.builder.AddInstruction(rom.EncodeSHL(0, destReg, 7))
-					return nil
-				}
-				if val == 8 {
-					cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
-					cg.builder.AddImmediate(3)
-					cg.builder.AddInstruction(rom.EncodeSHL(0, destReg, 7))
-					return nil
-				}
-			}
-			return fmt.Errorf("multiplication by non-power-of-2 not yet implemented")
-		case TOKEN_SLASH:
-			// Division - use repeated subtraction for small values
-			// For now, only support division by powers of 2 (shifts)
-			if numExpr, ok := e.Right.(*NumberExpr); ok {
-				val := numExpr.Value
-				if val == 1 {
-					// x / 1 = x
-					return nil
-				}
-				if val == 2 {
-					cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
-					cg.builder.AddImmediate(1)
-					cg.builder.AddInstruction(rom.EncodeSHR(0, destReg, 7))
-					return nil
-				}
-				if val == 4 {
-					cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
-					cg.builder.AddImmediate(2)
-					cg.builder.AddInstruction(rom.EncodeSHR(0, destReg, 7))
-					return nil
-				}
-				if val == 8 {
-					cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
-					cg.builder.AddImmediate(3)
-					cg.builder.AddInstruction(rom.EncodeSHR(0, destReg, 7))
-					return nil
-				}
-			}
-			return fmt.Errorf("division by non-power-of-2 not yet implemented")
-		case TOKEN_PERCENT:
-			// Modulo: a % b = a - (a / b) * b
-			// For now, simplified - only support modulo by powers of 2
-			if numExpr, ok := e.Right.(*NumberExpr); ok {
-				val := numExpr.Value
-				if val == 2 {
-					// x % 2 = x & 1
-					cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
-					cg.builder.AddImmediate(1)
-					cg.builder.AddInstruction(rom.EncodeAND(0, destReg, 7))
-					return nil
-				}
-				if val == 4 {
-					// x % 4 = x & 3
-					cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
-					cg.builder.AddImmediate(3)
-					cg.builder.AddInstruction(rom.EncodeAND(0, destReg, 7))
-					return nil
-				}
-				if val == 8 {
-					// x % 8 = x & 7
-					cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
-					cg.builder.AddImmediate(7)
-					cg.builder.AddInstruction(rom.EncodeAND(0, destReg, 7))
-					return nil
-				}
-				if val == 16 {
-					// x % 16 = x & 15
-					cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
-					cg.builder.AddImmediate(15)
-					cg.builder.AddInstruction(rom.EncodeAND(0, destReg, 7))
-					return nil
-				}
-				if val == 60 {
-					// x % 60 - use repeated subtraction
-					// Subtract 60 until less than 60
-					modEnd := cg.newLabel()
-					modStartPos := cg.builder.GetCodeLength()
-					// Compare with 60
-					cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
-					cg.builder.AddImmediate(60)
-					cg.builder.AddInstruction(rom.EncodeCMP(0, destReg, 7))
-					cg.builder.AddInstruction(rom.EncodeBLT()) // BLT modEnd
-					modEndPos := cg.builder.GetCodeLength()
+				if val == 0 {
+					cg.builder.AddInstruction(rom.EncodeMOV(1, destReg, 0))
 					cg.builder.AddImmediate(0)
-					// Subtract 60
-					cg.builder.AddInstruction(rom.EncodeSUB(0, destReg, 7))
-					// Jump back
-					cg.builder.AddInstruction(rom.EncodeJMP())
-					currentPC := uint16(cg.builder.GetCodeLength() * 2)
-					offset := rom.CalculateBranchOffset(currentPC, uint16(modStartPos*2))
-					cg.builder.AddImmediate(uint16(offset))
-					cg.patchLabel(modEnd, modEndPos)
 					return nil
 				}
+				if val == 1 {
+					return nil
+				}
+				// Shift-add decomposition: decompose val into set bits and
+				// generate shifted copies summed together.
+				// R1 already has the left operand.
+				cg.builder.AddInstruction(rom.EncodeMOV(0, destReg, 1)) // restore left
+				first := true
+				for bit := 0; bit < 16; bit++ {
+					if val&(1<<uint(bit)) != 0 {
+						if bit == 0 {
+							if first {
+								// destReg already has x
+								first = false
+							} else {
+								cg.builder.AddInstruction(rom.EncodeADD(0, destReg, 1))
+							}
+						} else {
+							// shifted = x << bit
+							cg.builder.AddInstruction(rom.EncodeMOV(0, 6, 1))
+							cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
+							cg.builder.AddImmediate(uint16(bit))
+							cg.builder.AddInstruction(rom.EncodeSHL(0, 6, 7))
+							if first {
+								cg.builder.AddInstruction(rom.EncodeMOV(0, destReg, 6))
+								first = false
+							} else {
+								cg.builder.AddInstruction(rom.EncodeADD(0, destReg, 6))
+							}
+						}
+					}
+				}
+				return nil
 			}
-			return fmt.Errorf("modulo by non-power-of-2 or 60 not yet implemented")
+			return fmt.Errorf("runtime multiplication not yet implemented (use a constant on the right side)")
+		case TOKEN_SLASH:
+			// Division by constant. Powers of 2 use shift; others use
+			// repeated subtraction.
+			if numExpr, ok := e.Right.(*NumberExpr); ok {
+				val := numExpr.Value
+				if val == 0 {
+					return fmt.Errorf("division by zero")
+				}
+				if val == 1 {
+					return nil
+				}
+				// Check power of 2
+				if val&(val-1) == 0 {
+					shift := 0
+					for v := val; v > 1; v >>= 1 {
+						shift++
+					}
+					cg.builder.AddInstruction(rom.EncodeMOV(0, destReg, 1)) // restore left
+					cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
+					cg.builder.AddImmediate(uint16(shift))
+					cg.builder.AddInstruction(rom.EncodeSHR(0, destReg, 7))
+					return nil
+				}
+				// General: repeated subtraction (result in destReg)
+				cg.builder.AddInstruction(rom.EncodeMOV(0, destReg, 1)) // left value
+				cg.builder.AddInstruction(rom.EncodeMOV(1, 3, 0))       // R3 = quotient = 0
+				cg.builder.AddImmediate(0)
+				divStartPos := cg.builder.GetCodeLength()
+				cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
+				cg.builder.AddImmediate(uint16(val))
+				cg.builder.AddInstruction(rom.EncodeCMP(0, destReg, 7))
+				cg.builder.AddInstruction(rom.EncodeBLT())
+				divEndPos := cg.builder.GetCodeLength()
+				cg.builder.AddImmediate(0)
+				cg.builder.AddInstruction(rom.EncodeSUB(0, destReg, 7))
+				cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+				cg.builder.AddImmediate(1)
+				cg.builder.AddInstruction(rom.EncodeADD(0, 3, 6))
+				cg.builder.AddInstruction(rom.EncodeJMP())
+				loopPC := uint16(cg.builder.GetCodeLength() * 2)
+				cg.builder.AddImmediate(uint16(rom.CalculateBranchOffset(loopPC, uint16(divStartPos*2))))
+				// Patch exit
+				exitPC := uint16(cg.builder.GetCodeLength() * 2)
+				cg.builder.SetImmediateAt(divEndPos, uint16(rom.CalculateBranchOffset(uint16(divEndPos*2), exitPC)))
+				cg.builder.AddInstruction(rom.EncodeMOV(0, destReg, 3))
+				return nil
+			}
+			return fmt.Errorf("runtime division not yet implemented (use a constant divisor)")
+		case TOKEN_PERCENT:
+			// General modulo via bitmask (power-of-2) or repeated subtraction.
+			if numExpr, ok := e.Right.(*NumberExpr); ok {
+				val := numExpr.Value
+				if val == 0 {
+					return fmt.Errorf("modulo by zero")
+				}
+				// Power of 2: x % N = x & (N-1)
+				if val&(val-1) == 0 {
+					cg.builder.AddInstruction(rom.EncodeMOV(0, destReg, 1)) // restore left
+					cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
+					cg.builder.AddImmediate(uint16(val - 1))
+					cg.builder.AddInstruction(rom.EncodeAND(0, destReg, 7))
+					return nil
+				}
+				// General: repeated subtraction
+				cg.builder.AddInstruction(rom.EncodeMOV(0, destReg, 1)) // restore left
+				modStartPos := cg.builder.GetCodeLength()
+				cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
+				cg.builder.AddImmediate(uint16(val))
+				cg.builder.AddInstruction(rom.EncodeCMP(0, destReg, 7))
+				cg.builder.AddInstruction(rom.EncodeBLT())
+				modEndPos := cg.builder.GetCodeLength()
+				cg.builder.AddImmediate(0)
+				cg.builder.AddInstruction(rom.EncodeSUB(0, destReg, 7))
+				cg.builder.AddInstruction(rom.EncodeJMP())
+				loopPC := uint16(cg.builder.GetCodeLength() * 2)
+				cg.builder.AddImmediate(uint16(rom.CalculateBranchOffset(loopPC, uint16(modStartPos*2))))
+				exitPC := uint16(cg.builder.GetCodeLength() * 2)
+				cg.builder.SetImmediateAt(modEndPos, uint16(rom.CalculateBranchOffset(uint16(modEndPos*2), exitPC)))
+				return nil
+			}
+			return fmt.Errorf("runtime modulo not yet implemented (use a constant divisor)")
 		case TOKEN_EQUAL_EQUAL:
 			// Compare and set result: 1 if equal, 0 if not.
 			// Important: branch immediately after CMP (MOV updates flags).
@@ -1001,15 +1080,22 @@ func (cg *CodeGenerator) generateCall(call *CallExpr, destReg uint8) error {
 		return err
 	}
 
-	// Check if it's a user-defined function
+	// Check if it's a user-defined function -- emit CALL instruction.
 	if fn := cg.findFunction(funcName); fn != nil {
-		// For now, user functions are not fully implemented
-		// In a full implementation, we'd:
-		// 1. Push return address to stack
-		// 2. Set up parameters
-		// 3. CALL function
-		// 4. Get return value from R0
-		return fmt.Errorf("user-defined function calls not fully implemented: %s", funcName)
+		// Arguments are already evaluated into R0..R(n-1) by the loop above.
+		// Emit CALL with a placeholder offset; patch later.
+		cg.builder.AddInstruction(rom.EncodeCALL())
+		offsetPos := cg.builder.GetCodeLength()
+		cg.builder.AddImmediate(0) // placeholder
+		cg.callPatches = append(cg.callPatches, callPatch{
+			offsetPos: offsetPos,
+			target:    funcName,
+		})
+		// Return value is in R0; move to destReg if needed.
+		if destReg != 0 {
+			cg.builder.AddInstruction(rom.EncodeMOV(0, destReg, 0))
+		}
+		return nil
 	}
 
 	// Handle struct initialization like Sprite() or Vec2()
@@ -1024,8 +1110,10 @@ func (cg *CodeGenerator) generateCall(call *CallExpr, destReg uint8) error {
 		if funcName == "Vec2" {
 			structSize = 4 // Vec2 is 2 i16s = 4 bytes
 		}
-		cg.stackOffset -= structSize
-		stackAddr := cg.stackOffset
+		stackAddr, err := cg.allocateStack(structSize, "struct "+funcName)
+		if err != nil {
+			return err
+		}
 
 		// Initialize struct to zero
 		// Zero out struct bytes
@@ -1784,6 +1872,162 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5)) // MOV [R4], R5 (write CONTROL without enable bit)
 		return nil
 
+	case "mem.write":
+		// mem.write(addr: u16, value: u8)
+		// Args: R0 = address, R1 = value
+		// Writes an 8-bit value to any memory-mapped address.
+		if len(args) != 2 {
+			return fmt.Errorf("mem.write requires 2 arguments (addr, value)")
+		}
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 4, 0)) // MOV R4, R0 (addr)
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 5, 1)) // MOV R5, R1 (value)
+		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5)) // MOV [R4], R5 (8-bit store)
+		return nil
+
+	case "mem.read":
+		// mem.read(addr: u16) -> u8
+		// Args: R0 = address
+		// Reads an 8-bit value from any memory-mapped address.
+		if len(args) != 1 {
+			return fmt.Errorf("mem.read requires 1 argument (addr)")
+		}
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 4, 0))       // MOV R4, R0 (addr)
+		cg.builder.AddInstruction(rom.EncodeMOV(2, destReg, 4)) // MOV R{dest}, [R4] (read)
+		return nil
+
+	case "bg.set_scroll":
+		// bg.set_scroll(layer: u8, scroll_x: i16, scroll_y: i16)
+		// Args: R0 = layer (0-3), R1 = scroll_x, R2 = scroll_y
+		// BG scroll register layout:
+		//   BG0: 0x8000/01 (X), 0x8002/03 (Y)
+		//   BG1: 0x8004/05 (X), 0x8006/07 (Y)
+		//   BG2: 0x800A/0B (X), 0x800C/0D (Y)
+		//   BG3: 0x8022/23 (X), 0x8024/25 (Y)
+		// For simplicity, generate a lookup for each layer.
+		if len(args) != 3 {
+			return fmt.Errorf("bg.set_scroll requires 3 arguments (layer, x, y)")
+		}
+		// Save args
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 3, 0)) // R3 = layer
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 4, 1)) // R4 = scroll_x
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 5, 2)) // R5 = scroll_y
+
+		// Helper: write scroll_x low and high bytes, then scroll_y low and high bytes.
+		// We'll generate inline code for each layer check.
+		bgScrollAddrs := [][2]uint16{
+			{0x8000, 0x8002}, // BG0 X/Y base
+			{0x8004, 0x8006}, // BG1 X/Y base
+			{0x800A, 0x800C}, // BG2 X/Y base
+			{0x8022, 0x8024}, // BG3 X/Y base
+		}
+		jumpToEnd := make([]int, 0, 4)
+		for i, addrs := range bgScrollAddrs {
+			// if R3 != i, skip
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+			cg.builder.AddImmediate(uint16(i))
+			cg.builder.AddInstruction(rom.EncodeCMP(0, 3, 6))
+			cg.builder.AddInstruction(rom.EncodeBNE())
+			skipPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(0)
+
+			// Write scroll_x low byte
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+			cg.builder.AddImmediate(addrs[0])
+			cg.builder.AddInstruction(rom.EncodeMOV(0, 7, 4))
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 0, 0))
+			cg.builder.AddImmediate(0xFF)
+			cg.builder.AddInstruction(rom.EncodeAND(0, 7, 0))
+			cg.builder.AddInstruction(rom.EncodeMOV(3, 6, 7))
+
+			// Write scroll_x high byte
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+			cg.builder.AddImmediate(addrs[0] + 1)
+			cg.builder.AddInstruction(rom.EncodeMOV(0, 7, 4))
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 0, 0))
+			cg.builder.AddImmediate(8)
+			cg.builder.AddInstruction(rom.EncodeSHR(0, 7, 0))
+			cg.builder.AddInstruction(rom.EncodeMOV(3, 6, 7))
+
+			// Write scroll_y low byte
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+			cg.builder.AddImmediate(addrs[1])
+			cg.builder.AddInstruction(rom.EncodeMOV(0, 7, 5))
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 0, 0))
+			cg.builder.AddImmediate(0xFF)
+			cg.builder.AddInstruction(rom.EncodeAND(0, 7, 0))
+			cg.builder.AddInstruction(rom.EncodeMOV(3, 6, 7))
+
+			// Write scroll_y high byte
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+			cg.builder.AddImmediate(addrs[1] + 1)
+			cg.builder.AddInstruction(rom.EncodeMOV(0, 7, 5))
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 0, 0))
+			cg.builder.AddImmediate(8)
+			cg.builder.AddInstruction(rom.EncodeSHR(0, 7, 0))
+			cg.builder.AddInstruction(rom.EncodeMOV(3, 6, 7))
+
+			// Jump to end
+			cg.builder.AddInstruction(rom.EncodeJMP())
+			jumpPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(0)
+			jumpToEnd = append(jumpToEnd, jumpPos)
+
+			// Patch skip
+			nextPC := uint16(cg.builder.GetCodeLength() * 2)
+			skipPC := uint16(skipPos * 2)
+			cg.builder.SetImmediateAt(skipPos, uint16(rom.CalculateBranchOffset(skipPC, nextPC)))
+		}
+		// Patch all jumps to end
+		endPC := uint16(cg.builder.GetCodeLength() * 2)
+		for _, jp := range jumpToEnd {
+			jpPC := uint16(jp * 2)
+			cg.builder.SetImmediateAt(jp, uint16(rom.CalculateBranchOffset(jpPC, endPC)))
+		}
+		return nil
+
+	case "bg.enable":
+		// bg.enable(layer: u8)
+		// Args: R0 = layer (0-3)
+		// BG control registers: BG0=0x8008, BG1=0x8009, BG2=0x8021, BG3=0x8026
+		// Set bit 0 to enable.
+		if len(args) != 1 {
+			return fmt.Errorf("bg.enable requires 1 argument (layer)")
+		}
+		bgCtrlAddrs := []uint16{0x8008, 0x8009, 0x8021, 0x8026}
+		jumpToEnd2 := make([]int, 0, 4)
+		for i, addr := range bgCtrlAddrs {
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+			cg.builder.AddImmediate(uint16(i))
+			cg.builder.AddInstruction(rom.EncodeCMP(0, 0, 6))
+			cg.builder.AddInstruction(rom.EncodeBNE())
+			skipPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(0)
+
+			// Read current control, OR with 0x01, write back
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0))
+			cg.builder.AddImmediate(addr)
+			cg.builder.AddInstruction(rom.EncodeMOV(2, 5, 4)) // read
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+			cg.builder.AddImmediate(0x01)
+			cg.builder.AddInstruction(rom.EncodeOR(0, 5, 6))
+			cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5)) // write
+
+			cg.builder.AddInstruction(rom.EncodeJMP())
+			jumpPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(0)
+			jumpToEnd2 = append(jumpToEnd2, jumpPos)
+
+			nextPC := uint16(cg.builder.GetCodeLength() * 2)
+			skipPC := uint16(skipPos * 2)
+			cg.builder.SetImmediateAt(skipPos, uint16(rom.CalculateBranchOffset(skipPC, nextPC)))
+		}
+		endPC2 := uint16(cg.builder.GetCodeLength() * 2)
+		for _, jp := range jumpToEnd2 {
+			jpPC := uint16(jp * 2)
+			cg.builder.SetImmediateAt(jp, uint16(rom.CalculateBranchOffset(jpPC, endPC2)))
+		}
+		return nil
+
 	default:
 		return fmt.Errorf("%w: %s", errUnknownBuiltin, name)
 	}
@@ -1860,8 +2104,15 @@ func (cg *CodeGenerator) generateInlineTileLoadFromBaseReg(asset *AssetDecl, bas
 	cg.builder.AddInstruction(rom.EncodeMOV(0, 2, baseReg)) // MOV R2, R{baseReg} (save base)
 	cg.builder.AddInstruction(rom.EncodeMOV(0, 3, 2))       // MOV R3, R2 (working copy)
 
-	if asset.Type == "tiles16" {
-		// 16x16 tile: base * 128 = base << 7
+	dataBytes, err := cg.inlineTileAssetBytes(asset)
+	if err != nil {
+		return err
+	}
+	bytesPayload := len(dataBytes)
+
+	use16x16Stride := asset.Type == "tiles16" || (asset.Type == "tileset" && bytesPayload == 128)
+	if use16x16Stride {
+		// 16x16 tile: base * 128 = base << 7 (PPU reads sprite tile at index*128)
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #7
 		cg.builder.AddImmediate(7)
 		cg.builder.AddInstruction(rom.EncodeSHL(0, 3, 4))
@@ -1889,14 +2140,10 @@ func (cg *CodeGenerator) generateInlineTileLoadFromBaseReg(asset *AssetDecl, bas
 	cg.builder.AddInstruction(rom.EncodeSHR(0, 5, 6))
 	cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5))
 
-	dataBytes, err := cg.inlineTileAssetBytes(asset)
-	if err != nil {
-		return err
-	}
 	cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #0x8010 (VRAM_DATA)
 	cg.builder.AddImmediate(0x8010)
 
-	bytesToWrite := len(dataBytes)
+	bytesToWrite := bytesPayload
 	switch asset.Type {
 	case "tiles8":
 		// tiles8 maps to a single 8x8 tile payload.
@@ -1997,6 +2244,20 @@ func (cg *CodeGenerator) generateStore(target Expr, srcReg uint8) error {
 	// Store value in srcReg to target
 	// This is simplified
 	return fmt.Errorf("store not fully implemented")
+}
+
+func (cg *CodeGenerator) allocateStack(bytes uint16, what string) (uint16, error) {
+	if bytes == 0 {
+		return cg.stackOffset, nil
+	}
+	if uint32(cg.stackOffset) < uint32(stackMinAddr)+uint32(bytes) {
+		return 0, fmt.Errorf(
+			"stack exhausted while allocating %s (%d bytes, SP=0x%04X, floor=0x%04X)",
+			what, bytes, cg.stackOffset, stackMinAddr,
+		)
+	}
+	cg.stackOffset -= bytes
+	return cg.stackOffset, nil
 }
 
 func (cg *CodeGenerator) newLabel() int {

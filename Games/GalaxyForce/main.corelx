@@ -1,0 +1,1215 @@
+-- ============================================================
+-- Galaxy Force - Flagship Game for Nitro Core DX
+-- Phase A: Vertical Slice
+-- ============================================================
+-- IMPORTANT: Due to codegen register constraints, ALL arguments
+-- to oam.write_sprite_data must be simple variables or literals.
+-- Complex expressions must be pre-computed into variables first.
+--
+-- Attr byte: bits[3:0]=palette, bits[7:6]=priority, bit4=hflip, bit5=vflip
+-- Ctrl byte: bit0=enabled, bit1=size16
+-- Pre-computed attr constants:
+--   pal1,pri3 = 0xC1   pal2,pri2 = 0x82
+--   pal3,pri3 = 0xC3   pal4,pri2 = 0x84
+--   pal4,pri2|hflip = 0x94
+--   pal4,pri2|vflip = 0xA4
+--   pal4,pri2|hflip|vflip = 0xB4
+--   pal5,pri3 = 0xC5
+-- Ctrl: enable|size16 = 0x03
+--
+-- Text MMIO registers:
+--   0x8070: TEXT_X_L, 0x8071: TEXT_X_H
+--   0x8072: TEXT_Y
+--   0x8073: TEXT_R, 0x8074: TEXT_G, 0x8075: TEXT_B
+--   0x8076: TEXT_CHAR (triggers draw, auto-advances X by 8)
+-- ============================================================
+
+-- ==================== TILE ASSETS ==========================
+-- 4bpp format: each byte = 2 pixels (high nibble = left, low nibble = right)
+-- Palette indices: 0=transparent, 1=darkest, 5=brightest
+-- All tiles16 to avoid mixed-size VRAM overlap.
+-- VRAM layout: tile 0=ship, 1=enemy, 2=boss, 3=bullet, 4=pickup
+
+asset ShipTiles: tiles16
+    hex
+        00 00 00 01 10 00 00 00
+        00 00 00 15 51 00 00 00
+        00 00 01 45 54 10 00 00
+        00 00 01 34 43 10 00 00
+        00 00 13 34 43 31 00 00
+        00 01 23 34 43 32 10 00
+        00 12 33 33 33 33 21 00
+        01 23 33 21 12 33 32 10
+        12 33 32 10 01 23 33 21
+        12 33 21 00 00 12 33 21
+        01 23 10 00 00 01 32 10
+        00 12 10 00 00 01 21 00
+        00 01 33 21 12 33 10 00
+        00 01 34 54 45 43 10 00
+        00 00 13 50 05 31 00 00
+        00 00 01 40 04 10 00 00
+
+asset EnemyTiles: tiles16
+    hex
+        00 00 00 11 11 00 00 00
+        00 00 11 23 32 11 00 00
+        00 01 23 45 54 32 10 00
+        00 12 34 55 55 43 21 00
+        01 23 45 54 45 54 32 10
+        12 34 55 43 34 55 43 21
+        12 35 54 32 23 45 53 21
+        12 45 43 21 12 34 54 21
+        12 45 43 21 12 34 54 21
+        12 35 54 32 23 45 53 21
+        12 34 55 43 34 55 43 21
+        01 23 45 54 45 54 32 10
+        00 12 34 55 55 43 21 00
+        00 01 23 45 54 32 10 00
+        00 00 11 23 32 11 00 00
+        00 00 00 11 11 00 00 00
+
+asset BossTiles: tiles16
+    hex
+        00 00 01 11 11 11 11 11
+        00 01 12 33 33 33 33 21
+        00 12 33 44 44 44 33 21
+        01 23 44 55 55 54 43 21
+        01 34 55 55 55 55 54 32
+        12 35 55 54 45 55 55 32
+        12 45 55 32 23 55 55 43
+        13 45 54 21 12 45 55 43
+        13 55 53 10 01 35 55 54
+        13 55 42 10 01 24 55 54
+        13 55 32 10 01 23 55 55
+        13 55 42 10 01 24 55 55
+        13 55 53 10 01 35 55 55
+        13 55 54 21 12 45 55 55
+        13 55 55 32 23 55 55 55
+        13 55 55 43 34 55 55 55
+
+asset BulletTiles: tiles16
+    hex
+        00 00 00 00 00 00 00 00
+        00 00 00 00 00 00 00 00
+        00 00 00 00 00 00 00 00
+        00 00 00 00 00 00 00 00
+        00 00 00 00 00 00 00 00
+        00 00 00 11 11 00 00 00
+        00 00 01 35 53 10 00 00
+        00 00 01 55 55 10 00 00
+        00 00 01 55 55 10 00 00
+        00 00 01 35 53 10 00 00
+        00 00 00 11 11 00 00 00
+        00 00 00 00 00 00 00 00
+        00 00 00 00 00 00 00 00
+        00 00 00 00 00 00 00 00
+        00 00 00 00 00 00 00 00
+        00 00 00 00 00 00 00 00
+
+asset PickupTiles: tiles16
+    hex
+        00 00 00 00 00 00 00 00
+        00 00 00 00 00 00 00 00
+        00 00 00 00 00 00 00 00
+        00 00 00 01 10 00 00 00
+        00 00 00 14 41 00 00 00
+        00 00 01 35 53 10 00 00
+        00 00 13 45 54 31 00 00
+        00 01 34 55 55 43 10 00
+        00 01 34 55 55 43 10 00
+        00 00 13 45 54 31 00 00
+        00 00 01 35 53 10 00 00
+        00 00 00 14 41 00 00 00
+        00 00 00 01 10 00 00 00
+        00 00 00 00 00 00 00 00
+        00 00 00 00 00 00 00 00
+        00 00 00 00 00 00 00 00
+
+-- ==================== PALETTE SETUP ========================
+-- RGB555 format: value = (R<<10) | (G<<5) | B, where R,G,B are 0-31
+
+function setup_palettes()
+    -- Palette 0: background (black)
+    gfx.set_palette(0, 0, 0x0000)
+
+    -- Palette 1: player ship (steel blue to white)
+    gfx.set_palette(1, 0, 0x0000)
+    gfx.set_palette(1, 1, 0x0CAE)
+    gfx.set_palette(1, 2, 0x1954)
+    gfx.set_palette(1, 3, 0x325A)
+    gfx.set_palette(1, 4, 0x535E)
+    gfx.set_palette(1, 5, 0x7FFF)
+
+    -- Palette 2: enemies (dark red to bright orange)
+    gfx.set_palette(2, 0, 0x0000)
+    gfx.set_palette(2, 1, 0x3042)
+    gfx.set_palette(2, 2, 0x5082)
+    gfx.set_palette(2, 3, 0x6904)
+    gfx.set_palette(2, 4, 0x7A06)
+    gfx.set_palette(2, 5, 0x7F8E)
+
+    -- Palette 3: bullets/pickups (green to yellow)
+    gfx.set_palette(3, 0, 0x0000)
+    gfx.set_palette(3, 1, 0x0944)
+    gfx.set_palette(3, 2, 0x1244)
+    gfx.set_palette(3, 3, 0x2306)
+    gfx.set_palette(3, 4, 0x4B8A)
+    gfx.set_palette(3, 5, 0x73F4)
+
+    -- Palette 4: boss (deep purple to bright magenta)
+    gfx.set_palette(4, 0, 0x0000)
+    gfx.set_palette(4, 1, 0x204C)
+    gfx.set_palette(4, 2, 0x3892)
+    gfx.set_palette(4, 3, 0x50D8)
+    gfx.set_palette(4, 4, 0x699C)
+    gfx.set_palette(4, 5, 0x7EDF)
+
+    -- Palette 5: title accent (gold)
+    gfx.set_palette(5, 0, 0x0000)
+    gfx.set_palette(5, 1, 0x3102)
+    gfx.set_palette(5, 2, 0x51C4)
+    gfx.set_palette(5, 3, 0x6AC6)
+    gfx.set_palette(5, 4, 0x7B8A)
+    gfx.set_palette(5, 5, 0x7FF4)
+
+-- ==================== TEXT HELPERS ==========================
+-- Text MMIO: set position, color, then write ASCII codes
+
+function text_pos(x: int, y: int)
+    mem.write(0x8070, x)
+    mem.write(0x8071, 0)
+    mem.write(0x8072, y)
+
+function text_color(r: int, g: int, b: int)
+    mem.write(0x8073, r)
+    mem.write(0x8074, g)
+    mem.write(0x8075, b)
+
+function tc(c: int)
+    mem.write(0x8076, c)
+
+-- ==================== AUDIO ================================
+
+-- Channel 3 = SFX. Set duration (frames) so note auto-stops (no drone).
+-- APU CH3: base 0x9018, DURATION_LOW=0x901C, DURATION_HIGH=0x901D
+function play_shoot_sfx()
+    apu.set_channel_wave(3, 0)
+    apu.set_channel_freq(3, 880)
+    apu.set_channel_volume(3, 100)
+    mem.write(0x901C, 4)
+    mem.write(0x901D, 0)
+    apu.note_on(3)
+
+function play_hit_sfx()
+    apu.set_channel_wave(3, 0)
+    apu.set_channel_freq(3, 220)
+    apu.set_channel_volume(3, 120)
+    mem.write(0x901C, 8)
+    mem.write(0x901D, 0)
+    apu.note_on(3)
+
+function play_pickup_sfx()
+    apu.set_channel_wave(3, 0)
+    apu.set_channel_freq(3, 660)
+    apu.set_channel_volume(3, 90)
+    mem.write(0x901C, 6)
+    mem.write(0x901D, 0)
+    apu.note_on(3)
+
+function play_bgm()
+    -- Softer BGM: sine waves, lower volume, pleasant chord
+    apu.set_channel_wave(0, 0)
+    apu.set_channel_freq(0, 523)
+    apu.set_channel_volume(0, 60)
+    apu.note_on(0)
+    apu.set_channel_wave(1, 0)
+    apu.set_channel_freq(1, 392)
+    apu.set_channel_volume(1, 45)
+    apu.note_on(1)
+    apu.set_channel_wave(2, 0)
+    apu.set_channel_freq(2, 262)
+    apu.set_channel_volume(2, 50)
+    apu.note_on(2)
+
+function play_title_bgm()
+    -- Gentle title: sine only, quiet
+    apu.set_channel_wave(0, 0)
+    apu.set_channel_freq(0, 330)
+    apu.set_channel_volume(0, 50)
+    apu.note_on(0)
+    apu.set_channel_wave(1, 0)
+    apu.set_channel_freq(1, 247)
+    apu.set_channel_volume(1, 35)
+    apu.note_on(1)
+
+function stop_bgm()
+    apu.note_off(0)
+    apu.note_off(1)
+    apu.note_off(2)
+
+-- ==================== TITLE SCREEN =========================
+
+function draw_title_screen(title_anim: int, ship_tile: int, enemy_tile: int, pickup_tile: int, bullet_tile: int)
+    -- "GALAXY FORCE" in gold, centered (12 chars * 8 = 96px, center = 112)
+    text_pos(112, 30)
+    text_color(255, 200, 64)
+    tc(71)
+    tc(65)
+    tc(76)
+    tc(65)
+    tc(88)
+    tc(89)
+    tc(32)
+    tc(70)
+    tc(79)
+    tc(82)
+    tc(67)
+    tc(69)
+
+    -- "NITRO CORE DX" subtitle in cyan (13 chars = 104px, center = 108)
+    text_pos(108, 46)
+    text_color(80, 200, 255)
+    tc(78)
+    tc(73)
+    tc(84)
+    tc(82)
+    tc(79)
+    tc(32)
+    tc(67)
+    tc(79)
+    tc(82)
+    tc(69)
+    tc(32)
+    tc(68)
+    tc(88)
+
+    -- Ship formation display
+    oam.write_sprite_data(64, 152, 70, ship_tile, 0xC1, 0x03)
+    oam.write_sprite_data(65, 120, 90, enemy_tile, 0x82, 0x03)
+    oam.write_sprite_data(66, 184, 90, enemy_tile, 0x82, 0x03)
+    oam.write_sprite_data(67, 100, 110, enemy_tile, 0x82, 0x03)
+    oam.write_sprite_data(68, 204, 110, enemy_tile, 0x82, 0x03)
+
+    -- Bobbing hero ship
+    hero_y := title_anim % 16
+    hero_y = hero_y + 130
+    oam.write_sprite_data(69, 144, hero_y, ship_tile, 0xC1, 0x03)
+    oam.write_sprite_data(70, 160, hero_y, ship_tile, 0xC1, 0x03)
+
+    -- Flashing "PRESS START" text
+    flash := title_anim % 60
+    if flash < 40
+        text_pos(120, 170)
+        text_color(255, 255, 255)
+        tc(80)
+        tc(82)
+        tc(69)
+        tc(83)
+        tc(83)
+        tc(32)
+        tc(83)
+        tc(84)
+        tc(65)
+        tc(82)
+        tc(84)
+
+    -- Story line
+    text_pos(72, 156)
+    text_color(180, 180, 200)
+    tc(83)
+    tc(84)
+    tc(79)
+    tc(82)
+    tc(89)
+    tc(58)
+    tc(32)
+    tc(68)
+    tc(69)
+    tc(70)
+    tc(69)
+    tc(78)
+    tc(68)
+    tc(32)
+    tc(84)
+    tc(72)
+    tc(69)
+    tc(32)
+    tc(71)
+    tc(65)
+    tc(76)
+    tc(65)
+    tc(88)
+    tc(89)
+
+    -- Controls: Z = FIRE (keyboard), START = GO
+    text_pos(56, 188)
+    text_color(120, 120, 140)
+    tc(90)
+    tc(32)
+    tc(61)
+    tc(32)
+    tc(70)
+    tc(73)
+    tc(82)
+    tc(69)
+    tc(32)
+    tc(32)
+    tc(87)
+    tc(65)
+    tc(83)
+    tc(68)
+    tc(32)
+    tc(61)
+    tc(32)
+    tc(77)
+    tc(79)
+    tc(86)
+    tc(69)
+    tc(32)
+    tc(32)
+    tc(83)
+    tc(84)
+    tc(65)
+    tc(82)
+    tc(84)
+    tc(58)
+    tc(71)
+    tc(79)
+
+-- ==================== HUD DRAWING ==========================
+
+function draw_hud(score: int, player_hp: int, level: int)
+    -- "LEVEL N" at top center
+    text_pos(128, 4)
+    text_color(200, 220, 255)
+    tc(76)
+    tc(69)
+    tc(86)
+    tc(69)
+    tc(76)
+    tc(58)
+    l1 := level + 48
+    tc(l1)
+
+    -- "SCORE:" at top-right
+    text_pos(216, 4)
+    text_color(200, 200, 220)
+    tc(83)
+    tc(67)
+    tc(79)
+    tc(82)
+    tc(69)
+    tc(58)
+
+    -- Score digits (up to 5 digits)
+    ten_k := score / 10000
+    rem_10k := score % 10000
+    thousands := rem_10k / 1000
+    rem_1k := rem_10k % 1000
+    hundreds := rem_1k / 100
+    rem_100 := rem_1k % 100
+    tens := rem_100 / 10
+    ones := rem_100 % 10
+    d1 := ten_k + 48
+    d2 := thousands + 48
+    d3 := hundreds + 48
+    d4 := tens + 48
+    d5 := ones + 48
+    tc(d1)
+    tc(d2)
+    tc(d3)
+    tc(d4)
+    tc(d5)
+
+    -- "HP" at top-left with health dots
+    text_pos(4, 4)
+    text_color(100, 255, 100)
+    tc(72)
+    tc(80)
+    tc(58)
+
+    hp_i := 0
+    while hp_i < player_hp
+        tc(42)
+        hp_i = hp_i + 1
+
+-- ==================== RESULTS SCREEN =======================
+
+function draw_results(score: int, player_hp: int, title_anim: int)
+    -- Victory or defeat message
+    if player_hp > 0
+        text_pos(88, 40)
+        text_color(100, 255, 100)
+        tc(77)
+        tc(73)
+        tc(83)
+        tc(83)
+        tc(73)
+        tc(79)
+        tc(78)
+        tc(32)
+        tc(67)
+        tc(79)
+        tc(77)
+        tc(80)
+        tc(76)
+        tc(69)
+        tc(84)
+        tc(69)
+        tc(33)
+    else
+        text_pos(112, 40)
+        text_color(255, 80, 80)
+        tc(71)
+        tc(65)
+        tc(77)
+        tc(69)
+        tc(32)
+        tc(79)
+        tc(86)
+        tc(69)
+        tc(82)
+
+    -- "FINAL SCORE:" label
+    text_pos(96, 72)
+    text_color(200, 200, 220)
+    tc(70)
+    tc(73)
+    tc(78)
+    tc(65)
+    tc(76)
+    tc(32)
+    tc(83)
+    tc(67)
+    tc(79)
+    tc(82)
+    tc(69)
+    tc(58)
+
+    -- Score digits
+    r_ten_k := score / 10000
+    r_rem_10k := score % 10000
+    r_thousands := r_rem_10k / 1000
+    r_rem_1k := r_rem_10k % 1000
+    r_hundreds := r_rem_1k / 100
+    r_rem_100 := r_rem_1k % 100
+    r_tens := r_rem_100 / 10
+    r_ones := r_rem_100 % 10
+
+    text_pos(112, 90)
+    text_color(255, 220, 64)
+    rd1 := r_ten_k + 48
+    rd2 := r_thousands + 48
+    rd3 := r_hundreds + 48
+    rd4 := r_tens + 48
+    rd5 := r_ones + 48
+    tc(rd1)
+    tc(rd2)
+    tc(rd3)
+    tc(rd4)
+    tc(rd5)
+
+    -- HP remaining
+    text_pos(112, 112)
+    text_color(200, 200, 220)
+    tc(72)
+    tc(80)
+    tc(32)
+    tc(76)
+    tc(69)
+    tc(70)
+    tc(84)
+    tc(58)
+    hp_count := player_hp + 48
+    text_color(100, 255, 100)
+    tc(hp_count)
+
+    -- "PRESS START" flashing
+    r_flash := title_anim % 60
+    if r_flash < 40
+        text_pos(104, 150)
+        text_color(255, 255, 255)
+        tc(80)
+        tc(82)
+        tc(69)
+        tc(83)
+        tc(83)
+        tc(32)
+        tc(83)
+        tc(84)
+        tc(65)
+        tc(82)
+        tc(84)
+
+-- ==================== MAIN ENTRY ===========================
+
+function Start()
+    ppu.enable_display()
+    apu.enable()
+    setup_palettes()
+
+    ship_tile := gfx.load_tiles(ASSET_ShipTiles, 0)
+    enemy_tile := gfx.load_tiles(ASSET_EnemyTiles, 1)
+    boss_tile := gfx.load_tiles(ASSET_BossTiles, 2)
+    bullet_tile := gfx.load_tiles(ASSET_BulletTiles, 3)
+    pickup_tile := gfx.load_tiles(ASSET_PickupTiles, 4)
+
+    game_state := 0
+    score := 0
+    player_hp := 3
+    boss_hp := 0
+    boss_phase := 0
+    level := 1
+    level_banner := 0
+    level_banner_count := 0
+    level_timer := 0
+    shoot_cooldown := 0
+    prev_buttons := 0
+    title_anim := 0
+
+    px := 152
+    py := 160
+
+    -- Bullet pool (8 slots) at WRAM 0x0100: [x, y, active, unused] per slot
+    bi := 0
+    while bi < 8
+        mem.write(0x0100 + bi * 4, 0)
+        mem.write(0x0101 + bi * 4, 0)
+        mem.write(0x0102 + bi * 4, 0)
+        bi = bi + 1
+
+    -- Enemy pool (12 slots) at WRAM 0x0140
+    ei := 0
+    while ei < 12
+        mem.write(0x0140 + ei * 4, 0)
+        mem.write(0x0141 + ei * 4, 0)
+        mem.write(0x0142 + ei * 4, 0)
+        mem.write(0x0143 + ei * 4, 1)
+        ei = ei + 1
+
+    -- Pickup pool (4 slots) at WRAM 0x0180
+    pi := 0
+    while pi < 4
+        mem.write(0x0180 + pi * 4, 0)
+        mem.write(0x0181 + pi * 4, 0)
+        mem.write(0x0182 + pi * 4, 0)
+        pi = pi + 1
+
+    boss_x := 136
+    boss_y := 20
+    boss_dir := 1
+    boss_shoot_timer := 0
+
+    last_frame := frame_counter()
+
+    play_title_bgm()
+
+    -- ====================== MAIN LOOP ======================
+    while true
+        while frame_counter() == last_frame
+            wait_vblank()
+        last_frame = frame_counter()
+
+        buttons := input.read(0)
+
+        -- ============ TITLE STATE (0) =====================
+        if game_state == 0
+            title_anim = title_anim + 1
+            draw_title_screen(title_anim, ship_tile, enemy_tile, pickup_tile, bullet_tile)
+
+            -- Check Start button (0x400)
+            start_pressed := buttons & 0x400
+            start_prev := prev_buttons & 0x400
+            if start_pressed != 0
+                if start_prev == 0
+                    tci := 64
+                    while tci < 96
+                        oam.clear_sprite(tci)
+                        tci = tci + 1
+                    game_state = 1
+                    level_timer = 0
+                    score = 0
+                    player_hp = 3
+                    px = 152
+                    py = 160
+                    stop_bgm()
+                    play_bgm()
+
+        -- ============ GAMEPLAY STATE (1) ==================
+        if game_state == 1
+
+            -- Player movement
+            if (buttons & 0x01) != 0
+                if py > 16
+                    py = py - 2
+            if (buttons & 0x02) != 0
+                if py < 180
+                    py = py + 2
+            if (buttons & 0x04) != 0
+                if px > 8
+                    px = px - 2
+            if (buttons & 0x08) != 0
+                if px < 296
+                    px = px + 2
+
+            -- Shooting: edge-triggered (Z = A = 0x10). Fire once per key press.
+            a_now := buttons & 0x10
+            a_prev := prev_buttons & 0x10
+            if a_now != 0
+                if a_prev == 0
+                    si := 0
+                    while si < 8
+                        ba_addr := 0x0102 + si * 4
+                        ba := mem.read(ba_addr)
+                        if ba == 0
+                            bx_lo_addr := 0x0100 + si * 4
+                            by_addr := 0x0101 + si * 4
+                            bx_hi_addr := 0x0103 + si * 4
+                            bx_val := px + 4
+                            bx_lo := bx_val
+                            bx_hi := bx_val / 256
+                            mem.write(bx_lo_addr, bx_lo)
+                            mem.write(by_addr, py)
+                            mem.write(ba_addr, 1)
+                            mem.write(bx_hi_addr, bx_hi)
+                            play_shoot_sfx()
+                            si = 8
+                        si = si + 1
+
+            -- Update bullets (move up). X = x_lo + x_hi*256.
+            ui := 0
+            while ui < 8
+                uba_addr := 0x0102 + ui * 4
+                uba := mem.read(uba_addr)
+                spr_slot := 16 + ui
+                if uba != 0
+                    uby_addr := 0x0101 + ui * 4
+                    uby := mem.read(uby_addr)
+                    if uby < 4
+                        mem.write(uba_addr, 0)
+                        oam.clear_sprite(spr_slot)
+                    else
+                        uby = uby - 4
+                        mem.write(uby_addr, uby)
+                        ubx_lo_addr := 0x0100 + ui * 4
+                        ubx_hi_addr := 0x0103 + ui * 4
+                        ubx_lo := mem.read(ubx_lo_addr)
+                        ubx_hi := mem.read(ubx_hi_addr)
+                        ubx := ubx_lo + ubx_hi * 256
+                        oam.write_sprite_data(spr_slot, ubx, uby, bullet_tile, 0xC3, 0x03)
+                else
+                    oam.clear_sprite(spr_slot)
+                ui = ui + 1
+
+            -- Spawn enemies: level 1=60f, 2=55, 3=50, 4=45, 5=40, 6=35, 7=30, 8=25 (constant modulo only)
+            level_timer = level_timer + 1
+            spawn_now := 0
+            if level == 1
+                if level_timer % 60 == 0
+                    spawn_now = 1
+            if level == 2
+                if level_timer % 55 == 0
+                    spawn_now = 1
+            if level == 3
+                if level_timer % 50 == 0
+                    spawn_now = 1
+            if level == 4
+                if level_timer % 45 == 0
+                    spawn_now = 1
+            if level == 5
+                if level_timer % 40 == 0
+                    spawn_now = 1
+            if level == 6
+                if level_timer % 35 == 0
+                    spawn_now = 1
+            if level == 7
+                if level_timer % 30 == 0
+                    spawn_now = 1
+            if level == 8
+                if level_timer % 25 == 0
+                    spawn_now = 1
+            if spawn_now == 1
+                spawn_times := 1
+                if level > 4
+                    spawn_times = 2
+                st := 0
+                while st < spawn_times
+                    si2 := 0
+                    while si2 < 12
+                        ea_addr := 0x0142 + si2 * 4
+                        ea := mem.read(ea_addr)
+                        if ea == 0
+                            spawn_x := level_timer * 7
+                            spawn_x2 := si2 * 37
+                            spawn_x = spawn_x + spawn_x2
+                            spawn_x = spawn_x % 256
+                            spawn_x = spawn_x + 32
+                            if spawn_x > 288
+                                spawn_x = 288
+                            sp_ex_addr := 0x0140 + si2 * 4
+                            sp_ey_addr := 0x0141 + si2 * 4
+                            mem.write(sp_ex_addr, spawn_x)
+                            mem.write(sp_ey_addr, 0)
+                            mem.write(ea_addr, 1)
+                            sp_ehp_addr := 0x0143 + si2 * 4
+                            mem.write(sp_ehp_addr, 1)
+                            si2 = 12
+                        si2 = si2 + 1
+                    st = st + 1
+
+            -- Update enemies (move down)
+            uei := 0
+            while uei < 12
+                eact_addr := 0x0142 + uei * 4
+                eact := mem.read(eact_addr)
+                espr := 32 + uei
+                if eact != 0
+                    ey_addr := 0x0141 + uei * 4
+                    ey := mem.read(ey_addr)
+                    ey = ey + 1
+                    if ey > 200
+                        mem.write(eact_addr, 0)
+                        oam.clear_sprite(espr)
+                    else
+                        mem.write(ey_addr, ey)
+                        ex_addr := 0x0140 + uei * 4
+                        ex := mem.read(ex_addr)
+                        oam.write_sprite_data(espr, ex, ey, enemy_tile, 0x82, 0x03)
+
+                        -- Bullet vs enemy collision (16-bit bullet x, 12px hitbox)
+                        bci := 0
+                        while bci < 8
+                            bcba_addr := 0x0102 + bci * 4
+                            bcba := mem.read(bcba_addr)
+                            if bcba != 0
+                                bcbx_lo := mem.read(0x0100 + bci * 4)
+                                bcbx_hi := mem.read(0x0103 + bci * 4)
+                                bcbx := bcbx_lo + bcbx_hi * 256
+                                bcby := mem.read(0x0101 + bci * 4)
+                                hit_x := bcbx + 6
+                                if hit_x > ex
+                                    ex12 := ex + 12
+                                    if bcbx < ex12
+                                        hit_y := bcby + 6
+                                        if hit_y > ey
+                                            ey12 := ey + 12
+                                            if bcby < ey12
+                                                mem.write(bcba_addr, 0)
+                                                bspr := 16 + bci
+                                                oam.clear_sprite(bspr)
+                                                ehp_addr := 0x0143 + uei * 4
+                                                ehp := mem.read(ehp_addr)
+                                                if ehp <= 1
+                                                    mem.write(eact_addr, 0)
+                                                    oam.clear_sprite(espr)
+                                                    score = score + 100
+                                                    play_hit_sfx()
+                                                    pk_check := score % 300
+                                                    if pk_check == 0
+                                                        pki := 0
+                                                        while pki < 4
+                                                            pkact_addr := 0x0182 + pki * 4
+                                                            pkact := mem.read(pkact_addr)
+                                                            if pkact == 0
+                                                                pkx_addr := 0x0180 + pki * 4
+                                                                pky_addr := 0x0181 + pki * 4
+                                                                pkx_val := ex + 4
+                                                                mem.write(pkx_addr, pkx_val)
+                                                                mem.write(pky_addr, ey)
+                                                                mem.write(pkact_addr, 1)
+                                                                pki = 4
+                                                            pki = pki + 1
+                                                else
+                                                    ehp = ehp - 1
+                                                    mem.write(ehp_addr, ehp)
+                            bci = bci + 1
+
+                        -- Enemy vs player (12px overlap)
+                        ex12p := ex + 12
+                        if ex12p > px
+                            px12p := px + 12
+                            if ex < px12p
+                                ey12p := ey + 12
+                                if ey12p > py
+                                    py12p := py + 12
+                                    if ey < py12p
+                                        player_hp = player_hp - 1
+                                        mem.write(eact_addr, 0)
+                                        oam.clear_sprite(espr)
+                                        play_hit_sfx()
+                                        if player_hp <= 0
+                                            game_state = 3
+                else
+                    oam.clear_sprite(espr)
+                uei = uei + 1
+
+            -- Update pickups
+            pui := 0
+            while pui < 4
+                pact_addr := 0x0182 + pui * 4
+                pact := mem.read(pact_addr)
+                pspr := 48 + pui
+                if pact != 0
+                    puy_addr := 0x0181 + pui * 4
+                    puy := mem.read(puy_addr)
+                    puy = puy + 1
+                    if puy > 200
+                        mem.write(pact_addr, 0)
+                        oam.clear_sprite(pspr)
+                    else
+                        mem.write(puy_addr, puy)
+                        pux_addr := 0x0180 + pui * 4
+                        pux := mem.read(pux_addr)
+                        oam.write_sprite_data(pspr, pux, puy, pickup_tile, 0xC3, 0x03)
+                        pux12 := pux + 12
+                        if pux12 > px
+                            px14p := px + 14
+                            if pux < px14p
+                                puy12 := puy + 12
+                                if puy12 > py
+                                    py14p := py + 14
+                                    if puy < py14p
+                                        mem.write(pact_addr, 0)
+                                        oam.clear_sprite(pspr)
+                                        score = score + 50
+                                        if player_hp < 5
+                                            player_hp = player_hp + 1
+                                        play_pickup_sfx()
+                else
+                    oam.clear_sprite(pspr)
+                pui = pui + 1
+
+            -- Draw player ship (sprite 0)
+            oam.write_sprite_data(0, px, py, ship_tile, 0xC1, 0x03)
+
+            -- Level: 1-8, one per ~15 sec
+            level = 1 + level_timer / 900
+            if level > 8
+                level = 8
+            -- Show "LEVEL N" banner when level increases
+            if level > level_banner
+                level_banner = level
+                level_banner_count = 90
+
+            -- Draw HUD
+            draw_hud(score, player_hp, level)
+
+            -- Level banner (center screen, 90 frames)
+            if level_banner_count > 0
+                text_pos(120, 88)
+                text_color(255, 255, 200)
+                tc(76)
+                tc(69)
+                tc(86)
+                tc(69)
+                tc(76)
+                tc(32)
+                lb_digit := level_banner + 48
+                tc(lb_digit)
+                level_banner_count = level_banner_count - 1
+
+            -- Transition to boss after 8 levels (~2 min)
+            if level_timer > 7200
+                game_state = 2
+                boss_hp = 30
+                boss_phase = 1
+                boss_x = 136
+                boss_y = 20
+                boss_dir = 1
+                boss_shoot_timer = 0
+                cei := 0
+                while cei < 12
+                    ce_addr := 0x0142 + cei * 4
+                    mem.write(ce_addr, 0)
+                    cespr := 32 + cei
+                    oam.clear_sprite(cespr)
+                    cei = cei + 1
+
+        -- ============ BOSS STATE (2) =====================
+        if game_state == 2
+
+            -- Player movement
+            if (buttons & 0x01) != 0
+                if py > 16
+                    py = py - 2
+            if (buttons & 0x02) != 0
+                if py < 180
+                    py = py + 2
+            if (buttons & 0x04) != 0
+                if px > 8
+                    px = px - 2
+            if (buttons & 0x08) != 0
+                if px < 296
+                    px = px + 2
+
+            -- Shooting: edge-triggered (same as normal gameplay)
+            boss_a_now := buttons & 0x10
+            boss_a_prev := prev_buttons & 0x10
+            if boss_a_now != 0
+                if boss_a_prev == 0
+                    bsi := 0
+                    while bsi < 8
+                        bsa_addr := 0x0102 + bsi * 4
+                        bsact := mem.read(bsa_addr)
+                        if bsact == 0
+                            bsx_val := px + 4
+                            mem.write(0x0100 + bsi * 4, bsx_val)
+                            mem.write(0x0101 + bsi * 4, py)
+                            mem.write(bsa_addr, 1)
+                            mem.write(0x0103 + bsi * 4, bsx_val / 256)
+                            play_shoot_sfx()
+                            bsi = 8
+                        bsi = bsi + 1
+
+            -- Update player bullets
+            bui := 0
+            while bui < 8
+                bua_addr := 0x0102 + bui * 4
+                buact := mem.read(bua_addr)
+                buspr := 16 + bui
+                if buact != 0
+                    buy_addr := 0x0101 + bui * 4
+                    buy := mem.read(buy_addr)
+                    if buy < 4
+                        mem.write(bua_addr, 0)
+                        oam.clear_sprite(buspr)
+                    else
+                        buy = buy - 4
+                        mem.write(buy_addr, buy)
+                        bux_lo := mem.read(0x0100 + bui * 4)
+                        bux_hi := mem.read(0x0103 + bui * 4)
+                        bux := bux_lo + bux_hi * 256
+                        oam.write_sprite_data(buspr, bux, buy, bullet_tile, 0xC3, 0x03)
+                        -- Bullet vs boss (12px margin)
+                        bux8 := bux + 6
+                        boss_x28 := boss_x + 28
+                        if bux8 > boss_x
+                            if bux < boss_x28
+                                buy8 := buy + 6
+                                boss_y28 := boss_y + 28
+                                if buy8 > boss_y
+                                    if buy < boss_y28
+                                        mem.write(bua_addr, 0)
+                                        oam.clear_sprite(buspr)
+                                        boss_hp = boss_hp - 1
+                                        play_hit_sfx()
+                                        if boss_hp <= 20
+                                            if boss_phase == 1
+                                                boss_phase = 2
+                                        if boss_hp <= 10
+                                            if boss_phase == 2
+                                                boss_phase = 3
+                                        if boss_hp <= 0
+                                            score = score + 5000
+                                            game_state = 3
+                else
+                    oam.clear_sprite(buspr)
+                bui = bui + 1
+
+            -- Boss movement
+            if boss_phase == 1
+                if boss_dir == 1
+                    boss_x = boss_x + 1
+                    if boss_x > 270
+                        boss_dir = 0
+                else
+                    boss_x = boss_x - 1
+                    if boss_x < 20
+                        boss_dir = 1
+
+            if boss_phase == 2
+                if boss_dir == 1
+                    boss_x = boss_x + 2
+                    if boss_x > 270
+                        boss_dir = 0
+                else
+                    boss_x = boss_x - 2
+                    if boss_x < 20
+                        boss_dir = 1
+                bst_mod := boss_shoot_timer % 4
+                if bst_mod < 2
+                    boss_y = boss_y + 1
+                else
+                    boss_y = boss_y - 1
+                if boss_y < 10
+                    boss_y = 10
+                if boss_y > 60
+                    boss_y = 60
+
+            if boss_phase == 3
+                if boss_dir == 1
+                    boss_x = boss_x + 2
+                    boss_y = boss_y + 1
+                    if boss_x > 260
+                        boss_dir = 0
+                else
+                    boss_x = boss_x - 2
+                    boss_y = boss_y - 1
+                    if boss_x < 30
+                        boss_dir = 1
+                if boss_y < 10
+                    boss_y = 10
+                if boss_y > 80
+                    boss_y = 80
+
+            -- Boss fires projectiles (reuse enemy pool 0-7)
+            boss_shoot_timer = boss_shoot_timer + 1
+            should_fire := 0
+            if boss_phase < 2
+                fire_check := boss_shoot_timer % 45
+                if fire_check == 0
+                    should_fire = 1
+            if boss_phase >= 2
+                fire_check2 := boss_shoot_timer % 20
+                if fire_check2 == 0
+                    should_fire = 1
+            if should_fire == 1
+                bfei := 0
+                while bfei < 8
+                    bfa_addr := 0x0142 + bfei * 4
+                    bfact := mem.read(bfa_addr)
+                    if bfact == 0
+                        bfx_addr := 0x0140 + bfei * 4
+                        bfy_addr := 0x0141 + bfei * 4
+                        bfx_val := boss_x + 12
+                        bfy_val := boss_y + 32
+                        mem.write(bfx_addr, bfx_val)
+                        mem.write(bfy_addr, bfy_val)
+                        mem.write(bfa_addr, 1)
+                        bfhp_addr := 0x0143 + bfei * 4
+                        mem.write(bfhp_addr, 0)
+                        bfei = 8
+                    bfei = bfei + 1
+
+            -- Update boss projectiles
+            bpei := 0
+            while bpei < 12
+                bpa_addr := 0x0142 + bpei * 4
+                bpact := mem.read(bpa_addr)
+                bpspr := 32 + bpei
+                if bpact != 0
+                    bpy_addr := 0x0141 + bpei * 4
+                    bpey := mem.read(bpy_addr)
+                    bpey = bpey + 2
+                    if bpey > 200
+                        mem.write(bpa_addr, 0)
+                        oam.clear_sprite(bpspr)
+                    else
+                        mem.write(bpy_addr, bpey)
+                        bpx_addr := 0x0140 + bpei * 4
+                        bpex := mem.read(bpx_addr)
+                        oam.write_sprite_data(bpspr, bpex, bpey, bullet_tile, 0x82, 0x03)
+                        bpex12 := bpex + 12
+                        if bpex12 > px
+                            px14b := px + 14
+                            if bpex < px14b
+                                bpey12 := bpey + 12
+                                if bpey12 > py
+                                    py14b := py + 14
+                                    if bpey < py14b
+                                        player_hp = player_hp - 1
+                                        mem.write(bpa_addr, 0)
+                                        oam.clear_sprite(bpspr)
+                                        play_hit_sfx()
+                                        if player_hp <= 0
+                                            game_state = 3
+                else
+                    oam.clear_sprite(bpspr)
+                bpei = bpei + 1
+
+            -- Draw boss (2x2 tiles = 32x32)
+            bx2 := boss_x + 16
+            by2 := boss_y + 16
+            oam.write_sprite_data(56, boss_x, boss_y, boss_tile, 0x84, 0x03)
+            oam.write_sprite_data(57, bx2, boss_y, boss_tile, 0x94, 0x03)
+            oam.write_sprite_data(58, boss_x, by2, boss_tile, 0xA4, 0x03)
+            oam.write_sprite_data(59, bx2, by2, boss_tile, 0xB4, 0x03)
+
+            -- Draw player
+            oam.write_sprite_data(0, px, py, ship_tile, 0xC1, 0x03)
+
+            -- Draw HUD (level 8 during boss)
+            draw_hud(score, player_hp, 8)
+
+            -- Boss HP bar
+            text_pos(120, 14)
+            text_color(200, 80, 200)
+            tc(66)
+            tc(79)
+            tc(83)
+            tc(83)
+            tc(58)
+            boss_bars := boss_hp / 3
+            bbar_i := 0
+            while bbar_i < boss_bars
+                tc(61)
+                bbar_i = bbar_i + 1
+
+            -- "WARNING" flash at boss start
+            if boss_shoot_timer < 120
+                warn_flash := boss_shoot_timer % 20
+                if warn_flash < 10
+                    text_pos(104, 100)
+                    text_color(255, 60, 60)
+                    tc(87)
+                    tc(65)
+                    tc(82)
+                    tc(78)
+                    tc(73)
+                    tc(78)
+                    tc(71)
+                    tc(33)
+
+        -- ============ RESULTS STATE (3) ==================
+        if game_state == 3
+            -- First frame: clear sprites and stop music
+            if level_timer != 9999
+                csi := 0
+                while csi < 64
+                    oam.clear_sprite(csi)
+                    csi = csi + 1
+                stop_bgm()
+                level_timer = 9999
+
+            title_anim = title_anim + 1
+            draw_results(score, player_hp, title_anim)
+
+            -- Start returns to title
+            r_start := buttons & 0x400
+            r_prev := prev_buttons & 0x400
+            if r_start != 0
+                if r_prev == 0
+                    rci := 64
+                    while rci < 100
+                        oam.clear_sprite(rci)
+                        rci = rci + 1
+                    game_state = 0
+                    level_timer = 0
+                    player_hp = 3
+                    score = 0
+                    title_anim = 0
+                    cli := 0
+                    while cli < 8
+                        cl_addr := 0x0102 + cli * 4
+                        mem.write(cl_addr, 0)
+                        clspr := 16 + cli
+                        oam.clear_sprite(clspr)
+                        cli = cli + 1
+                    cl2 := 0
+                    while cl2 < 12
+                        cl2_addr := 0x0142 + cl2 * 4
+                        mem.write(cl2_addr, 0)
+                        cl2spr := 32 + cl2
+                        oam.clear_sprite(cl2spr)
+                        cl2 = cl2 + 1
+                    cl3 := 0
+                    while cl3 < 4
+                        cl3_addr := 0x0182 + cl3 * 4
+                        mem.write(cl3_addr, 0)
+                        cl3spr := 48 + cl3
+                        oam.clear_sprite(cl3spr)
+                        cl3 = cl3 + 1
+                    play_title_bgm()
+
+        prev_buttons = buttons
+        oam.flush()

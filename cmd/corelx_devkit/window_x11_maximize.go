@@ -28,6 +28,10 @@ const (
 // applyX11MaximizeHint sets WM_NORMAL_HINTS so the window manager allows
 // maximize (and double-click title bar). Some WMs grey out Maximize when
 // they see restrictive size hints; setting a large max size fixes that.
+//
+// NOTE: Dev Kit currently uses OS-native window behavior and does not call this
+// helper. Keep unused unless a platform-specific regression requires it and
+// acceptance gate ACC-DK-2 validates Linux/Windows title-bar behavior.
 func applyX11MaximizeHint(w fyne.Window) error {
 	nw, ok := w.(driver.NativeWindow)
 	if !ok {

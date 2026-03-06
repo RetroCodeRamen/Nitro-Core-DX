@@ -1,7 +1,7 @@
 # Nitro-Core-DX Programming Guide
 
-**Last Updated**: 2026-02-28  
-**Purpose**: A practical CoreLX-first guide that starts with a working demo, explains program structure, walks through templates and the Sprite Lab, and builds a small Pong-style game.
+**Last Updated**: 2026-03-06  
+**Purpose**: A practical CoreLX-first guide that starts with a working demo, explains program structure, walks through sprites/tilemaps with real-world rules, templates and Dev Kit labs, and builds a small Pong-style game.
 
 > This guide is intentionally hands-on and aligned to the current Dev Kit + CoreLX workflow.
 > For broader platform context and reference material, also see `PROGRAMMING_MANUAL.md` and `docs/CORELX.md`.
@@ -14,9 +14,13 @@
 2. [How a CoreLX Program Is Structured](#how-a-corelx-program-is-structured)
 3. [Run the Demo (Dev Kit and CLI)](#run-the-demo-dev-kit-and-cli)
 4. [A Reusable CoreLX Game Template](#a-reusable-corelx-game-template)
-5. [Build a Small Pong-Style Game (Mini Pong)](#build-a-small-pong-style-game-mini-pong)
-6. [Test the Pong Example Before Publishing](#test-the-pong-example-before-publishing)
-7. [Where to Go Next](#where-to-go-next)
+5. [Working with Sprites (Real-World Guide)](#working-with-sprites-real-world-guide)
+6. [Build a Small Pong-Style Game (Mini Pong)](#build-a-small-pong-style-game-mini-pong)
+7. [Test the Pong Example Before Publishing](#test-the-pong-example-before-publishing)
+8. [Using the Sprite Lab](#using-the-sprite-lab)
+9. [Using the Tilemap Lab](#using-the-tilemap-lab)
+10. [Project Asset Manifest (`corelx.assets.json`)](#project-asset-manifest-corelxassetsjson)
+11. [Where to Go Next](#where-to-go-next)
 
 ---
 
@@ -200,7 +204,7 @@ oam.write(0, &box)
 oam.flush()
 ```
 
-`oam.flush()` is what commits the queued OAM writes.
+`oam.flush()` is what commits the queued OAM writes. For multiple sprites and real-world rules (tile indices, palettes, 16×16 assets), see [Working with Sprites (Real-World Guide)](#working-with-sprites-real-world-guide).
 
 ### 5. Main loop
 
@@ -322,6 +326,77 @@ function Start()
 ```
 
 This pattern is intentionally boring, and that is a good thing. It is easy to debug and easy to extend.
+
+---
+
+## Working with Sprites (Real-World Guide)
+
+This section summarizes how sprites work in practice, based on real projects like `Games/SpriteProbe/ship.corelx`. Use it when you add characters, enemies, or UI elements.
+
+### Sprite sizes and asset types
+
+- **8×8** sprites use **32 bytes** of tile data (one 8×8 tile). Use asset type `tiles8` for a single 8×8 tile.
+- **16×16** sprites use **128 bytes** (16 rows × 8 bytes). Use asset type `tiles16` for a single 16×16 tile, or `tileset` for a 128-byte block (e.g. one 16×16 “tile” stored as a tileset).
+
+The compiler uploads tile data to VRAM using the correct stride: 32 bytes per 8×8 tile index, 128 bytes per 16×16 tile index. For a 128-byte `tileset`, loading at base index **N** writes to VRAM at **N × 128**, which matches how the PPU looks up 16×16 sprite tiles.
+
+### Tile index and the background
+
+- The **background** often uses **tile index 0** for empty or repeated cells. If you load your sprite at tile index **0**, that same art can appear everywhere the background draws tile 0 (a repeating pattern).
+- **Best practice:** Load sprites at **non-zero** tile indices (e.g. 16, 17, 18). That keeps tile 0 for the BG and puts each sprite in its own VRAM region.
+- Example: `ship_base := gfx.load_tiles(ASSET_Ship, 16)` and `ufo_base := gfx.load_tiles(ASSET_UFO, 17)`.
+
+### Palettes
+
+- Each sprite uses one **palette bank** (0–3). Set colors with `gfx.set_palette(bank, color_index, rgb555)`.
+- **Color index 0** is always **transparent** for sprites; use indices 1–15 for visible colors.
+- Call `gfx.init_default_palettes()` once if you want a sane default backdrop; then set the palette entries your sprites use (e.g. bank 1 for ship, bank 2 for UFO).
+
+### One-time setup order
+
+1. `ppu.enable_display()`
+2. `gfx.init_default_palettes()` (optional)
+3. Set palette colors for each bank you use: `gfx.set_palette(bank, index, rgb555)`
+4. Load tile assets into VRAM at chosen tile indices: `base := gfx.load_tiles(ASSET_Name, tile_index)`
+5. Create sprite structs and set position, tile, attr, ctrl (see below).
+
+### Sprite struct: position, tile, attr, ctrl
+
+- **Position:** `sprite.set_pos(&spr, x, y)` — screen coordinates (0–319 x, 0–199 y).
+- **Tile:** `spr.tile = base` — the tile index returned by `gfx.load_tiles` (e.g. 16 or 17).
+- **Attributes:** `spr.attr = SPR_PAL(bank) | SPR_PRI(priority)` — palette bank 0–3, priority 0–3.
+- **Control:** `spr.ctrl = SPR_ENABLE() | SPR_SIZE_16()` or `SPR_SIZE_8()` — enable the sprite and choose 8×8 or 16×16.
+
+Combine with optional flip/blend helpers as needed: `SPR_HFLIP()`, `SPR_VFLIP()`, etc.
+
+### Multiple sprites
+
+- Each sprite goes in a different **OAM slot**. Write them in order, then flush once per frame:
+  ```corelx
+  oam.write(0, &ship_spr)
+  oam.write(1, &ufo_spr)
+  oam.flush()
+  ```
+- Use different **tile bases** (different `gfx.load_tiles(..., 16)`, `..., 17)`) and different **palette banks** (`SPR_PAL(1)`, `SPR_PAL(2)`) so each sprite has its own art and colors.
+
+### Per-frame loop
+
+Each frame:
+
+1. Sync (e.g. `wait_vblank()` and/or the frame-edge pattern with `frame_counter()`).
+2. Update game state (positions, etc.).
+3. Update sprite positions: `sprite.set_pos(&spr, x, y)`.
+4. Write every visible sprite: `oam.write(0, &spr1)`, `oam.write(1, &spr2)`, …
+5. `oam.flush()` so the PPU sees the new OAM data.
+
+### Working example
+
+A minimal two-sprite example (ship + UFO) that matches real behavior is in the repo:
+
+- **Source:** `Games/SpriteProbe/ship.corelx`
+- **Automated test:** `go test ./Games/SpriteProbe/... -run TestShip -v` (checks that the ship region is not black and writes an ASCII dump to `testdata/ship_actual.txt`).
+
+That file shows: two 16×16 `tileset` assets, loading at tile indices 16 and 17, two palette banks, two sprites in OAM slots 0 and 1, and a simple vblank loop with `oam.write` + `oam.flush()`.
 
 ---
 
@@ -526,25 +601,61 @@ The Sprite Lab is a built-in pixel-art editor accessible from the workbench tabs
 1. Switch to the **Sprite Lab** tab in the workbench area
 2. Choose a canvas size (8x8 to 64x64 in steps of 8)
 3. Select a color from the palette and paint with the Pencil tool
-4. Adjust colors using the RGB555 channel editors or hex input
-5. Click **Insert CoreLX Asset** to generate tile hex data + palette setup code into the active editor
+4. Adjust colors using RGB555 channel editors, full hex entry, or the palette value slider
+5. Click **Apply To Manifest** (recommended) to write the asset into `corelx.assets.json`, or use **Insert CoreLX Asset** / **Apply To Project** for in-source workflows
 
 ### Key Features
 
 - **16 palette banks** with 16 colors each (RGB555 format)
 - **Mirror X** painting for symmetric sprites
 - **Grid overlay** with hover highlighting
+- **Wrap-shift controls** to move sprite pixels up/down/left/right with edge wrapping
 - **Undo/Redo** history (up to 128 states)
 - **Import/Export** `.clxsprite` files for saving and sharing sprite assets
-- **Preview pane** showing actual-size sprite and packed 4bpp hex
+- **Preview pane** showing actual-size sprite and packed 4bpp hex (aspect-preserving scale)
+- **Apply To Manifest** for compiler-ingested asset upserts
+- **Apply To Project** upsert flow that updates existing matching asset/palette blocks
+- **Transparent index 0** checkerboard mode for no-color pixels
 
 ### Sprite Lab to Game Workflow
 
 1. Design your sprite in the Sprite Lab
-2. Click **Insert CoreLX Asset** (optionally with palette setup code)
+2. Click **Apply To Manifest** (recommended), or **Insert CoreLX Asset** / **Apply To Project**
 3. Switch back to the Code tab — the asset declaration and palette init code are appended
 4. Reference the asset in your game code: `tile_base := gfx.load_tiles(ASSET_YourSprite, 0)`
 5. Click **Build + Run** to see it in action
+
+---
+
+## Using the Tilemap Lab
+
+The Tilemap Lab is the map-authoring companion to Sprite Lab in the workbench tabs.
+
+### Quick Workflow
+
+1. Open the **Tilemap Lab** tab
+2. Choose map size (8x8 to 64x64)
+3. Set brush tile index/palette/flip attributes and paint/fill
+4. Use **Tile Source** refresh to parse tiles from current source asset declarations
+5. Pick tiles directly from the atlas view
+6. Use **Apply To Manifest** (recommended), or **Insert CoreLX Asset** / **Apply To Project**
+
+### Current Behavior Notes
+
+- Tilemap entries are stored as packed `(tile, attr)` pairs
+- `attr` includes palette and flip flags
+- Tile atlas rendering uses parsed in-source tile assets and current palette assignments when available
+- Import/export uses `.clxtilemap`
+
+---
+
+## Project Asset Manifest (`corelx.assets.json`)
+
+In the Dev Kit build path, the compiler automatically checks for `corelx.assets.json` next to the active `.corelx` source file.
+
+- Manifest assets are merged with in-source `asset` declarations
+- The compiler remains the source of truth for final emitted manifest/ROM mapping
+- Editor/lab flows are editing helpers; validate state with **Build** or **Build + Run** and the top-bar **Build State** indicator
 
 ---
 
@@ -552,7 +663,7 @@ The Sprite Lab is a built-in pixel-art editor accessible from the workbench tabs
 
 After you understand the demo and Mini Pong, good next projects are:
 
-1. Add sound effects (paddle hit / score beep) using the legacy APU built-ins
+1. Add sound effects (paddle hit / score beep) using the legacy APU built-ins (current stable path before YM2608 migration)
 2. Add two-player Pong (map controller 2 or alternate keyboard scheme)
 3. Add a title screen and game-over state
 4. Replace score pips with a tilemap/text-based score display once your UI path is ready

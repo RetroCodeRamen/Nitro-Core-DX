@@ -14,7 +14,7 @@ CoreLX should evolve from a language demo + direct code generator into a determi
 - Predictable memory layout and overflow checks
 - Fast Edit -> Build -> Run workflows
 - Clear, structured compiler/packaging errors
-- Stable asset references usable by future Dev Kit tools (Sprite Lab, Tilemap Editor, Sound Studio)
+- Stable asset references usable by future Dev Kit tools (Sprite Lab, Tilemap Lab, Sound Studio)
 - ROMs that remain compatible with the future FPGA hardware implementation
 
 Primary design principle:
@@ -635,7 +635,7 @@ Even before implementing Dev Kit features, Phase 1 must produce stable interface
 
 - Structured diagnostics (for clickable error panel)
 - Build manifest (for memory/asset viewer)
-- Asset IR + parsers (for Sprite Lab / Tilemap Editor / Sound Studio export)
+- Asset IR + parsers (for Sprite Lab / Tilemap Lab / Sound Studio export)
 - Deterministic packer (for Build + Run workflow)
 
 Required compiler outputs (beyond ROM)
@@ -662,7 +662,7 @@ This aligns with your requested order while grounding it in the current codebase
 6. **Expose build manifest for Dev Kit**
 7. **Build Packaging Tool (Build / Build+Run) in Dev Kit UI**
 8. **Sprite Lab** (`.clxasset` round-trip exact)
-9. **Tilemap Editor** (`.clxmap` export/import)
+9. **Tilemap Lab** (`.clxmap` export/import)
 10. **Sound Studio** (`.clxaudio` export/import with channel policy metadata)
 11. **Debug Overlay**
 12. **Memory & Asset Viewer** (manifest-driven)

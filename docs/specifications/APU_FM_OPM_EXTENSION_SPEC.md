@@ -6,6 +6,11 @@
 
 > **Design Direction:** Keep the existing APU as the default developer-friendly audio path, and add an optional FM extension block for richer audio and future FPGA implementation.
 
+> **Planning Update (2026-03-06):**
+> - This document remains the current runtime/transitional FM reference.
+> - The V1 release audio target has moved to **YM2608**.
+> - Use `docs/planning/V1_CHARTER.md` and `docs/planning/V1_ACCEPTANCE.md` for release-target scope and gates.
+
 > **Implementation Snapshot (2026-02-24):**
 > - FM host MMIO interface at `0x9100-0x91FF` is implemented in the emulator/APU.
 > - `FM_STATUS` timer/busy/IRQ flags and FM timer IRQ bridge are implemented (deterministic placeholder timing model).

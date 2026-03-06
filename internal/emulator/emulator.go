@@ -428,9 +428,9 @@ func (e *Emulator) GetCPUCyclesPerFrame() uint32 {
 	return e.CPUCyclesPerFrame
 }
 
-// GetOutputBuffer returns the PPU output buffer
+// GetOutputBuffer returns the PPU display buffer (front buffer with text overlay)
 func (e *Emulator) GetOutputBuffer() []uint32 {
-	return e.PPU.OutputBuffer[:]
+	return e.PPU.DisplayBuffer[:]
 }
 
 // SetInputButtons sets the controller button state

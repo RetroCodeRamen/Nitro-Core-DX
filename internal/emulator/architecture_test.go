@@ -169,8 +169,8 @@ func TestFrameTimingIssue(t *testing.T) {
 		t.Fatalf("StepPPU error: %v", err)
 	}
 
-	// Immediately check buffer
-	buffer1 := emu.GetOutputBuffer()
+	// Immediately check raw output buffer (DisplayBuffer may not be filled yet)
+	buffer1 := emu.PPU.OutputBuffer[:]
 	whitePixels1 := 0
 	for y := 100; y < 116 && y < 200; y++ {
 		for x := 100; x < 116 && x < 320; x++ {
@@ -186,8 +186,8 @@ func TestFrameTimingIssue(t *testing.T) {
 		t.Fatalf("RunFrame error: %v", err)
 	}
 
-	// Check buffer again
-	buffer2 := emu.GetOutputBuffer()
+	// Check raw output buffer again
+	buffer2 := emu.PPU.OutputBuffer[:]
 	whitePixels2 := 0
 	for y := 100; y < 116 && y < 200; y++ {
 		for x := 100; x < 116 && x < 320; x++ {

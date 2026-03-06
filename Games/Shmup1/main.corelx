@@ -1,0 +1,341 @@
+-- Focus: clean, minimal framework + title screen only
+
+asset ShipCursorTiles: tiles8
+    hex
+        -- 9 tiles (3x3 meta-sprite, 24x24) using 5 colors from palette 1:
+        -- 0 = transparent, 1 = white, 2 = blue, 3 = magenta, 4 = green, 5 = yellow
+
+        -- Tile 0 (top-left wing)
+        00 00 00 00 00 00 00 00
+        00 00 00 00 00 00 22 00
+        00 00 00 00 00 22 22 22
+        00 00 00 00 22 22 22 22
+        00 00 00 22 22 22 22 22
+        00 00 22 22 22 22 22 00
+        00 22 22 22 22 22 00 00
+        22 22 22 22 22 00 00 00
+
+        -- Tile 1 (top-center nose)
+        00 00 00 00 00 00 00 00
+        00 00 00 00 22 00 00 00
+        00 00 00 22 22 22 00 00
+        00 00 22 22 22 22 22 00
+        00 22 22 22 22 22 22 22
+        22 22 22 22 22 22 22 22
+        00 22 22 22 22 22 22 22
+        00 00 22 22 22 22 22 00
+
+        -- Tile 2 (top-right wing)
+        00 00 00 00 00 00 00 00
+        00 22 00 00 00 00 00 00
+        22 22 22 00 00 00 00 00
+        22 22 22 22 00 00 00 00
+        22 22 22 22 22 00 00 00
+        00 22 22 22 22 22 00 00
+        00 00 22 22 22 22 22 00
+        00 00 00 22 22 22 22 22
+
+        -- Tile 3 (mid-left hull)
+        22 22 22 22 22 00 00 00
+        22 22 22 22 22 22 00 00
+        22 22 22 22 22 22 22 00
+        22 22 22 22 22 22 22 00
+        22 22 22 22 22 22 22 00
+        22 22 22 22 22 22 22 00
+        00 22 22 22 22 22 22 00
+        00 00 22 22 22 22 00 00
+
+        -- Tile 4 (mid-center cockpit)
+        00 00 22 22 22 22 00 00
+        00 22 22 33 33 22 22 00
+        22 22 33 11 11 33 22 22
+        22 33 11 11 11 11 33 22
+        22 33 11 11 11 11 33 22
+        22 22 33 11 11 33 22 22
+        00 22 22 33 33 22 22 00
+        00 00 22 22 22 22 00 00
+
+        -- Tile 5 (mid-right hull)
+        00 00 00 22 22 22 22 22
+        00 00 22 22 22 22 22 22
+        00 22 22 22 22 22 22 22
+        00 22 22 22 22 22 22 22
+        00 22 22 22 22 22 22 22
+        00 22 22 22 22 22 22 22
+        00 22 22 22 22 22 22 00
+        00 00 22 22 22 22 00 00
+
+        -- Tile 6 (bottom-left engine)
+        00 00 22 22 22 22 00 00
+        00 22 22 22 22 22 00 00
+        22 22 22 22 22 22 00 00
+        22 22 22 22 22 22 22 00
+        22 22 22 44 44 22 22 00
+        00 22 22 44 55 44 22 00
+        00 00 22 44 55 44 00 00
+        00 00 00 22 22 00 00 00
+
+        -- Tile 7 (bottom-center engine glow)
+        00 00 22 22 22 22 00 00
+        00 22 22 22 22 22 00 00
+        22 22 22 22 22 22 00 00
+        22 22 22 22 22 22 22 00
+        22 22 22 44 44 22 22 00
+        00 22 22 44 55 44 22 00
+        00 00 22 44 55 44 00 00
+        00 00 00 22 22 00 00 00
+
+        -- Tile 8 (bottom-right engine)
+        00 00 22 22 22 22 00 00
+        00 00 22 22 22 22 22 00
+        00 00 22 22 22 22 22 22
+        00 22 22 22 22 22 22 22
+        00 22 22 44 44 22 22 22
+        00 22 44 55 55 44 22 00
+        00 00 44 55 55 44 22 00
+        00 00 00 22 22 00 00 00
+
+asset StarTile: tiles8
+    hex
+        00 00 00 00 00 00 00 00
+        00 00 00 00 00 00 00 00
+        00 00 00 11 11 00 00 00
+        00 00 11 11 11 11 00 00
+        00 00 11 11 11 11 00 00
+        00 00 00 11 11 00 00 00
+        00 00 00 00 00 00 00 00
+        00 00 00 00 00 00 00 00
+
+-- Text helpers (MMIO-backed text compositor)
+function text_pos(x: int, y: int)
+    mem.write(0x8070, x)
+    mem.write(0x8071, 0)
+    mem.write(0x8072, y)
+
+function text_color(r: int, g: int, b: int)
+    mem.write(0x8073, r)
+    mem.write(0x8074, g)
+    mem.write(0x8075, b)
+
+function tc(c: int)
+    mem.write(0x8076, c)
+
+function write_ascii(text0: int, text1: int, text2: int, text3: int, text4: int)
+    if text0 != 0
+        tc(text0)
+    if text1 != 0
+        tc(text1)
+    if text2 != 0
+        tc(text2)
+    if text3 != 0
+        tc(text3)
+    if text4 != 0
+        tc(text4)
+
+function draw_title_screen_text(selected: int)
+    -- Title: SHMUP (centered-ish)
+    text_pos(140, 40)
+    text_color(255, 255, 255)
+    tc(83)   -- S
+    tc(72)   -- H
+    tc(77)   -- M
+    tc(85)   -- U
+    tc(80)   -- P
+
+    -- Menu options at bottom
+    text_pos(80, 170)
+    text_color(200, 200, 200)
+    -- \"START    OPTIONS\"
+    tc(83)  -- S
+    tc(84)  -- T
+    tc(65)  -- A
+    tc(82)  -- R
+    tc(84)  -- T
+    tc(32)
+    tc(32)
+    tc(32)
+    tc(32)
+    tc(32)
+    tc(32)
+    tc(32)
+    tc(79)  -- O
+    tc(80)  -- P
+    tc(84)  -- T
+    tc(73)  -- I
+    tc(79)  -- O
+    tc(78)  -- N
+    tc(83)  -- S
+
+    -- Optional: hint row
+    text_pos(100, 185)
+    text_color(160, 160, 160)
+    -- \"LEFT/RIGHT: MOVE  Z: SELECT\"
+    tc(76)  -- L
+    tc(69)  -- E
+    tc(70)  -- F
+    tc(84)  -- T
+    tc(47)  -- /
+    tc(82)  -- R
+    tc(73)  -- I
+    tc(71)  -- G
+    tc(72)  -- H
+    tc(84)  -- T
+    tc(58)  -- :
+    tc(32)
+    tc(77)  -- M
+    tc(79)  -- O
+    tc(86)  -- V
+    tc(69)  -- E
+    tc(32)
+    tc(90)  -- Z
+    tc(58)  -- :
+    tc(32)
+    tc(83)  -- S
+    tc(69)  -- E
+    tc(76)  -- L
+    tc(69)  -- E
+    tc(67)  -- C
+    tc(84)  -- T
+
+function init_starfield()
+    rng := 123
+    i := 0
+    base := 0x0200      -- WRAM base: per-star [x, y, speed]
+    stride := 3
+    addr := base
+    while i < 48
+        rng = (rng + 17) & 255
+        x := rng
+        rng = (rng + 29) & 255
+        y := rng & 199
+        -- Speed: 1 or 2
+        speed := 1
+        if (rng & 1) != 0
+            speed = 2
+        mem.write(addr, x)
+        mem.write(addr + 1, y)
+        mem.write(addr + 2, speed)
+        addr = addr + stride
+        i = i + 1
+
+function update_starfield(tile_star: int)
+    i := 0
+    base := 0x0200
+    stride := 3
+    spr := Sprite()
+    addr := base
+    while i < 48
+        x := mem.read(addr)
+        y := mem.read(addr + 1)
+        speed := mem.read(addr + 2)
+
+        y = y + speed
+        if y >= 200
+            y = 0
+        mem.write(addr + 1, y)
+
+        -- Render this star to OAM slot range starting at 16
+        slot := 16 + i
+        sprite.set_pos(&spr, x, y)
+        spr.tile = tile_star
+        spr.attr = SPR_PAL(0) | SPR_PRI(3)   -- palette 0, low priority (behind ship)
+        spr.ctrl = SPR_ENABLE() | SPR_SIZE_8()
+        oam.write(slot, &spr)
+
+        addr = addr + stride
+        i = i + 1
+
+function draw_ship_cursor(base_tile: int, menu_index: int)
+    -- Choose base position near START (left) or OPTIONS (right)
+    base_x := 90
+    base_y := 156   -- slightly higher so 24px tall ship sits nicely on the line
+    if menu_index == 1
+        base_x = 190
+
+    -- 3x3 meta-sprite (24x24) using 9 distinct tiles starting at base_tile.
+    -- Uses OAM slots 0–8.
+    row := 0
+    slot := 0
+    tile_index := base_tile
+    cy := base_y
+    while row < 3
+        cx := base_x
+        col := 0
+        while col < 3
+            spr := Sprite()
+            sprite.set_pos(&spr, cx, cy)
+            spr.tile = tile_index
+            spr.attr = SPR_PAL(1) | SPR_PRI(1)
+            spr.ctrl = SPR_ENABLE() | SPR_SIZE_8()
+            oam.write(slot, &spr)
+
+            slot = slot + 1
+            tile_index = tile_index + 1
+            cx = cx + 8
+            col = col + 1
+        cy = cy + 8
+        row = row + 1
+
+function Start()
+    ppu.enable_display()
+
+    -- Palette setup: palette 0 for stars, palette 1 for ship (5 colors)
+    gfx.init_default_palettes()
+    -- Palette 0: dim star white
+    gfx.set_palette(0, 1, 0x7BEF)  -- soft white
+
+    -- Palette 1: ship colors (RGB555)
+    gfx.set_palette(1, 1, 0x7FFF)  -- pure white
+    gfx.set_palette(1, 2, 0x001F)  -- blue
+    gfx.set_palette(1, 3, 0x7C1F)  -- magenta
+    gfx.set_palette(1, 4, 0x03E0)  -- green
+    gfx.set_palette(1, 5, 0x7FE0)  -- yellow
+
+    -- Load tiles (cursor + star). Start at a non-zero index so BG tile 0
+    -- stays blank (prevents a repeating ship pattern as the background).
+    ship_tile_base := gfx.load_tiles(ASSET_ShipCursorTiles, 16)
+    star_tile_base := gfx.load_tiles(ASSET_StarTile, ship_tile_base + 9)
+
+    -- init_starfield()    -- disabled for now to isolate title text rendering
+
+    menu_index := 0
+    prev_buttons := 0
+    last_frame := frame_counter()
+
+    while true
+        -- Lock to frame counter so logic runs once per emulated frame
+        while frame_counter() == last_frame
+            wait_vblank()
+        last_frame = frame_counter()
+
+        buttons := input.read(0)
+
+        -- Edge-triggered left/right to move cursor between START and OPTIONS
+        left_now := buttons & 0x04
+        left_prev := prev_buttons & 0x04
+        right_now := buttons & 0x08
+        right_prev := prev_buttons & 0x08
+
+        if left_now != 0 and left_prev == 0
+            if menu_index > 0
+                menu_index = menu_index - 1
+
+        if right_now != 0 and right_prev == 0
+            if menu_index < 1
+                menu_index = menu_index + 1
+
+        -- (Optional) Z select edge (no behavior yet, stub for later)
+        z_now := buttons & 0x10
+        z_prev := prev_buttons & 0x10
+        if z_now != 0 and z_prev == 0
+            -- Future: transition to gameplay or options
+            -- (no-op for now)
+
+        -- Animate starfield and draw title/menu each frame
+        -- update_starfield(star_tile_base)   -- still disabled; we are only adding the cursor now
+        draw_title_screen_text(menu_index)
+        draw_ship_cursor(ship_tile_base, menu_index)
+
+        oam.flush()
+        prev_buttons = buttons
+

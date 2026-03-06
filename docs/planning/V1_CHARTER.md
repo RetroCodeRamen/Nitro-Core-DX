@@ -1,7 +1,7 @@
 # Nitro-Core-DX V1 Charter
 
 Status: Active (V1 source of truth)  
-Last Updated: February 28, 2026
+Last Updated: March 6, 2026
 
 This charter is the canonical scope contract for Nitro-Core-DX V1.0.  
 Other planning files may contain ideas/history; this document defines what can block V1 release.
@@ -13,7 +13,7 @@ Ship Nitro-Core-DX as a product-complete desktop SDK (Linux + Windows first-clas
 - Stable integrated CoreLX Dev Kit workflow
 - Complete V1 tool suite MVP (Sprite, Tilemap, Sound authoring)
 - Debugger stepping (pause/resume + frame-step + CPU-step)
-- FM audio at the approved behavioral parity profile
+- YM2608 audio at the approved behavioral parity profile
 - Built-in documentation with runnable snippets
 - Galaxy Force flagship game and manual integration
 
@@ -31,7 +31,7 @@ Ship Nitro-Core-DX as a product-complete desktop SDK (Linux + Windows first-clas
 - V1-DK-4 Help center + programming docs in-app ✅
 
 ### V1-EDITOR: IDE-grade CoreLX editing
-- V1-EDITOR-1 Monaco/webview integration
+- V1-EDITOR-1 Native single-ownership editor engine stabilization
 - V1-EDITOR-2 CoreLX syntax highlighting
 - V1-EDITOR-3 Diagnostics squiggles + panel sync + jump-to-location
 - V1-EDITOR-4 Editor essentials: find/replace, go-to-line, basic symbol navigation
@@ -56,11 +56,23 @@ Ship Nitro-Core-DX as a product-complete desktop SDK (Linux + Windows first-clas
 - V1-CORELX-4 Diagnostics for tool-generated assets/references
 - V1-CORELX-5 Project templates for V1 workflows ✅
 
-### V1-FM: FM acceptance gate
-- V1-FM-1 Compatibility profile document (behavioral parity)
-- V1-FM-2 FM MMIO/timer/status/IRQ behavior verified against profile
-- V1-FM-3 Curated FM audio acceptance references pass thresholds
-- V1-FM-4 FM no longer documented as experimental for V1 scope
+### V1-AUDIO: YM2608 acceptance gate
+- V1-AUDIO-1 YM2608 compatibility profile document (behavioral parity)
+- V1-AUDIO-2 YM2608 MMIO/timer/status/IRQ behavior verified against profile
+- V1-AUDIO-3 Curated YM2608 audio acceptance references pass thresholds
+- V1-AUDIO-4 YM2608 no longer documented as experimental for V1 scope
+- V1-AUDIO-5 YM2151/OPM-lite target removed from V1 release scope
+
+## 2.1 Execution Order Constraints (Release-Blocking)
+
+The following sequence is mandatory for V1 execution:
+
+1. Finish Sprite Lab polish/stability and Dev Kit workflow hardening first.
+2. Complete Tilemap flow needed for production asset workflow.
+3. Start Sound Studio implementation only after steps 1-2 are complete.
+4. Start YM2608 implementation only after Sound Studio phase is started.
+
+This is a schedule constraint, not optional guidance. Scope may not bypass this order without an approved scope-change record.
 
 ### V1-GAME: Galaxy Force flagship
 - V1-GAME-1 Vertical shmup core gameplay

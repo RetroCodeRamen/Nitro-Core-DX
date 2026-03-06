@@ -1,0 +1,98 @@
+-- SpriteProbe - CoreLX sprite tests
+-- Four 8x8 tiles in a 2x2 grid, each tile a different solid color,
+-- to verify multi-tile load and OAM layout.
+
+-- Four tiles as one tileset (128 bytes = 4 x 32). 8x8 tile = 32 bytes = 8 rows x 4 bytes.
+-- Tile 0 = red (index 1), tile 1 = green (2), tile 2 = blue (3), tile 3 = yellow (4)
+asset FourTiles: tileset
+    hex
+        11 11 11 11
+        11 11 11 11
+        11 11 11 11
+        11 11 11 11
+        11 11 11 11
+        11 11 11 11
+        11 11 11 11
+        11 11 11 11
+        22 22 22 22
+        22 22 22 22
+        22 22 22 22
+        22 22 22 22
+        22 22 22 22
+        22 22 22 22
+        22 22 22 22
+        22 22 22 22
+        33 33 33 33
+        33 33 33 33
+        33 33 33 33
+        33 33 33 33
+        33 33 33 33
+        33 33 33 33
+        33 33 33 33
+        33 33 33 33
+        44 44 44 44
+        44 44 44 44
+        44 44 44 44
+        44 44 44 44
+        44 44 44 44
+        44 44 44 44
+        44 44 44 44
+        44 44 44 44
+
+function Start()
+    ppu.enable_display()
+    gfx.init_default_palettes()
+
+    -- Palette 1: four distinct colors (RGB555)
+    gfx.set_palette(1, 1, 0x7C00)
+    gfx.set_palette(1, 2, 0x03E0)
+    gfx.set_palette(1, 3, 0x001F)
+    gfx.set_palette(1, 4, 0x7FE0)
+
+    -- Load all 4 tiles to VRAM at base 0 (tiles 0, 1, 2, 3)
+    base := gfx.load_tiles(ASSET_FourTiles, 0)
+
+    -- 2x2 grid: top-left (0,0), top-right (1,0), bottom-left (0,1), bottom-right (1,1)
+    -- Position so the 16x16 block is centered-ish: left at 152, top at 92
+    grid_x := 152
+    grid_y := 92
+
+    -- Top-left: tile 0 (red)
+    s0 := Sprite()
+    sprite.set_pos(&s0, grid_x, grid_y)
+    s0.tile = base
+    s0.attr = SPR_PAL(1) | SPR_PRI(0)
+    s0.ctrl = SPR_ENABLE() | SPR_SIZE_8()
+    oam.write(0, &s0)
+
+    -- Top-right: tile 1 (green). base+1
+    s1 := Sprite()
+    sprite.set_pos(&s1, grid_x + 8, grid_y)
+    s1.tile = base + 1
+    s1.attr = SPR_PAL(1) | SPR_PRI(0)
+    s1.ctrl = SPR_ENABLE() | SPR_SIZE_8()
+    oam.write(1, &s1)
+
+    -- Bottom-left: tile 2 (blue). Use literal 100 (grid_y+8) until var+const codegen is fixed
+    s2 := Sprite()
+    sprite.set_pos(&s2, grid_x, 100)
+    s2.tile = base + 2
+    s2.attr = SPR_PAL(1) | SPR_PRI(0)
+    s2.ctrl = SPR_ENABLE() | SPR_SIZE_8()
+    oam.write(2, &s2)
+
+    -- Bottom-right: tile 3 (yellow)
+    s3 := Sprite()
+    sprite.set_pos(&s3, grid_x + 8, 100)
+    s3.tile = base + 3
+    s3.attr = SPR_PAL(1) | SPR_PRI(0)
+    s3.ctrl = SPR_ENABLE() | SPR_SIZE_8()
+    oam.write(3, &s3)
+
+    while true
+        wait_vblank()
+        oam.write(0, &s0)
+        oam.write(1, &s1)
+        oam.write(2, &s2)
+        oam.write(3, &s3)
+        oam.flush()

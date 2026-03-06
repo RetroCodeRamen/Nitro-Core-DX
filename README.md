@@ -122,7 +122,7 @@ For detailed information about the development process and challenges, see [Deve
   - Waveform generation (sine, square, saw, noise)
   - PCM sample playback with loop and one-shot modes
   - Volume control and duration management
-  - FM/OPM extension host interface + audible OPM-lite synthesis path (in progress)
+  - FM extension host interface + audible OPM-lite synthesis path (current transitional implementation)
 - **Interrupt System**: Complete IRQ/NMI handling with vector table
 - **ROM Loading**: Complete ROM header parsing and execution
 - **Test Suite**: Broad regression coverage across CPU/PPU/APU/emulator paths (includes some long-running timing tests)
@@ -130,27 +130,29 @@ For detailed information about the development process and challenges, see [Deve
 - **Nitro-Core-DX App (Dev Kit)**: Professional integrated development environment
   - Traditional IDE menu bar (File, Edit, View, Build, Debug, Tools, Help)
   - Domain-grouped toolbar (Project, Build, Run/Debug, View)
-  - CoreLX editor with structured diagnostics panel
+  - CoreLX editor with inline syntax highlighting, line numbers, active-line emphasis, and jump-to-diagnostic flow
   - Embedded hardware emulator with Build + Run workflow
   - Three view modes: Split View, Emulator Focus, Code Only
   - Project templates: Blank Game, Minimal Loop, Sprite Demo, Tilemap Demo, Shmup Starter, Matrix Mode Demo
-  - Sprite Lab: pixel-art editor with 16 palette banks, RGB555 color editing, undo/redo, import/export, CoreLX code generation
+  - Sprite Lab: pixel-art editor with 16 palette banks, RGB555 color editing, undo/redo, import/export, Insert/Apply-to-project asset flows, and transparent-index checker visualization
+  - Tilemap Lab: tilemap paint/edit tool with tile+attribute entries, tile atlas picker, source tileset parsing, import/export, and Insert/Apply-to-project flows
   - Autosave with crash recovery
   - Settings persistence (view mode, split offsets, recent files, UI density)
+  - Build state tracking (`Draft` -> `Validating...` -> `Validated` / `Error`) and diagnostics counters
   - UI density modes (Compact / Standard) for workspace efficiency
-  - F11 maximize/restore, resizable panels, layout presets
+  - Native OS maximize/restore, resizable panels, layout presets
   - Load ROM for direct `.rom` testing without recompilation
 
 ### 🚧 In Progress
 
-- **Nitro-Core-DX App Expansion**: Tilemap Editor, Sound Studio, richer editor UX (syntax highlighting, find/replace)
+- **Nitro-Core-DX App Expansion**: Sound Studio, find/replace, richer editor UX polish
 - **CoreLX Toolchain**: unified asset model, packaging flow, structured assets, banked linker integration
-- **FM Audio**: moving from OPM-lite subset toward fuller YM2151-style behavior
+- **Audio Roadmap**: YM2608 migration planning and conformance-profile definition (implementation sequenced after Sprite/Dev Kit and Sound Studio gates)
 
 ### ❌ Optional Enhancements (Not Required)
 
 - **Vertical Sprites**: 3D sprite scaling for Matrix Mode (can be added later)
-- **FM Synthesis**: Experimental FM/OPM extension is in progress (not final YM2151-accurate yet)
+- **FM Synthesis**: Current OPM-lite runtime path is transitional; V1 release target is YM2608
 
 For detailed status and documentation navigation, see [docs/README.md](docs/README.md) and [docs/HARDWARE_FEATURES_STATUS.md](docs/HARDWARE_FEATURES_STATUS.md).
 
@@ -167,7 +169,7 @@ For detailed status and documentation navigation, see [docs/README.md](docs/READ
 | **Max Sprites** | 128 sprites |
 | **Background Layers** | 4 independent layers (BG0, BG1, BG2, BG3) |
 | **Matrix Mode** | Mode 7-style effects with large world support |
-| **Audio Channels** | 4 legacy channels + experimental FM extension (OPM-lite/YM2151-style MMIO) |
+| **Audio Channels** | 4 legacy channels + in-progress FM extension (current OPM-lite runtime path; V1 target YM2608) |
 | **Audio Sample Rate** | 44,100 Hz |
 | **CPU Speed** | ~7.67 MHz (127,820 cycles per frame at 60 FPS, Genesis-like) |
 | **Memory** | 64KB per bank, 256 banks (16MB total address space) |
@@ -263,14 +265,20 @@ go run ./cmd/corelx_devkit
 ```
 
 - Use **New** to create a project from a template (Blank Game, Minimal Loop, Sprite Demo, Tilemap Demo, Shmup Starter, Matrix Mode Demo)
-- Use **Open** to load an existing `.corelx` file, or **Load ROM** to run a prebuilt `.rom` directly
+- Use **Open** to launch the project-centric open dialog (source, ROM, or recent projects), or **Load ROM** to run a prebuilt `.rom` directly
 - Click **Build + Run** to compile and run in the embedded emulator
 - Switch views: **Split View** (editor + emulator), **Emulator Focus** (emulator only), **Code Only** (editor only)
-- Press **F11** to toggle maximize/restore
+- Use your OS title-bar controls (double-click title bar or window menu) to maximize/restore
 - Use **Tools > UI Density** to switch between Compact and Standard spacing
 - Use **Capture Game Input** when you want keyboard input routed to the embedded emulator
-- Open the **Sprite Lab** tab to create pixel-art sprites and generate CoreLX asset code
+- Open **Sprite Lab** and **Tilemap Lab** tabs to create/update assets; use **Apply To Manifest** (recommended) for compiler-ingested asset upserts, or **Apply To Project** for in-source asset blocks
+- Watch the top bar **Build State** indicator to confirm whether edits are draft vs validated
 - Example CoreLX validation file: `test/roms/devkit_moving_box_test.corelx`
+
+Project asset manifest support:
+- The compiler service auto-loads `corelx.assets.json` from the same directory as your `.corelx` file (when present).
+- Manifest assets are merged with in-source `asset ...` declarations during build.
+- This keeps editor proposals and compiler-produced manifests aligned under one compiler-owned build output.
 
 Known-good ROMs for embedded emulator testing (after generating them locally):
 - `test/roms/input_visual_diagnostic.rom`
@@ -404,7 +412,7 @@ The project documentation is organized into several main documents:
   - 44,100 Hz sample rate
   - PCM playback support
   - Master volume control
-  - FM extension MMIO + timer/IRQ path with audible OPM-lite subset (in progress)
+  - FM extension MMIO + timer/IRQ path with audible OPM-lite subset (current implementation while YM2608 migration is planned)
 
 - **Precise Memory Mapping**
   - Banked memory architecture (256 banks × 64KB = 16MB)
@@ -418,9 +426,10 @@ The project documentation is organized into several main documents:
 
 ### Tooling
 
-- **Nitro-Core-DX App (Dev Kit)**: Professional IDE with menu bar, domain-grouped toolbar, CoreLX editor, Build/Build+Run, diagnostics panel, embedded emulator, Sprite Lab, project templates, autosave, settings persistence, UI density modes, three view modes (Split View, Emulator Focus, Code Only)
-- **Sprite Lab**: Pixel-art sprite editor with 8x8 to 64x64 canvas, 16 palette banks (16 colors each), RGB555 editing, grid overlay, mirror painting, undo/redo history, `.clxsprite` import/export, and one-click CoreLX asset code generation
-- **CoreLX Compiler**: structured diagnostics, manifest JSON, compile bundle JSON, asset normalization groundwork
+- **Nitro-Core-DX App (Dev Kit)**: Professional IDE with menu bar, domain-grouped toolbar, CoreLX editor, Build/Build+Run, diagnostics panel, embedded emulator, Sprite Lab, Tilemap Lab, project templates, autosave, settings persistence, UI density modes, and three view modes (Split View, Emulator Focus, Code Only)
+- **Sprite Lab**: Pixel-art sprite editor with 8x8 to 64x64 canvas, 16 palette banks (16 colors each), RGB555 editing (hex + slider), grid overlay, mirror painting, wrap-shift controls (up/down/left/right), transparent-index checker display, undo/redo history, `.clxsprite` import/export, and Insert/Apply asset flows
+- **Tilemap Lab**: Tilemap editor with brush/fill/erase tools, palette/flip attributes, source tileset parsing, tile atlas selection, `.clxtilemap` import/export, and Insert/Apply asset flows
+- **CoreLX Compiler**: structured diagnostics, manifest JSON, compile bundle JSON, and project asset manifest ingestion (`corelx.assets.json`) in the compile service path
 - **Assembler v1 (`cmd/asm`)**: text assembly to ROM for low-level workflows
 - **Logging & Debug Support**: component logging, cycle logger, register/memory viewers, debugger CLI components
 - **ROM Test Tooling**: Go-based ROM builders and test generators (some gated by `testrom_tools`)
@@ -438,7 +447,9 @@ nitro-core-dx/
 │   ├── corelx/            # CoreLX compiler CLI
 │   ├── corelx_devkit/     # Integrated Dev Kit IDE
 │   │   ├── main.go            # App entry, UI init, toolbar, view modes
+│   │   ├── corelx_code_editor.go # Inline syntax-highlighted CoreLX editor widget
 │   │   ├── sprite_lab.go      # Sprite Lab pixel editor
+│   │   ├── tilemap_lab.go     # Tilemap Lab map editor + tile atlas picker
 │   │   ├── templates.go       # Project templates and New Project dialog
 │   │   ├── settings.go        # Settings persistence (JSON)
 │   │   ├── autosave.go        # Autosave and crash recovery

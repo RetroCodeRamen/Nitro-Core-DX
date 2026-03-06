@@ -13,7 +13,7 @@ This directory contains planning, roadmap, and implementation-plan documents.
 - `DEV_TOOLS_IMPLEMENTATION_PLAN.md`
   - Dev tools roadmap and implementation ideas (review against current code before executing)
 - `FUTURE_FEATURES_PARKING_LOT.md`
-  - Deferred ideas / future expansion concepts (keyboard bus, FM follow-ups, etc.)
+  - Deferred ideas / future expansion concepts (keyboard bus, YM2608 follow-ups, etc.)
 
 ## Historical / Mixed Snapshot Planning
 

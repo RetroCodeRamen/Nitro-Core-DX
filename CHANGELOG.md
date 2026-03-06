@@ -9,6 +9,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.8] - 2026-03-06
+
+### Added
+- **Native Editor Engine Foundation** (single-ownership model)
+  - Replaced fragile hidden input forwarding pattern with a native document model path for editor interaction handling
+  - Added internal editor model package with gap-buffer-based text storage and caret/selection primitives
+  - Added editor interaction tests for typing and selection forwarding behavior
+  - Location: `internal/editor/native/`, `cmd/corelx_devkit/corelx_code_editor.go`, `cmd/corelx_devkit/*_test.go`
+- **Sprite Lab Wrap-Shift Controls**
+  - Added sprite-wide wrapped shift operations (up/down/left/right)
+  - Added hotkeys for wrapped shifting (`I/J/K/L`) in Sprite Lab
+  - Location: `cmd/corelx_devkit/sprite_lab.go`
+- **Palette Value Slider in Sprite Lab**
+  - Added RGB555 slider-based color editing with synchronized hex value display
+  - Kept full-width hex entry visible during palette editing flows
+  - Location: `cmd/corelx_devkit/sprite_lab.go`
+- **Window Behavior Guardrail Test**
+  - Added test coverage to ensure platform maximize-hint calls remain constrained and do not sprawl into unrelated UI paths
+  - Location: `cmd/corelx_devkit/window_behavior_test.go`
+- **Weekly Blog Log**
+  - Added running blog post document with 2026-03-06 entry covering weekly progress and planning updates
+  - Location: `docs/BLOG_POSTS.md`
+
+### Changed
+- **Sprite Lab Preview Scaling**
+  - Switched preview rendering to aspect-preserving containment to prevent distortion on window resize
+  - Location: `cmd/corelx_devkit/sprite_lab.go`
+- **Window Management Policy**
+  - Reaffirmed native OS maximize/minimize behavior as a release-quality invariant and documented it in planning/architecture docs
+  - Startup applies X11 maximize compatibility hint in a constrained path where required
+  - Location: `cmd/corelx_devkit/main.go`, `cmd/corelx_devkit/window_x11_maximize.go`, planning docs
+- **V1 Audio Direction**
+  - Updated V1 planning scope from YM2151/OPM-lite release target to YM2608 release target
+  - Added explicit execution-order constraints: Sprite/Dev Kit -> Tilemap flow -> Sound Studio -> YM2608
+  - Location: `docs/planning/V1_CHARTER.md`, `docs/planning/V1_ACCEPTANCE.md`, `docs/planning/V1_RISKS.md`
+- **Documentation Alignment Pass**
+  - Updated manual/guide/spec references to reflect current editor direction, Sprite Lab capabilities, and YM2608 target planning state
+  - Location: `README.md`, `PROGRAMMING_MANUAL.md`, `docs/CORELX.md`, `docs/guides/PROGRAMMING_GUIDE.md`, `docs/specifications/README.md`, `docs/specifications/APU_FM_OPM_EXTENSION_SPEC.md`
+
+### Fixed
+- **Dev Kit Editor Interaction Stability**
+  - Improved reliability for typing/selection paths that previously regressed under rapid editor feature iteration
+- **Linux Maximize Availability Regression**
+  - Restored expected title-bar maximize behavior in environments that required explicit hinting
+
+---
+
 ## [0.1.7] - 2026-02-28
 
 ### Added

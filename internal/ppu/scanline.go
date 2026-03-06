@@ -221,11 +221,16 @@ func (p *PPU) endScanline() {
 
 // endFrame is called at the end of each frame
 func (p *PPU) endFrame() {
-	// Clear VBlank flag at end of frame
-	// (It will be set again at start of next frame)
-	// Actually, keep it set until read - it's cleared when read, not here
+	// Render buffered text commands on top of the finished frame
+	for i := 0; i < p.textCount; i++ {
+		cmd := &p.textCmds[i]
+		p.drawChar(cmd.char, cmd.x, cmd.y, cmd.color)
+	}
+	p.textCount = 0
 
-	// Mark frame as complete (buffer is safe to read)
+	// Copy to display buffer (front buffer) so startFrame can safely clear the back buffer
+	copy(p.DisplayBuffer[:], p.OutputBuffer[:])
+
 	p.FrameComplete = true
 }
 

@@ -153,6 +153,25 @@ func TestSpriteLabCoreLXSnippetShape(t *testing.T) {
 	}
 }
 
+func TestSpriteLabAssetHexData(t *testing.T) {
+	w, h := 8, 8
+	pixels := make([]uint8, w*h)
+	for i := range pixels {
+		pixels[i] = uint8(i % 16)
+	}
+	hexData, err := spriteLabAssetHexData(pixels, w, h)
+	if err != nil {
+		t.Fatalf("asset hex data: %v", err)
+	}
+	fields := strings.Fields(hexData)
+	if len(fields) != 32 {
+		t.Fatalf("expected 32 packed bytes for 8x8 sprite, got %d", len(fields))
+	}
+	if fields[0] != "10" || fields[1] != "32" {
+		t.Fatalf("unexpected leading packed bytes: %v", fields[:2])
+	}
+}
+
 func TestSpriteLabPaletteInitSnippetShape(t *testing.T) {
 	palettes := defaultSpriteLabPaletteData()
 	snippet, err := spriteLabPaletteInitSnippet(2, palettes)
@@ -163,7 +182,7 @@ func TestSpriteLabPaletteInitSnippetShape(t *testing.T) {
 	if len(lines) != 17 {
 		t.Fatalf("expected 17 lines (header + 16 writes), got %d", len(lines))
 	}
-	if !strings.HasPrefix(lines[0], "// Sprite Lab palette bank 2") {
+	if !strings.HasPrefix(lines[0], "-- Sprite Lab palette bank 2") {
 		t.Fatalf("unexpected header: %q", lines[0])
 	}
 	if !strings.HasPrefix(lines[1], "gfx.set_palette(2, 0, 0x") {
@@ -218,9 +237,9 @@ func TestSpriteLabDimensionValidation(t *testing.T) {
 
 func TestSpriteLabDisplaySizeUniformPixels(t *testing.T) {
 	cases := []struct {
-		name   string
-		w, h   int
-		fn     func(int, int) fyne.Size
+		name             string
+		w, h             int
+		fn               func(int, int) fyne.Size
 		expectW, expectH float32
 	}{
 		{"8x8 editor", 8, 8, spriteLabEditorDisplaySize, 384, 384},
@@ -235,6 +254,41 @@ func TestSpriteLabDisplaySizeUniformPixels(t *testing.T) {
 		sz := tc.fn(tc.w, tc.h)
 		if sz.Width != tc.expectW || sz.Height != tc.expectH {
 			t.Errorf("%s: expected %.0fx%.0f, got %.0fx%.0f", tc.name, tc.expectW, tc.expectH, sz.Width, sz.Height)
+		}
+	}
+}
+
+func TestShiftSpritePixelsWrap(t *testing.T) {
+	w, h := 4, 2
+	src := []uint8{
+		1, 2, 3, 4,
+		5, 6, 7, 8,
+	}
+	got, changed := shiftSpritePixelsWrap(src, w, h, 1, 0)
+	if !changed {
+		t.Fatalf("expected horizontal shift to report changed")
+	}
+	want := []uint8{
+		4, 1, 2, 3,
+		8, 5, 6, 7,
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("horizontal shift mismatch at %d: got %d want %d", i, got[i], want[i])
+		}
+	}
+
+	got, changed = shiftSpritePixelsWrap(src, w, h, 0, 1)
+	if !changed {
+		t.Fatalf("expected vertical shift to report changed")
+	}
+	want = []uint8{
+		5, 6, 7, 8,
+		1, 2, 3, 4,
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("vertical shift mismatch at %d: got %d want %d", i, got[i], want[i])
 		}
 	}
 }

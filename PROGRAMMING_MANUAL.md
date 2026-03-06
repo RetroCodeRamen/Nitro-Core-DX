@@ -1,7 +1,7 @@
 # Nitro Core DX Programming Manual
 
 **Version 3.1 (Pre-Alpha)**  
-**Last Updated: February 28, 2026**
+**Last Updated: March 6, 2026**
 
 > **Pre-Alpha Note:** Nitro Core DX is moving fast. This manual is intentionally practical and current, but some language features and tools will still change before alpha.
 >
@@ -127,13 +127,16 @@ The app uses a traditional IDE layout with a menu bar and domain-grouped toolbar
 - **Emulator Focus** — Emulator fills the workspace for play/test workflows
 - **Code Only** — Editor fills the workspace, emulator hidden for focused coding
 
-Press **F11** to toggle maximize/restore.
+Use your OS window controls (title-bar maximize/restore) for window state.
 
 ### Dev Kit Features
 
 - **Project Templates:** Create new projects from templates (Blank Game, Minimal Loop, Sprite Demo, Tilemap Demo, Shmup Starter, Matrix Mode Demo)
+- **CoreLX Editor:** Inline syntax highlighting (in the active editor), line numbers, active-line emphasis, and diagnostics jump
 - **Sprite Lab:** Pixel-art sprite editor integrated as a workbench tab (see below)
+- **Tilemap Lab:** Tilemap paint/edit tool integrated as a workbench tab (see below)
 - **Diagnostics Panel:** Compiler errors/warnings with severity filtering
+- **Build State:** `Draft`, `Validating...`, `Validated`, and `Error` state indicator in the top bar
 - **Build Output / Manifest / Debug Panels:** Build logs, memory summary, debugger output
 - **Autosave:** Automatic crash recovery for unsaved work
 - **Settings Persistence:** View mode, split positions, recent files, and UI density are saved between sessions
@@ -147,19 +150,46 @@ The Sprite Lab is a built-in pixel-art editor accessible from the workbench tabs
 - Canvas sizes from 8x8 to 64x64 (step of 8)
 - 16 palette banks with 16 colors each (RGB555 format)
 - Pencil and Erase tools with optional Mirror X painting
+- Wrapped sprite shifting controls (Shift Up/Down/Left/Right) for quick pixel block moves
 - Grid overlay and hover highlighting
 - Undo/Redo history (up to 128 states)
 - Import/Export `.clxsprite` asset files
-- One-click **Insert CoreLX Asset** to generate tile hex data + palette setup code directly into the editor
+- **Apply To Manifest** to upsert asset data into `corelx.assets.json` (recommended compiler-ingested path)
+- **Insert CoreLX Asset** to append generated asset + palette snippet
+- **Apply To Project** to upsert/update matching asset blocks without duplicating them
 - Preview pane with packed 4bpp hex output
+- Transparent index-0 checkerboard preview mode for no-color pixels
+- Palette editor with full-width RGB555 hex entry and slider-based value control
+
+### Tilemap Lab
+
+The Tilemap Lab is a built-in map editor in the same workbench area. It supports:
+
+- Map sizes from 8x8 to 64x64 (step of 8)
+- Tile-entry editing as packed `(tile, attr)` values
+- Brush/fill/erase editing, undo/redo history
+- Palette/flip attribute editing (`pal`, `flipX`, `flipY`)
+- Parsing tile assets from current source (`tiles8`, `tileset`, `sprite`) into a selectable tile atlas
+- Import/Export `.clxtilemap` files
+- **Apply To Manifest** to upsert tilemap data into `corelx.assets.json`
+- **Insert CoreLX Asset** and **Apply To Project** flows (same model as Sprite Lab)
 
 ### Workflow (Typical)
 
 1. Click **New** and choose a project template, or **Open** an existing `.corelx` file
 2. Edit code in the CoreLX editor
 3. Click **Build + Run** to compile and run in the embedded emulator
-4. Use the **Sprite Lab** tab to create sprites and insert them as CoreLX assets
+4. Use **Sprite Lab** and **Tilemap Lab** to create assets, then apply them to source
 5. Use **Load ROM** to test prebuilt ROMs without recompilation
+6. Confirm the build status indicator returns to **Validated** after edits/builds
+
+### Project Asset Manifest (`corelx.assets.json`)
+
+The current compiler service path (used by Dev Kit Build/Build+Run) automatically checks for `corelx.assets.json` next to your `.corelx` file.
+
+- If present, manifest assets are loaded and merged with in-source `asset` declarations.
+- This keeps final build manifest/binary mapping compiler-owned.
+- Editor tools should be treated as proposal/edit helpers; compiler outputs remain the source of truth for emitted artifacts.
 
 > **Quick Note:** If game input seems unresponsive, make sure **Capture Game Input** is enabled and click the emulator pane once.
 
@@ -452,18 +482,19 @@ Typical examples include:
 - `apu.note_on(...)`
 - `apu.note_off(...)`
 
-### FM Extension (OPM/YM2151-Style Direction)
+### FM Extension (Current Runtime) and YM2608 Plan
 
-The emulator now includes an **FM extension block** at the hardware/MMIO level (`0x9100-0x91FF`) with:
+The emulator currently includes an in-progress **FM extension block** at the hardware/MMIO level (`0x9100-0x91FF`) with:
 
 - host MMIO interface
 - timer/status/IRQ behavior (deterministic placeholder timing model)
-- audible OPM-lite FM synthesis path (software emulation)
+- audible OPM-lite FM synthesis path (software emulation, transitional)
 
-But:
+Current constraints:
 
 - `fm.*` CoreLX APIs are **not finalized yet**
 - advanced FM programming is currently best done through assembly or low-level ROM code
+- the V1 release audio target is now **YM2608**, so the current OPM-lite path should be treated as a bridge state while Sound Studio and audio migration gates are completed
 
 > **Why This Matters:** This lets us keep CoreLX simple for beginners while still building toward richer, FPGA-friendly FM audio.
 
@@ -791,10 +822,9 @@ These are active directions, not promises of exact syntax.
 
 ### Nitro-Core-DX App
 
-- Tilemap Editor
 - Sound Studio
 - Debug overlays / memory viewers
-- stronger code editing experience (Monaco/webview integration planned)
+- stronger code editing experience (native single-widget editor engine stabilization in progress)
 
 ### Audio
 
@@ -817,7 +847,7 @@ Use these for deeper details after you finish this manual.
 - `docs/CORELX_DATA_MODEL_PLAN.md` - compiler/data model plan for the SDK/dev kit
 - `docs/DEVKIT_ARCHITECTURE.md` - backend/frontend split for Nitro-Core-DX (Dev Kit architecture)
 - `docs/specifications/COMPLETE_HARDWARE_SPECIFICATION_V2.1.md` - current hardware spec reference
-- `docs/specifications/APU_FM_OPM_EXTENSION_SPEC.md` - FM extension architecture/status
+- `docs/specifications/APU_FM_OPM_EXTENSION_SPEC.md` - current FM extension runtime architecture/status (transitional)
 - `test/roms/devkit_moving_box_test.corelx` - current CoreLX Nitro-Core-DX input/sprite validation example
 
 ---
