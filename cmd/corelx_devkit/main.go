@@ -119,6 +119,7 @@ type devKitState struct {
 	backend *devkit.Service
 
 	tempDir      string
+	launchDir    string
 	settingsPath string
 	settings     devKitSettings
 
@@ -208,6 +209,7 @@ func main() {
 
 	settingsPath := devKitSettingsPath()
 	settings, settingsErr := loadDevKitSettings(settingsPath)
+	launchDir, _ := os.Getwd()
 
 	if settings.UIDensity == "standard" {
 		a.Settings().SetTheme(newStandardTheme())
@@ -229,6 +231,7 @@ func main() {
 
 	state := &devKitState{
 		tempDir:              tempDir,
+		launchDir:            launchDir,
 		settingsPath:         settingsPath,
 		settings:             settings,
 		autosavePath:         devKitAutosavePath(settingsPath),
@@ -779,6 +782,9 @@ func (s *devKitState) openAnyProjectDialog() {
 		s.appendBuildOutput("Opened " + s.currentPath)
 	}, s.window)
 	fd.SetFilter(storage.NewExtensionFileFilter([]string{".corelx", ".clx", ".txt", ".rom"}))
+	if loc := dialogListableForDir(s.defaultProjectOpenDir()); loc != nil {
+		fd.SetLocation(loc)
+	}
 	fd.Show()
 }
 
@@ -810,7 +816,7 @@ func (s *devKitState) openROMDialog() {
 		s.setStatus("Project build loaded")
 	}, s.window)
 	fd.SetFilter(storage.NewExtensionFileFilter([]string{".rom"}))
-	if loc := dialogListableForDir(s.settings.LastROMDir); loc != nil {
+	if loc := dialogListableForDir(s.defaultROMDialogDir()); loc != nil {
 		fd.SetLocation(loc)
 	}
 	fd.Show()

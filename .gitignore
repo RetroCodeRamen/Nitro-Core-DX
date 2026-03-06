@@ -4,6 +4,9 @@
 /audiotest
 /demorom
 /testrom
+/testrom_input
+/testrom_minimal
+/corelx_devkit
 /corelx
 /debugger
 /test_corelx_features

@@ -19,7 +19,7 @@ The interactive debugger (`./debugger <rom.rom>`) provides a command-line interf
 ### Starting the Debugger
 
 ```bash
-./debugger test/roms/sprite_eater_game.rom
+./debugger roms/sprite_eater_game.rom
 ```
 
 The debugger starts with the emulator in a paused state, ready for commands.
@@ -118,7 +118,7 @@ The cycle logger provides cycle-by-cycle execution traces for detailed timing an
 Enable cycle logging with the `-cyclelog` flag:
 
 ```bash
-./nitro-core-dx -cyclelog=debug.log -maxcycles=1000 -startcycle=0 test/roms/sprite_eater_game.rom
+./nitro-core-dx -cyclelog=debug.log -maxcycles=1000 -startcycle=0 roms/sprite_eater_game.rom
 ```
 
 Options:

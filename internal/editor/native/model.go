@@ -155,7 +155,7 @@ func (m *Model) LineText(line int) string {
 
 func (m *Model) InsertRune(r rune) {
 	if m.HasSelection() {
-		m.DeleteSelection()
+		m.deleteSelectionNoRebuild()
 	}
 	m.doc.Insert(m.Caret.Offset, []rune{r})
 	m.Caret.Offset++
@@ -172,7 +172,7 @@ func (m *Model) InsertText(text string) {
 		return
 	}
 	if m.HasSelection() {
-		m.DeleteSelection()
+		m.deleteSelectionNoRebuild()
 	}
 	m.doc.Insert(m.Caret.Offset, r)
 	m.Caret.Offset += len(r)
@@ -185,7 +185,8 @@ func (m *Model) InsertText(text string) {
 
 func (m *Model) Backspace() {
 	if m.HasSelection() {
-		m.DeleteSelection()
+		m.deleteSelectionNoRebuild()
+		m.rebuildLineStarts()
 		return
 	}
 	if m.Caret.Offset <= 0 {
@@ -202,7 +203,8 @@ func (m *Model) Backspace() {
 
 func (m *Model) DeleteForward() {
 	if m.HasSelection() {
-		m.DeleteSelection()
+		m.deleteSelectionNoRebuild()
+		m.rebuildLineStarts()
 		return
 	}
 	if m.Caret.Offset >= m.Len() {
@@ -220,14 +222,21 @@ func (m *Model) DeleteSelection() {
 	if !m.HasSelection() {
 		return
 	}
+	m.deleteSelectionNoRebuild()
+	m.rebuildLineStarts()
+}
+
+func (m *Model) deleteSelectionNoRebuild() {
+	if !m.HasSelection() {
+		return
+	}
 	start, end := m.Sel.Range()
 	m.doc.Delete(start, end)
-	m.rebuildLineStarts()
 	m.Caret.Offset = start
-	_, col := m.OffsetToLineCol(m.Caret.Offset)
-	m.Caret.PreferredColumn = col
 	m.Sel.Anchor = start
 	m.Sel.Active = start
+	_, col := m.OffsetToLineCol(m.Caret.Offset)
+	m.Caret.PreferredColumn = col
 }
 
 func (m *Model) MoveLeft(extend bool) {

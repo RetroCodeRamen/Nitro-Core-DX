@@ -16,18 +16,18 @@ fi
 
 # Build test ROM generator
 echo "📦 Building input test ROM generator..."
-go build -o testrom_input ./cmd/testrom_input
+go build -o testrom_input ./cmd/testrom/input
 
 # Generate test ROM
 echo "🔨 Generating input test ROM..."
-./testrom_input test/roms/input_test.rom
+./testrom_input roms/input_test.rom
 
-if [ ! -f "test/roms/input_test.rom" ]; then
+if [ ! -f "roms/input_test.rom" ]; then
     echo "❌ Failed to generate test ROM"
     exit 1
 fi
 
-echo "✅ Test ROM created: test/roms/input_test.rom"
+echo "✅ Test ROM created: roms/input_test.rom"
 echo ""
 
 # Run unit tests
@@ -55,7 +55,7 @@ echo "Manual Testing"
 echo "=========================================="
 echo ""
 echo "To test input interactively, run:"
-echo "  ./nitro-core-dx -rom test/roms/input_test.rom -scale 3"
+echo "  ./nitro-core-dx -rom roms/input_test.rom -scale 3"
 echo ""
 echo "Expected behavior:"
 echo "  - White 8x8 sprite appears on screen"
@@ -73,4 +73,4 @@ read -n 1 -s
 
 echo ""
 echo "🚀 Launching emulator..."
-./nitro-core-dx -rom test/roms/input_test.rom -scale 3
+./nitro-core-dx -rom roms/input_test.rom -scale 3

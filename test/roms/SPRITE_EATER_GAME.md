@@ -12,12 +12,12 @@ A simple demo game written in CoreLX for the Nitro Core DX console.
 
 1. Compile the game:
    ```bash
-   ./corelx test/roms/sprite_eater_game.corelx test/roms/sprite_eater_game.rom
+   ./corelx test/roms/sprite_eater_game.corelx roms/sprite_eater_game.rom
    ```
 
 2. Run in the emulator:
    ```bash
-   ./nitro-core-dx test/roms/sprite_eater_game.rom
+   ./nitro-core-dx roms/sprite_eater_game.rom
    ```
 
 3. Use arrow keys to control your sprite:

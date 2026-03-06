@@ -490,8 +490,8 @@ Integration tests verify components work together:
 
 ROM-based tests verify the complete system:
 
-- **`test/roms/simple_sprite.rom`**: Simple static sprite test
-- **`test/roms/bouncing_ball.rom`**: Complex test with movement, collision, and sound
+- **`roms/simple_sprite.rom`**: Simple static sprite test
+- **`roms/bouncing_ball.rom`**: Complex test with movement, collision, and sound
 
 ### Running Tests
 

@@ -13,7 +13,7 @@ Scoring:
 |---|---|---|---|---|---|---|---|
 | R-001 | Editor | Native editor engine complexity (input/render/selection/perf) delays IDE milestone | High | Medium | Stabilize single-ownership editor model, keep interaction test matrix active, and gate merges on editor latency/selection correctness checks | Dev Kit | Open |
 | R-002 | Tooling | Sprite/Tilemap/Sound tools produce incompatible assets | High | Medium | Define shared asset contracts + golden round-trip tests early | CoreLX + Tools | Open |
-| R-003 | Audio | YM2608 migration + parity profile expands unexpectedly | High | High | Freeze YM2608 conformance profile early; constrain sequence (Sprite/Dev Kit -> Sound Studio -> YM2608); enforce review gates before enabling new chip behavior | Audio | Open |
+| R-003 | Audio | YM2608 migration + parity profile expands unexpectedly | High | High | Freeze YM2608 conformance profile early; constrain sequence (Sprite/Dev Kit -> Tilemap -> YM2608 conformance pass -> CoreLX/APU integration update -> Sound Studio); enforce review gates before enabling new chip behavior | Audio | Open |
 | R-004 | Performance | New tools/editor regress Build+Run responsiveness | Medium | Medium | Add performance baselines and CI perf checks for Dev Kit workflows | Dev Kit | Open |
 | R-005 | Stability | Session persistence introduces corruption/lost-work scenarios | High | Medium | Add atomic settings writes, recovery paths, and crash-restart tests | Dev Kit | Open |
 | R-006 | Docs | Manual diverges from real game code and APIs | High | Medium | Enforce snippet-run checks in CI and map sections to live source files | Docs | Open |

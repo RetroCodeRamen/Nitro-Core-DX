@@ -35,10 +35,10 @@ Several Go-based ROM generator utilities also live in this directory. They are e
 **Usage**:
 ```bash
 # Build ROM
-go run -tags testrom_tools ./test/roms/build_input_visual_diagnostic.go ./test/roms/input_visual_diagnostic.rom
+go run -tags testrom_tools ./test/roms/build_input_visual_diagnostic.go ./roms/input_visual_diagnostic.rom
 
 # Run in emulator (no SDL_ttf build)
-go run -tags no_sdl_ttf ./cmd/emulator -rom ./test/roms/input_visual_diagnostic.rom
+go run -tags no_sdl_ttf ./cmd/emulator -rom ./roms/input_visual_diagnostic.rom
 ```
 
 ### `build_apu_fm_showcase.go`
@@ -57,10 +57,10 @@ go run -tags no_sdl_ttf ./cmd/emulator -rom ./test/roms/input_visual_diagnostic.
 **Usage**:
 ```bash
 # Build ROM
-go run -tags testrom_tools ./test/roms/build_apu_fm_showcase.go ./test/roms/apu_fm_showcase.rom
+go run -tags testrom_tools ./test/roms/build_apu_fm_showcase.go ./roms/apu_fm_showcase.rom
 
 # Run in emulator (no SDL_ttf build)
-go run -tags no_sdl_ttf ./cmd/emulator -rom ./test/roms/apu_fm_showcase.rom
+go run -tags no_sdl_ttf ./cmd/emulator -rom ./roms/apu_fm_showcase.rom
 ```
 
 ### `build_fm_opmlite_showcase.go`
@@ -77,10 +77,10 @@ go run -tags no_sdl_ttf ./cmd/emulator -rom ./test/roms/apu_fm_showcase.rom
 **Usage**:
 ```bash
 # Build ROM
-go run -tags testrom_tools ./test/roms/build_fm_opmlite_showcase.go ./test/roms/fm_opmlite_showcase.rom
+go run -tags testrom_tools ./test/roms/build_fm_opmlite_showcase.go ./roms/fm_opmlite_showcase.rom
 
 # Run in emulator (no SDL_ttf build)
-go run -tags no_sdl_ttf ./cmd/emulator -rom ./test/roms/fm_opmlite_showcase.rom
+go run -tags no_sdl_ttf ./cmd/emulator -rom ./roms/fm_opmlite_showcase.rom
 ```
 
 ## Test ROMs
@@ -101,14 +101,14 @@ go run -tags no_sdl_ttf ./cmd/emulator -rom ./test/roms/fm_opmlite_showcase.rom
 **Usage**:
 ```bash
 # Compile
-./corelx test/roms/corelx_comprehensive_test.corelx test/roms/corelx_comprehensive_test.rom
+./corelx test/roms/corelx_comprehensive_test.corelx roms/corelx_comprehensive_test.rom
 
 # Test with harness
 go build ./cmd/test_corelx_features
-./test_corelx_features test/roms/corelx_comprehensive_test.rom
+./test_corelx_features roms/corelx_comprehensive_test.rom
 
 # Or run in emulator
-./nitro-core-dx test/roms/corelx_comprehensive_test.rom
+./nitro-core-dx roms/corelx_comprehensive_test.rom
 ```
 
 ### `simple_test.corelx`

@@ -98,7 +98,7 @@ go build -o nitro-core-dx ./cmd/emulator
 The `run_with_log.sh` script can be used to capture all emulator output to a log file:
 
 ```bash
-./run_with_log.sh -rom test/roms/demo.rom -scale 3
+./run_with_log.sh -rom roms/demo.rom -scale 3
 ```
 
 This will create a timestamped log file (e.g., `emulator_log_20260106_193000.txt`) containing all console output.

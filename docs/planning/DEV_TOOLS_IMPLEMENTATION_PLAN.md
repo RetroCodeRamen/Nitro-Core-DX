@@ -3,6 +3,9 @@
 **Created:** January 27, 2026  
 **Status:** In Progress
 
+> **Historical Planning Note (2026-03-06):**
+> This document is retained for context/history. Portions are stale relative to current Dev Kit implementation (Sprite Lab/Tilemap Lab/editor architecture). Use `V1_CHARTER.md`, `V1_ACCEPTANCE.md`, and active code/tests as the source of truth for current execution.
+
 ## Overview
 
 This document outlines the implementation plan for development tools and UI improvements for Nitro-Core-DX. The goal is to create a professional development environment with proper tooling.

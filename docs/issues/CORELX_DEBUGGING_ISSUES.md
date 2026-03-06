@@ -38,7 +38,7 @@ We're recreating the working `moving_sprite_colored.rom` in CoreLX to identify c
 
 ### Issue #1: Blank Screen - Sprite Not Rendering
 - **Symptom**: CoreLX-compiled ROM shows blank screen, even with hardcoded values
-- **Test ROM**: `test/roms/moving_sprite_colored_corelx.rom`
+- **Test ROM**: `roms/moving_sprite_colored_corelx.rom`
 - **Simplified Test**: `test/roms/moving_sprite_colored_simple.corelx` (hardcoded values, no variables)
 - **Status**: Still blank screen after fixing binary operations
 
@@ -71,12 +71,12 @@ We're recreating the working `moving_sprite_colored.rom` in CoreLX to identify c
 ## Test ROMs
 
 ### Working Reference
-- `test/roms/moving_sprite_colored.rom` - Original Go-compiled version (works perfectly)
+- `roms/moving_sprite_colored.rom` - Original Go-compiled version (works perfectly)
 - Source: `test/roms/build_moving_sprite_colored.go`
 
 ### CoreLX Versions (Debugging)
-- `test/roms/moving_sprite_colored_corelx.rom` - Full CoreLX version with variables
-- `test/roms/moving_sprite_colored_simple.rom` - Simplified with hardcoded values
+- `roms/moving_sprite_colored_corelx.rom` - Full CoreLX version with variables
+- `roms/moving_sprite_colored_simple.rom` - Simplified with hardcoded values
 - Source: `test/roms/moving_sprite_colored.corelx` and `test/roms/moving_sprite_colored_simple.corelx`
 
 ## Tile Pattern Correction

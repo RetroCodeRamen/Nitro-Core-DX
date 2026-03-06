@@ -31,7 +31,7 @@ go build -o testrom ./cmd/testrom
 go build -o nitro-core-dx ./cmd/emulator
 
 # Run a test ROM
-./nitro-core-dx -rom test/roms/demo.rom -scale 3
+./nitro-core-dx -rom roms/demo.rom -scale 3
 ```
 
 

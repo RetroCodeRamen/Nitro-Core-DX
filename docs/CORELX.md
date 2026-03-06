@@ -651,10 +651,10 @@ To compile and run:
 
 ```bash
 # Compile
-./corelx test/roms/example.corelx test/roms/example.rom
+./corelx test/roms/example.corelx roms/example.rom
 
 # Run
-./nitro-core-dx test/roms/example.rom
+./nitro-core-dx roms/example.rom
 ```
 
 See [test/roms/README_TEST_ROMS.md](../test/roms/README_TEST_ROMS.md) for more details.

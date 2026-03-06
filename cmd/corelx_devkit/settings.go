@@ -162,6 +162,47 @@ func dialogListableForDir(dir string) fyne.ListableURI {
 	return listable
 }
 
+func directoryExists(path string) bool {
+	if path == "" {
+		return false
+	}
+	st, err := os.Stat(path)
+	return err == nil && st.IsDir()
+}
+
+func resolveDefaultROMDir(lastROMDir, launchDir, homeDir string) string {
+	if directoryExists(lastROMDir) {
+		return filepath.Clean(lastROMDir)
+	}
+
+	launchRoms := filepath.Join(launchDir, "roms")
+	if directoryExists(launchRoms) {
+		return filepath.Clean(launchRoms)
+	}
+
+	if directoryExists(homeDir) {
+		return filepath.Clean(homeDir)
+	}
+
+	if directoryExists(launchDir) {
+		return filepath.Clean(launchDir)
+	}
+
+	return ""
+}
+
+func (s *devKitState) defaultROMDialogDir() string {
+	homeDir, _ := os.UserHomeDir()
+	return resolveDefaultROMDir(s.settings.LastROMDir, s.launchDir, homeDir)
+}
+
+func (s *devKitState) defaultProjectOpenDir() string {
+	if directoryExists(s.settings.LastSourceDir) {
+		return filepath.Clean(s.settings.LastSourceDir)
+	}
+	return s.defaultROMDialogDir()
+}
+
 func (s *devKitState) persistSettings() {
 	if err := saveDevKitSettings(s.settingsPath, s.settings); err != nil {
 		if s.buildOutput != nil {

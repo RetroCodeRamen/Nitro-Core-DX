@@ -16,13 +16,13 @@ go run build_bouncing_ball_sprite.go bouncing_ball.rom
 From the **project root**:
 
 ```bash
-./nitro-core-dx -rom test/roms/bouncing_ball.rom
+./nitro-core-dx -rom roms/bouncing_ball.rom
 ```
 
 Or if the binary is in `cmd/emulator`:
 
 ```bash
-./cmd/emulator/nitro-core-dx -rom test/roms/bouncing_ball.rom
+./cmd/emulator/nitro-core-dx -rom roms/bouncing_ball.rom
 ```
 
 ## Full Paths (if you're in a different directory)
@@ -36,7 +36,7 @@ go run build_bouncing_ball_sprite.go bouncing_ball.rom
 ### Run Emulator:
 ```bash
 cd /home/aj/Documents/Development/Nitro-Core-DX
-./nitro-core-dx -rom test/roms/bouncing_ball.rom
+./nitro-core-dx -rom roms/bouncing_ball.rom
 ```
 
 ## Troubleshooting

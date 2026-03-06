@@ -43,7 +43,7 @@ func main() {
 	builder.AddImmediate(0xFFFD) // Jump back to NOP
 
 	// Build ROM with entry point at bank 1, offset 0x8000
-	if err := builder.BuildROM(1, 0x8000, "test/roms/simple_test.rom"); err != nil {
+	if err := builder.BuildROM(1, 0x8000, "roms/simple_test.rom"); err != nil {
 		panic(err)
 	}
 }

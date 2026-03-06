@@ -10,13 +10,13 @@ A vertical shmup with Tyrian-level bullet density, cinematic transitions, and a 
 
 ```bash
 # From project root:
-go run ./cmd/corelx Games/GalaxyForce/main.corelx Games/GalaxyForce/galaxy_force.rom
+go run ./cmd/corelx Games/GalaxyForce/main.corelx roms/galaxy_force.rom
 ```
 
 ### Run in Emulator
 
 ```bash
-go run -tags no_sdl_ttf ./cmd/emulator -rom Games/GalaxyForce/galaxy_force.rom
+go run -tags no_sdl_ttf ./cmd/emulator -rom roms/galaxy_force.rom
 ```
 
 ### Run in Dev Kit

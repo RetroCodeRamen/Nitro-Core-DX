@@ -14,6 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Start 0.1.9 development cycle.
 
+### Changed
+- **ROM Path and Test Generator Cleanup**
+  - Centralized active runnable ROM artifacts under the root `roms/` directory.
+  - Updated active docs/scripts to use `roms/...` outputs for consistent run/build/test commands.
+  - Retired legacy duplicate command path `cmd/testrom_input` in favor of `cmd/testrom/input`.
+  - Why this changed: reduce tooling drift, eliminate duplicate command maintenance, and make Dev Kit/default ROM discovery predictable across workflows.
+
 ---
 
 ## [0.1.8] - 2026-03-06

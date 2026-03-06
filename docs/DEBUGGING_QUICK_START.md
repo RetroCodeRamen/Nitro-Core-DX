@@ -5,7 +5,7 @@
 The easiest way to debug your ROMs is using the interactive debugger:
 
 ```bash
-./debugger test/roms/sprite_eater_game.rom
+./debugger roms/sprite_eater_game.rom
 ```
 
 ### Quick Commands
@@ -22,7 +22,7 @@ The easiest way to debug your ROMs is using the interactive debugger:
 
 ```bash
 # Start debugger
-./debugger test/roms/sprite_eater_game.rom
+./debugger roms/sprite_eater_game.rom
 
 # Set breakpoint after sprite initialization
 (debugger) break 1:0x8100
@@ -63,7 +63,7 @@ logger.SetMinLevel(debug.LogLevelDebug)
 For detailed timing analysis:
 
 ```bash
-./nitro-core-dx -cyclelog=debug.log -maxcycles=1000 test/roms/sprite_eater_game.rom
+./nitro-core-dx -cyclelog=debug.log -maxcycles=1000 roms/sprite_eater_game.rom
 ```
 
 ## UI Debug Panels

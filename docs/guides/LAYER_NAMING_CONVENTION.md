@@ -107,7 +107,7 @@ The Nitro-Core-DX system consists of four distinct layers, from highest to lowes
 - Test ROMs and demos
 
 **Components**:
-- ROM files (`test/roms/*.rom`)
+- ROM files (`roms/*.rom`)
 - ROM builders (`test/roms/build_*.go`)
 - Game code and data
 - Test programs

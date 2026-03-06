@@ -114,3 +114,80 @@ func TestLoadDevKitSettingsInvalidViewModeFallsBackToDefault(t *testing.T) {
 		t.Fatalf("expected fallback view mode %q, got %q", viewModeFull, out.ViewMode)
 	}
 }
+
+func TestResolveDefaultROMDirPrefersLastROMDir(t *testing.T) {
+	root := t.TempDir()
+	lastROM := filepath.Join(root, "last-rom")
+	launch := filepath.Join(root, "launch")
+	home := filepath.Join(root, "home")
+	for _, p := range []string{lastROM, launch, home} {
+		if err := os.MkdirAll(p, 0755); err != nil {
+			t.Fatalf("mkdir %s: %v", p, err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(launch, "roms"), 0755); err != nil {
+		t.Fatalf("mkdir launch/roms: %v", err)
+	}
+
+	got := resolveDefaultROMDir(lastROM, launch, home)
+	if got != filepath.Clean(lastROM) {
+		t.Fatalf("got %q, want %q", got, filepath.Clean(lastROM))
+	}
+}
+
+func TestResolveDefaultROMDirFallsBackToLaunchRomsThenHome(t *testing.T) {
+	root := t.TempDir()
+	launch := filepath.Join(root, "launch")
+	home := filepath.Join(root, "home")
+	if err := os.MkdirAll(filepath.Join(launch, "roms"), 0755); err != nil {
+		t.Fatalf("mkdir launch/roms: %v", err)
+	}
+	if err := os.MkdirAll(home, 0755); err != nil {
+		t.Fatalf("mkdir home: %v", err)
+	}
+
+	got := resolveDefaultROMDir("", launch, home)
+	if want := filepath.Join(launch, "roms"); got != filepath.Clean(want) {
+		t.Fatalf("got %q, want %q", got, filepath.Clean(want))
+	}
+
+	if err := os.RemoveAll(filepath.Join(launch, "roms")); err != nil {
+		t.Fatalf("remove launch/roms: %v", err)
+	}
+	got = resolveDefaultROMDir("", launch, home)
+	if got != filepath.Clean(home) {
+		t.Fatalf("got %q, want %q", got, filepath.Clean(home))
+	}
+}
+
+func TestDefaultProjectOpenDirPrefersSourceDir(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "source")
+	launch := filepath.Join(root, "launch")
+	home := filepath.Join(root, "home")
+	if err := os.MkdirAll(source, 0755); err != nil {
+		t.Fatalf("mkdir source: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(launch, "roms"), 0755); err != nil {
+		t.Fatalf("mkdir launch/roms: %v", err)
+	}
+	if err := os.MkdirAll(home, 0755); err != nil {
+		t.Fatalf("mkdir home: %v", err)
+	}
+
+	// Resolve without relying on environment-dependent UserHomeDir.
+	got := resolveDefaultROMDir("", launch, home)
+	if want := filepath.Join(launch, "roms"); got != filepath.Clean(want) {
+		t.Fatalf("got %q, want %q", got, filepath.Clean(want))
+	}
+
+	s := &devKitState{
+		launchDir: launch,
+		settings: devKitSettings{
+			LastSourceDir: source,
+		},
+	}
+	if gotSource := s.defaultProjectOpenDir(); gotSource != filepath.Clean(source) {
+		t.Fatalf("project open dir got %q, want %q", gotSource, filepath.Clean(source))
+	}
+}

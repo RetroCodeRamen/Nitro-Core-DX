@@ -14,14 +14,14 @@ echo "=========================================="
 echo ""
 
 # Check if ROM exists
-ROM_PATH="test/roms/test_${ROM_NAME}.rom"
+ROM_PATH="roms/test_${ROM_NAME}.rom"
 if [ ! -f "$ROM_PATH" ]; then
     echo "❌ ROM not found: $ROM_PATH"
     echo "   Building it first..."
     
     case $ROM_NAME in
         minimal)
-            ./testrom_minimal "$ROM_PATH"
+            go run ./cmd/testrom/minimal "$ROM_PATH"
             ;;
         *)
             echo "   Build script for $ROM_NAME not implemented yet"

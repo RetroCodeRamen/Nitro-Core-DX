@@ -281,9 +281,14 @@ Project asset manifest support:
 - This keeps editor proposals and compiler-produced manifests aligned under one compiler-owned build output.
 
 Known-good ROMs for embedded emulator testing (after generating them locally):
-- `test/roms/input_visual_diagnostic.rom`
-- `test/roms/fm_opmlite_showcase.rom`
-- `test/roms/apu_fm_showcase.rom`
+- `roms/input_visual_diagnostic.rom`
+- `roms/fm_opmlite_showcase.rom`
+- `roms/apu_fm_showcase.rom`
+
+ROM layout:
+- Active runnable ROM artifacts are centralized in `roms/`.
+- `test/roms/` contains generators, sample CoreLX sources, and build docs.
+- `test/roms/archive/legacy_roms/` contains historical legacy ROM snapshots.
 
 See `test/roms/README_TEST_ROMS.md` for generator commands (`testrom_tools` build tag).
 
@@ -474,8 +479,9 @@ nitro-core-dx/
 │   ├── asm/               # Assembler implementation
 │   ├── devkit/            # UI-agnostic Dev Kit backend
 │   └── debug/             # Debugging tools
+├── roms/                  # Active runnable ROM artifacts
 ├── test/
-│   └── roms/              # Test ROMs and example CoreLX programs
+│   └── roms/              # ROM generators, sample CoreLX programs, and build helpers
 ├── docs/
 │   ├── issues/            # Known issues and fixes
 │   ├── testing/           # Testing guides

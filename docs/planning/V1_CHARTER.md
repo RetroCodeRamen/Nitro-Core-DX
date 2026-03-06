@@ -67,10 +67,11 @@ Ship Nitro-Core-DX as a product-complete desktop SDK (Linux + Windows first-clas
 
 The following sequence is mandatory for V1 execution:
 
-1. Finish Sprite Lab polish/stability and Dev Kit workflow hardening first.
+1. Finish visual tooling stabilization first: Sprite Lab polish/stability + Dev Kit workflow hardening.
 2. Complete Tilemap flow needed for production asset workflow.
-3. Start Sound Studio implementation only after steps 1-2 are complete.
-4. Start YM2608 implementation only after Sound Studio phase is started.
+3. Bring YM2608 chip behavior online and passing conformance-first tests (MMIO/timer/status/IRQ + baseline playback path).
+4. Update CoreLX/APU integration to consume the YM2608 runtime path cleanly in build/run workflows.
+5. Start Sound Studio implementation only after steps 1-4 are complete.
 
 This is a schedule constraint, not optional guidance. Scope may not bypass this order without an approved scope-change record.
 

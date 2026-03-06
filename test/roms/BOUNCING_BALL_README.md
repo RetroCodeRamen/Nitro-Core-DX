@@ -23,13 +23,13 @@ go run build_bouncing_ball_sprite.go bouncing_ball.rom
 
 ```bash
 cd ../..
-./nitro-core-dx -rom test/roms/bouncing_ball.rom
+./nitro-core-dx -rom roms/bouncing_ball.rom
 ```
 
 Or with the emulator binary:
 
 ```bash
-./cmd/emulator/nitro-core-dx -rom test/roms/bouncing_ball.rom
+./cmd/emulator/nitro-core-dx -rom roms/bouncing_ball.rom
 ```
 
 ## Expected Behavior

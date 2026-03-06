@@ -5,7 +5,7 @@
 ### 1. Run the Test ROM
 
 ```bash
-./nitro-core-dx -rom test/roms/test.rom
+./nitro-core-dx -rom roms/test.rom
 ```
 
 ### 2. What You Should See
@@ -86,7 +86,7 @@
 **Check**:
 ```bash
 # Verify ROM exists and has correct size
-ls -lh test/roms/test.rom
+ls -lh roms/test.rom
 # Should show: 726 bytes
 ```
 
@@ -130,7 +130,7 @@ ls -lh test/roms/test.rom
 To see detailed logs of what's happening:
 
 ```bash
-./nitro-core-dx -rom test/roms/test.rom -log
+./nitro-core-dx -rom roms/test.rom -log
 ```
 
 This will show:

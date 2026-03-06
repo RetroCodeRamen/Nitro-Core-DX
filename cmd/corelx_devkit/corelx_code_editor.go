@@ -50,6 +50,10 @@ type coreLXCodeEditor struct {
 	shiftHeld bool
 	dragSel   bool
 	popup     *widget.PopUpMenu
+
+	lastRenderedText string
+	lastTokenSource  string
+	lastTokens       []corelx.Token
 }
 
 func newCoreLXCodeEditor() *coreLXCodeEditor {
@@ -221,6 +225,7 @@ func (e *coreLXCodeEditor) SetOnChanged(cb func(string)) { e.onChanged = cb }
 
 func (e *coreLXCodeEditor) SetText(text string) {
 	e.model.SetText(text)
+	e.invalidateTokenCache()
 	e.notifyChanged()
 	e.scheduleRefresh()
 }
@@ -250,9 +255,15 @@ func (e *coreLXCodeEditor) focusSelf() {
 }
 
 func (e *coreLXCodeEditor) notifyChanged() {
+	e.invalidateTokenCache()
 	if e.onChanged != nil {
 		e.onChanged(e.model.Text())
 	}
+}
+
+func (e *coreLXCodeEditor) invalidateTokenCache() {
+	e.lastTokenSource = ""
+	e.lastTokens = nil
 }
 
 func (e *coreLXCodeEditor) setCaretFromPoint(pos fyne.Position, keepSelection bool) {
@@ -328,7 +339,10 @@ func (e *coreLXCodeEditor) refreshGrid(text string) {
 	if displayText == "" {
 		displayText = " "
 	}
-	e.grid.SetText(displayText)
+	if displayText != e.lastRenderedText {
+		e.grid.SetText(displayText)
+		e.lastRenderedText = displayText
+	}
 	e.applySyntaxHighlight(text)
 }
 
@@ -373,9 +387,21 @@ func (e *coreLXCodeEditor) applySyntaxHighlight(source string) {
 	lineStyle := &widget.CustomTextGridStyle{FGColor: theme.ForegroundColor(), BGColor: color.NRGBA{R: 23, G: 26, B: 33, A: 255}}
 	e.grid.SetRowStyle(activeRow, lineStyle)
 
-	lexer := corelx.NewLexer(source)
-	tokens, err := lexer.Tokenize()
-	if err == nil {
+	tokens := e.lastTokens
+	if source != e.lastTokenSource {
+		lexer := corelx.NewLexer(source)
+		parsed, err := lexer.Tokenize()
+		if err == nil {
+			tokens = parsed
+			e.lastTokens = parsed
+			e.lastTokenSource = source
+		} else {
+			tokens = nil
+			e.lastTokens = nil
+			e.lastTokenSource = source
+		}
+	}
+	if len(tokens) > 0 {
 		for _, tok := range tokens {
 			if tok.Type == corelx.TOKEN_EOF || tok.Line <= 0 || tok.Column <= 0 {
 				continue

@@ -9,7 +9,7 @@
 ```bash
 # From project root
 go build -o testrom_input ./cmd/testrom/input
-./testrom_input test/roms/input_test.rom
+./testrom_input roms/input_test.rom
 ```
 
 ### 2. Run the Emulator
@@ -19,7 +19,7 @@ go build -o testrom_input ./cmd/testrom/input
 go build -tags "no_sdl_ttf" -o nitro-core-dx ./cmd/emulator
 
 # Run the input test ROM
-./nitro-core-dx -rom test/roms/input_test.rom -scale 3
+./nitro-core-dx -rom roms/input_test.rom -scale 3
 ```
 
 ### 3. Test Input Behavior
@@ -90,17 +90,17 @@ echo "=========================================="
 # Build test ROM
 echo "Building input test ROM..."
 go build -o testrom_input ./cmd/testrom/input
-./testrom_input test/roms/input_test.rom
+./testrom_input roms/input_test.rom
 
 if [ $? -ne 0 ]; then
     echo "❌ Failed to build test ROM"
     exit 1
 fi
 
-echo "✅ Test ROM built: test/roms/input_test.rom"
+echo "✅ Test ROM built: roms/input_test.rom"
 echo ""
 echo "Manual Testing Required:"
-echo "1. Run: ./nitro-core-dx -rom test/roms/input_test.rom"
+echo "1. Run: ./nitro-core-dx -rom roms/input_test.rom"
 echo "2. Press Arrow Keys / WASD to move sprite"
 echo "3. Verify sprite responds to input"
 echo ""

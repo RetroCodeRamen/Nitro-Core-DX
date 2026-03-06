@@ -71,7 +71,11 @@ This document defines release-blocking acceptance gates tied to `V1_CHARTER.md`.
 
 ### ACC-TOOLS-4 Sequencing Gate
 - Sound Studio implementation does not begin until Sprite Lab + Dev Kit stabilization and required Tilemap flow gates are complete.
-- YM2608 implementation work does not begin before Sound Studio start gate is met.
+- Sound Studio implementation also requires YM2608/APU runtime readiness baseline:
+  - MMIO register path implemented
+  - timer/status/IRQ behavior path implemented
+  - baseline playback path available for in-tool preview integration
+- Before Sound Studio start, CoreLX/APU integration must be updated and validated against YM2608 runtime behavior in integrated Build+Run flow.
 
 ## 5. CoreLX/Compiler Gates
 

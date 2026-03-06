@@ -136,7 +136,7 @@ go test ./... -v 2>&1 | grep -E "(PASS|FAIL|ok|FAIL)"
 
 **Files that should NOT be committed (verify they're ignored):**
 - [ ] Binary files: `nitro-core-dx`, `emulator`, `*.exe`, `*.dll`, `*.so`, `*.dylib`
-- [ ] ROM files: `*.rom`, `test/roms/*.rom`
+- [ ] ROM files: `*.rom`, `roms/*.rom`
 - [ ] Log files: `*.log`, `emulator_log_*.txt`, `sprite_debug.log`
 - [ ] Debug dumps: `register_state_*.txt`
 - [ ] Build artifacts: `*.test`, `*.out`
