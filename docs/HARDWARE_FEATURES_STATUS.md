@@ -1,6 +1,6 @@
 # Nitro-Core-DX Hardware Features Status
 
-**Last Updated:** February 28, 2026
+**Last Updated:** March 9, 2026
 
 This document tracks the implementation status of all hardware features for the emulated console itself (not emulator UI or dev tools). For Dev Kit and tooling status, see the README.md project status section.
 
@@ -35,8 +35,9 @@ This document tracks the implementation status of all hardware features for the 
   - ✅ Per-layer matrix transformations (BG0-BG3)
   - ✅ Affine transformation (rotation, scaling, perspective)
   - ✅ Matrix registers for all layers
+  - ✅ Per-scanline HDMA scroll updates
   - ✅ Per-scanline HDMA matrix updates
-- ✅ HDMA structure (scroll updates)
+- ✅ HDMA per-layer scroll/matrix table processing in emulator runtime
 
 ### APU (Audio)
 - ✅ 4 audio channels
@@ -46,7 +47,9 @@ This document tracks the implementation status of all hardware features for the 
 - ✅ Duration control with loop mode
 - ✅ Sample generation at 44,100 Hz
 - ✅ PCM playback support (per-channel)
-- 🚧 FM extension MMIO host interface (`0x9100-0x91FF`) and OPM-lite audible synthesis path (in progress)
+- ✅ FM extension MMIO host interface (`0x9100-0x91FF`)
+- ✅ YM2608 runtime backend path operational (YMFM when available)
+- ✅ Runtime backend fallback controls (`NCDX_YM_BACKEND=auto|ymfm|legacy`)
 
 ### Input System
 - ✅ Controller 1 & 2 support
@@ -79,10 +82,6 @@ This document tracks the implementation status of all hardware features for the 
   - ✅ Alpha transparency (0-15 levels)
   - ✅ Blending with backgrounds
 
-- 🚧 **HDMA Scroll Updates** - Structure exists
-  - HDMA table reading implemented
-  - **Needs:** Full per-layer scroll HDMA support
-
 ---
 
 ## 🚧 Remaining / In Progress
@@ -95,12 +94,14 @@ This document tracks the implementation status of all hardware features for the 
   - **Needs:** World coordinate system for sprites
 
 ### APU Features
-- 🚧 **FM Synthesis Extension** (In Progress)
+- 🚧 **YM2608 Conformance Refinement** (In Progress)
   - ✅ FM host interface (`FM_ADDR`, `FM_DATA`, `FM_STATUS`, `FM_CONTROL`, `FM_MIX_L/R`)
-  - ✅ Timer/status/IRQ bridge behavior (deterministic placeholder timing)
-  - ✅ Audible OPM-lite subset (software-first, hardware-oriented)
-  - ❌ Full YM2151/OPM behavior accuracy (future work)
-  - ❌ Final patch/envelope/timbre polish (future work)
+  - ✅ Timer/status/IRQ bridge behavior (deterministic runtime model)
+  - ✅ Song replay and gameplay BGM playback working via YM write streams
+  - ✅ Fixed-point sample generation is the canonical emulator runtime path
+  - ✅ Legacy floating-point phase fields remain only as compatibility/savestate support
+  - ❌ Final timbre/pitch parity tuning against expanded external references
+  - ❌ Full subsystem parity coverage (SSG/ADPCM/rhythm edge behavior) in integration tests
 
 ### Advanced Features
 - ❌ **Large World Tilemap Support**
@@ -112,8 +113,8 @@ This document tracks the implementation status of all hardware features for the 
 ## Priority Recommendations
 
 ### High Priority (Active Implementation)
-1. **HDMA Full Implementation** - Per-layer scroll updates beyond current structure/table read path
-2. **FM Synthesis Extension Accuracy/Polish** - Continue from OPM-lite subset toward fuller YM2151 behavior
+1. **YM2608 Conformance Accuracy/Polish** - Continue parity tuning and broader behavioral validation
+2. **FPGA Parity Documentation/Planning** - Keep RTL-vs-emulator gaps explicit before new FPGA implementation pushes
 
 ### Medium Priority (Enhanced Features)
 1. **Vertical Sprites for Matrix Mode** - Enables 3D sprite rendering
@@ -131,10 +132,10 @@ This document tracks the implementation status of all hardware features for the 
 - CPU: ✅ Complete (including interrupts)
 - Memory: ✅ Complete
 - PPU: ✅ Core-complete (priority, blending, mosaic, DMA, Matrix Mode enhancements)
-- APU: ✅ Complete (legacy audio + PCM) with 🚧 FM extension in progress
+- APU: ✅ Complete (legacy + FM host + YM2608 backend operational) with 🚧 conformance refinement in progress
 - Input: ✅ Complete
 - Matrix Mode: ✅ Per-layer transforms complete (outside-screen handling and direct color implemented)
-- DMA: ✅ Complete (VRAM/CGRAM/OAM transfers)
+- DMA/HDMA: ✅ Complete in emulator runtime (VRAM/CGRAM/OAM DMA plus per-scanline HDMA scroll/matrix updates)
 
 **Optional Enhancements (Not Required for Core System):**
 - Vertical sprites for Matrix Mode (advanced 3D feature - can be added later)
@@ -143,4 +144,4 @@ This document tracks the implementation status of all hardware features for the 
 
 **System Status:** ✅ **READY FOR SOFTWARE DEVELOPMENT**
 
-All core hardware features are implemented and functional for game/application development. The legacy audio path is complete; the FM extension is now actively implemented but still evolving toward fuller OPM/YM2151 compatibility.
+All core hardware features are implemented and functional for game/application development. Audio is operational with YM2608-capable runtime backend selection and fallback behavior; current remaining work is conformance/polish, not basic functionality.

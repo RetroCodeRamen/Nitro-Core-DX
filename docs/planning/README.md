@@ -14,6 +14,8 @@ This directory contains planning, roadmap, and implementation-plan documents.
   - Dev tools roadmap and implementation ideas (review against current code before executing)
 - `FUTURE_FEATURES_PARKING_LOT.md`
   - Deferred ideas / future expansion concepts (keyboard bus, YM2608 follow-ups, etc.)
+- `APU_STABILIZATION_EXIT_CHECKLIST.md`
+  - Required pre-CPU-expansion audio stabilization gate and verification commands
 
 ## Historical / Mixed Snapshot Planning
 

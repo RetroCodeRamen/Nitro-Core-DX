@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"nitro-core-dx/internal/emulator"
 )
 
 func TestServiceBuildSourceSuccessArtifacts(t *testing.T) {
@@ -225,6 +227,161 @@ function Start()
 	// On initial framecount 0, paused tick should still request a present refresh.
 	if !tick.PresentFrame {
 		t.Fatalf("expected present frame on paused refresh")
+	}
+}
+
+func TestServiceInstallRasterProgramSmoke(t *testing.T) {
+	tmpDir := t.TempDir()
+	svc := NewService(tmpDir)
+	defer svc.Shutdown()
+
+	src := `
+function Start()
+    while true
+        wait_vblank()
+`
+	build, err := svc.BuildSource(src, "raster_smoke.corelx")
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if err := svc.LoadROMBytes(build.Result.ROMBytes); err != nil {
+		t.Fatalf("load rom: %v", err)
+	}
+
+	builder := emulator.NewRasterProgramBuilder(0x3000, emulator.RasterProgramLayout{
+		Enabled:            true,
+		LayerMask:          0x01,
+		IncludeTilemapBase: true,
+	})
+	if err := builder.FillScanlineRange(0, 199, emulator.RasterScanlineProgram{
+		Layers: [4]emulator.RasterLayerProgram{
+			{
+				TransformA:     0x0100,
+				TransformD:     0x0100,
+				HasTilemapBase: true,
+				TilemapBase:    0x1000,
+			},
+		},
+	}); err != nil {
+		t.Fatalf("FillScanlineRange: %v", err)
+	}
+
+	if err := svc.InstallRasterProgram(builder.Build()); err != nil {
+		t.Fatalf("InstallRasterProgram: %v", err)
+	}
+	if err := svc.RunFrame(); err != nil {
+		t.Fatalf("RunFrame after raster install: %v", err)
+	}
+	if err := svc.ClearRasterProgram(); err != nil {
+		t.Fatalf("ClearRasterProgram: %v", err)
+	}
+	if err := svc.RunFrame(); err != nil {
+		t.Fatalf("RunFrame after raster clear: %v", err)
+	}
+}
+
+func TestServiceInstallRasterDemoSplitTilemapRenders(t *testing.T) {
+	tmpDir := t.TempDir()
+	svc := NewService(tmpDir)
+	defer svc.Shutdown()
+
+	src := `
+function Start()
+    while true
+        wait_vblank()
+`
+	build, err := svc.BuildSource(src, "raster_demo_split.corelx")
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if err := svc.LoadROMBytes(build.Result.ROMBytes); err != nil {
+		t.Fatalf("load rom: %v", err)
+	}
+	if err := svc.InstallRasterDemo(RasterDemoSplitTilemap); err != nil {
+		t.Fatalf("InstallRasterDemo(split): %v", err)
+	}
+	if err := svc.RunFrame(); err != nil {
+		t.Fatalf("RunFrame: %v", err)
+	}
+
+	fb := svc.FramebufferCopy()
+	top := fb[10*320+10]
+	bottom := fb[(200-10)*320+10]
+	if top == 0 || bottom == 0 {
+		t.Fatalf("expected visible split-tilemap colors, got top=0x%06X bottom=0x%06X", top, bottom)
+	}
+	if top == bottom {
+		t.Fatalf("expected split-tilemap demo to render distinct halves, got 0x%06X", top)
+	}
+}
+
+func TestServiceInstallRasterDemoRebindPriorityRenders(t *testing.T) {
+	tmpDir := t.TempDir()
+	svc := NewService(tmpDir)
+	defer svc.Shutdown()
+
+	src := `
+function Start()
+    while true
+        wait_vblank()
+`
+	build, err := svc.BuildSource(src, "raster_demo_rebind.corelx")
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if err := svc.LoadROMBytes(build.Result.ROMBytes); err != nil {
+		t.Fatalf("load rom: %v", err)
+	}
+	if err := svc.InstallRasterDemo(RasterDemoRebindPriority); err != nil {
+		t.Fatalf("InstallRasterDemo(rebind): %v", err)
+	}
+	if err := svc.RunFrame(); err != nil {
+		t.Fatalf("RunFrame: %v", err)
+	}
+
+	fb := svc.FramebufferCopy()
+	top := fb[10*320+3]
+	bottom := fb[(200-10)*320+3]
+	if top == 0 || bottom == 0 {
+		t.Fatalf("expected visible rebind/priority colors, got top=0x%06X bottom=0x%06X", top, bottom)
+	}
+	if top == bottom {
+		t.Fatalf("expected rebind/priority demo to change visible output, got 0x%06X", top)
+	}
+}
+
+func TestServiceInstallRasterDemoScrollAffineRenders(t *testing.T) {
+	tmpDir := t.TempDir()
+	svc := NewService(tmpDir)
+	defer svc.Shutdown()
+
+	src := `
+function Start()
+    while true
+        wait_vblank()
+`
+	build, err := svc.BuildSource(src, "raster_demo_scroll_affine.corelx")
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if err := svc.LoadROMBytes(build.Result.ROMBytes); err != nil {
+		t.Fatalf("load rom: %v", err)
+	}
+	if err := svc.InstallRasterDemo(RasterDemoScrollAffine); err != nil {
+		t.Fatalf("InstallRasterDemo(scroll-affine): %v", err)
+	}
+	if err := svc.RunFrame(); err != nil {
+		t.Fatalf("RunFrame: %v", err)
+	}
+
+	fb := svc.FramebufferCopy()
+	top := fb[10*320+4]
+	bottom := fb[(200-10)*320+4]
+	if top == 0 || bottom == 0 {
+		t.Fatalf("expected visible scroll/affine colors, got top=0x%06X bottom=0x%06X", top, bottom)
+	}
+	if top == bottom {
+		t.Fatalf("expected scroll/affine demo to change visible output, got 0x%06X", top)
 	}
 }
 

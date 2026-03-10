@@ -256,8 +256,8 @@ func (a *APU) Write8(offset uint16, value uint8) {
 
 		// Update phase increment with new frequency (fixed-point)
 		a.updatePhaseIncrementFixed(channel)
-		// Also update legacy floating-point for compatibility
-		a.updatePhaseIncrement(channel)
+			// Keep the compatibility-only float path in sync for GenerateSample().
+			a.updatePhaseIncrementLegacy(channel)
 		// fmt.Printf("[APU] Channel %d: Frequency updated to %d Hz (0x%04X), PhaseIncrement=%f\n",
 		// 	channel, newFreq, newFreq, ch.PhaseIncrement)
 
@@ -267,8 +267,8 @@ func (a *APU) Write8(offset uint16, value uint8) {
 		if newFreq != oldFreq && newFreq != 0 {
 			// Frequency changed - reset phase for clean note start
 			// This matches real hardware behavior and prevents phase discontinuities
-			ch.PhaseFixed = 0
-			ch.Phase = 0.0 // Legacy
+				ch.PhaseFixed = 0
+				a.resetLegacyPhase(ch)
 
 			// Debug logging
 			now := time.Now()
@@ -373,9 +373,9 @@ func (a *APU) Write16(offset uint16, value uint16) {
 	a.Write8(offset+1, uint8(value>>8))
 }
 
-// updatePhaseIncrement updates the phase increment for a channel
-// Called whenever the frequency is updated
-func (a *APU) updatePhaseIncrement(channel int) {
+// updatePhaseIncrementLegacy updates the deprecated floating-point phase
+// increment used only by the compatibility GenerateSample() path.
+func (a *APU) updatePhaseIncrementLegacy(channel int) {
 	ch := &a.Channels[channel]
 	freq := float64(ch.Frequency)
 
@@ -396,8 +396,19 @@ func (a *APU) updatePhaseIncrement(channel int) {
 	}
 }
 
-// GenerateSample generates a single audio sample
-// This is called 44,100 times per second (once per sample)
+func (a *APU) resetLegacyPhase(ch *AudioChannel) {
+	ch.Phase = 0.0
+}
+
+func (a *APU) advanceLegacyPhase(ch *AudioChannel) {
+	ch.Phase += ch.PhaseIncrement
+	if ch.Phase >= 2.0*math.Pi {
+		ch.Phase -= 2.0 * math.Pi
+	}
+}
+
+// GenerateSample generates a single audio sample using the legacy floating-point
+// waveform path. Runtime code should prefer GenerateSampleFixed().
 func (a *APU) GenerateSample() float32 {
 	var sample float32 = 0.0
 
@@ -503,14 +514,9 @@ func (a *APU) GenerateSample() float32 {
 		// Add to mix
 		sample += channelSample
 
-		// Update phase accumulator for next sample
-		// Phase wraps at 2π to maintain continuity
-		ch.Phase += ch.PhaseIncrement
-		if ch.Phase >= 2.0*math.Pi {
-			ch.Phase -= 2.0 * math.Pi
+			// Advance the compatibility-only float phase accumulator.
+			a.advanceLegacyPhase(ch)
 		}
-		// Note: We use subtraction instead of modulo for better floating-point precision
-	}
 
 	// Apply master volume
 	masterVol := float32(a.MasterVolume) / 255.0

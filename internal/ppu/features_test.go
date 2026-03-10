@@ -22,17 +22,17 @@ func TestSpritePriority(t *testing.T) {
 	// Create tiles: tile 0 = red (color index 1), tile 1 = green (color index 2)
 	// 8x8 tile = 32 bytes
 	for i := 0; i < 32; i++ {
-		ppu.VRAM[i] = 0x11 // Tile 0: color index 1 (red) - all pixels
+		ppu.VRAM[i] = 0x11    // Tile 0: color index 1 (red) - all pixels
 		ppu.VRAM[32+i] = 0x22 // Tile 1: color index 2 (green) - all pixels
 	}
 
 	// Sprite 0: Priority 0 (lowest), position (100, 100), tile 0 (red), 8x8
-	ppu.OAM[0] = 100   // X low
-	ppu.OAM[1] = 0x00  // X high
-	ppu.OAM[2] = 100   // Y
-	ppu.OAM[3] = 0x00  // Tile index 0
-	ppu.OAM[4] = 0x00  // Attributes: palette 0, priority 0 (bits [7:6] = 0)
-	ppu.OAM[5] = 0x03  // Control: enabled (bit 0), 8x8 (bit 1 = 0)
+	ppu.OAM[0] = 100  // X low
+	ppu.OAM[1] = 0x00 // X high
+	ppu.OAM[2] = 100  // Y
+	ppu.OAM[3] = 0x00 // Tile index 0
+	ppu.OAM[4] = 0x00 // Attributes: palette 0, priority 0 (bits [7:6] = 0)
+	ppu.OAM[5] = 0x03 // Control: enabled (bit 0), 8x8 (bit 1 = 0)
 
 	// Sprite 1: Priority 3 (highest), position (100, 100), tile 1 (green), 8x8
 	ppu.OAM[6] = 100   // X low
@@ -55,7 +55,7 @@ func TestSpritePriority(t *testing.T) {
 		t.Errorf("Expected sprite to be rendered at (100, 100), got black (0x%06X)", color)
 		return
 	}
-	
+
 	// Verify priority sorting works - higher priority sprite should be on top
 	// We can't easily verify exact color without knowing RGB conversion, but we can verify
 	// that a sprite was rendered and priority system is working
@@ -83,6 +83,7 @@ func TestSpriteBlending(t *testing.T) {
 
 	// Set up background layer to render white
 	ppu.BG0.Enabled = true
+	ppu.BG0.Priority = 0
 	ppu.BG0.TilemapBase = 0x4000
 	// Fill tilemap with tile 0 (white)
 	ppu.VRAM[0x4000] = 0x00
@@ -147,7 +148,7 @@ func TestMosaicEffect(t *testing.T) {
 	// Top-left pixel should determine color for entire block
 	ppu.renderDotBackgroundLayer(0, 0, 0)
 	topLeftColor := ppu.OutputBuffer[0*320+0]
-	
+
 	if topLeftColor == 0x000000 {
 		t.Errorf("Mosaic test: Top-left pixel should be rendered, got black")
 		return
@@ -187,13 +188,13 @@ func TestMatrixModeOutsideScreen(t *testing.T) {
 
 	// Enable Matrix Mode for BG0
 	ppu.BG0.Enabled = true
-	ppu.BG0.MatrixEnabled = true
-	ppu.BG0.MatrixA = 0x0100 // 1.0
-	ppu.BG0.MatrixB = 0x0000
-	ppu.BG0.MatrixC = 0x0000
-	ppu.BG0.MatrixD = 0x0100 // 1.0
-	ppu.BG0.MatrixCenterX = 160
-	ppu.BG0.MatrixCenterY = 100
+	ppu.TransformChannels[0].Enabled = true
+	ppu.TransformChannels[0].A = 0x0100 // 1.0
+	ppu.TransformChannels[0].B = 0x0000
+	ppu.TransformChannels[0].C = 0x0000
+	ppu.TransformChannels[0].D = 0x0100 // 1.0
+	ppu.TransformChannels[0].CenterX = 160
+	ppu.TransformChannels[0].CenterY = 100
 
 	// Set up tilemap with a visible tile
 	ppu.BG0.TilemapBase = 0x4000
@@ -207,17 +208,17 @@ func TestMatrixModeOutsideScreen(t *testing.T) {
 	ppu.CGRAM[0x01*2+1] = 0x7F // White
 
 	// Test backdrop mode - use coordinates that are outside bounds
-	ppu.BG0.MatrixOutsideMode = 1 // Backdrop mode
+	ppu.TransformChannels[0].OutsideMode = 1 // Backdrop mode
 	// Set matrix to produce coordinates outside tilemap (negative or > 256)
-	ppu.BG0.MatrixA = 0x0100 // 1.0
-	ppu.BG0.MatrixB = 0x0000
-	ppu.BG0.MatrixC = 0x0000
-	ppu.BG0.MatrixD = 0x0100 // 1.0
-	ppu.BG0.MatrixCenterX = 0
-	ppu.BG0.MatrixCenterY = 0
+	ppu.TransformChannels[0].A = 0x0100 // 1.0
+	ppu.TransformChannels[0].B = 0x0000
+	ppu.TransformChannels[0].C = 0x0000
+	ppu.TransformChannels[0].D = 0x0100 // 1.0
+	ppu.TransformChannels[0].CenterX = 0
+	ppu.TransformChannels[0].CenterY = 0
 	ppu.BG0.ScrollX = -300 // Push coordinates outside bounds
 	ppu.BG0.ScrollY = -300
-	
+
 	ppu.renderDotMatrixMode(0, 0, 0)
 	color := ppu.OutputBuffer[0*320+0]
 	expectedBackdrop := ppu.getColorFromCGRAM(0, 0)
@@ -226,7 +227,7 @@ func TestMatrixModeOutsideScreen(t *testing.T) {
 	}
 
 	// Test repeat mode (default) - coordinates should wrap
-	ppu.BG0.MatrixOutsideMode = 0 // Repeat mode
+	ppu.TransformChannels[0].OutsideMode = 0 // Repeat mode
 	ppu.renderDotMatrixMode(0, 0, 0)
 	// Should wrap coordinates and render tile data
 	color = ppu.OutputBuffer[0*320+0]
@@ -243,14 +244,14 @@ func TestMatrixModeDirectColor(t *testing.T) {
 
 	// Enable Matrix Mode with direct color
 	ppu.BG0.Enabled = true
-	ppu.BG0.MatrixEnabled = true
-	ppu.BG0.MatrixDirectColor = true
-	ppu.BG0.MatrixA = 0x0100 // 1.0 (no transform)
-	ppu.BG0.MatrixB = 0x0000
-	ppu.BG0.MatrixC = 0x0000
-	ppu.BG0.MatrixD = 0x0100 // 1.0
-	ppu.BG0.MatrixCenterX = 0
-	ppu.BG0.MatrixCenterY = 0
+	ppu.TransformChannels[0].Enabled = true
+	ppu.TransformChannels[0].DirectColor = true
+	ppu.TransformChannels[0].A = 0x0100 // 1.0 (no transform)
+	ppu.TransformChannels[0].B = 0x0000
+	ppu.TransformChannels[0].C = 0x0000
+	ppu.TransformChannels[0].D = 0x0100 // 1.0
+	ppu.TransformChannels[0].CenterX = 0
+	ppu.TransformChannels[0].CenterY = 0
 	ppu.BG0.TilemapBase = 0x4000
 	ppu.BG0.ScrollX = 0
 	ppu.BG0.ScrollY = 0
@@ -272,7 +273,7 @@ func TestMatrixModeDirectColor(t *testing.T) {
 	if color == 0x000000 {
 		t.Errorf("Direct color mode: Expected non-black color, got 0x%06X", color)
 	}
-	
+
 	// Verify it's not CGRAM color (if CGRAM[0] is set to something different)
 	ppu.CGRAM[0] = 0x00
 	ppu.CGRAM[1] = 0x00 // Black in CGRAM
@@ -305,7 +306,7 @@ func TestDMATransfer(t *testing.T) {
 	ppu.DMASourceOffset = 0
 	ppu.DMADestAddr = 0x1000
 	ppu.DMALength = 256
-	ppu.DMAMode = 0 // Copy mode
+	ppu.DMAMode = 0     // Copy mode
 	ppu.DMADestType = 0 // VRAM
 	ppu.DMAEnabled = true
 
@@ -324,7 +325,7 @@ func TestDMATransfer(t *testing.T) {
 	ppu.DMAEnabled = false
 	// Set fill value in source data BEFORE setting up memory reader
 	sourceData[0] = 0xAA // Fill value (read from source offset 0)
-	
+
 	// Update memory reader to return the fill value
 	ppu.MemoryReader = func(bank uint8, offset uint16) uint8 {
 		if offset == 0 {
@@ -335,11 +336,11 @@ func TestDMATransfer(t *testing.T) {
 		}
 		return 0
 	}
-	
+
 	ppu.DMASourceOffset = 0
 	ppu.DMADestAddr = 0x2000
 	ppu.DMALength = 128
-	ppu.DMAMode = 1 // Fill mode
+	ppu.DMAMode = 1     // Fill mode
 	ppu.DMADestType = 0 // VRAM
 	ppu.DMAEnabled = true
 
@@ -367,16 +368,16 @@ func TestSpriteToBackgroundPriority(t *testing.T) {
 
 	// Create tiles
 	for i := 0; i < 32; i++ {
-		ppu.VRAM[i] = 0x11 // Red tile
+		ppu.VRAM[i] = 0x11    // Red tile
 		ppu.VRAM[32+i] = 0x22 // Green tile
 	}
 
 	// Set up BG0 (priority 0) with green
 	ppu.BG0.Enabled = true
 	ppu.BG0.TilemapBase = 0x4000
-	testTilemapOffset := uint16((((100/8)*32)+(100/8))*2) // tilemap entry for pixel (100,100)
-	ppu.VRAM[0x4000+testTilemapOffset] = 0x01             // Green tile
-	ppu.VRAM[0x4000+testTilemapOffset+1] = 0x00           // Palette 0
+	testTilemapOffset := uint16((((100 / 8) * 32) + (100 / 8)) * 2) // tilemap entry for pixel (100,100)
+	ppu.VRAM[0x4000+testTilemapOffset] = 0x01                       // Green tile
+	ppu.VRAM[0x4000+testTilemapOffset+1] = 0x00                     // Palette 0
 
 	// Sprite 0: Priority 0 (same as BG0), red
 	ppu.OAM[0] = 100
@@ -398,6 +399,7 @@ func TestSpriteToBackgroundPriority(t *testing.T) {
 	// Test sprite with lower priority than background
 	// BG1 has priority 1, sprite with priority 0 should be behind
 	ppu.BG1.Enabled = true
+	ppu.BG1.Priority = 1
 	ppu.BG1.TilemapBase = 0x4000
 	ppu.VRAM[0x4000+testTilemapOffset] = 0x01
 	ppu.VRAM[0x4000+testTilemapOffset+1] = 0x00
@@ -409,5 +411,43 @@ func TestSpriteToBackgroundPriority(t *testing.T) {
 	expectedGreen := uint32(0x00FF00) // RGB(0, 255, 0)
 	if color != expectedGreen {
 		t.Errorf("Sprite-to-background priority: Expected green background (priority 1) on top of sprite (priority 0), got 0x%06X", color)
+	}
+}
+
+func TestExplicitLayerPriorityOverridesBGIndexOrder(t *testing.T) {
+	logger := debug.NewLogger(1000)
+	ppu := NewPPU(logger)
+
+	// Palette 0 color 1 = red, color 2 = green
+	ppu.CGRAM[0x01*2] = 0x00
+	ppu.CGRAM[0x01*2+1] = 0x7C
+	ppu.CGRAM[0x02*2] = 0xE0
+	ppu.CGRAM[0x02*2+1] = 0x03
+
+	for i := 0; i < 32; i++ {
+		ppu.VRAM[i] = 0x11    // tile 0 -> red
+		ppu.VRAM[32+i] = 0x22 // tile 1 -> green
+	}
+
+	testTilemapOffset := uint16((((40 / 8) * 32) + (40 / 8)) * 2)
+
+	ppu.BG0.Enabled = true
+	ppu.BG0.Priority = 3
+	ppu.BG0.TilemapBase = 0x4000
+	ppu.VRAM[0x4000+testTilemapOffset] = 0x00
+	ppu.VRAM[0x4000+testTilemapOffset+1] = 0x00
+
+	ppu.BG3.Enabled = true
+	ppu.BG3.Priority = 0
+	ppu.BG3.TilemapBase = 0x5000
+	ppu.VRAM[0x5000+testTilemapOffset] = 0x01
+	ppu.VRAM[0x5000+testTilemapOffset+1] = 0x00
+
+	ppu.renderDot(40, 40)
+
+	color := ppu.OutputBuffer[40*320+40]
+	expectedRed := uint32(0xFF0000)
+	if color != expectedRed {
+		t.Fatalf("explicit layer priority should put BG0(priority 3) over BG3(priority 0), got 0x%06X", color)
 	}
 }

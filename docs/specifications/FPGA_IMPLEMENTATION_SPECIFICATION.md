@@ -6,6 +6,8 @@
 **Based on:** Complete Hardware Specification v2.1
 
 > **📌 FPGA-Level Detail**: This specification provides hardware-level details needed for FPGA implementation, including state machines, timing diagrams, resource estimates, and interface specifications.
+>
+> **Parity Note (2026-03-10):** This document is the **target hardware architecture/specification**, not a statement that the current in-tree RTL already implements every described block. In particular, the current FPGA PPU RTL still trails the Go emulator in matrix-layer parity and tilemap configurability.
 
 ---
 

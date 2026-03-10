@@ -26,6 +26,202 @@ const (
 	TotalScanlines   = 220
 )
 
+const (
+	hdmaLayerPayloadBytes      = 16
+	hdmaBaseScanlineBytes      = 4 * hdmaLayerPayloadBytes
+	hdmaRebindTablePresent     = 0x20
+	hdmaPriorityTablePresent   = 0x40
+	hdmaTilemapTablePresent    = 0x80
+	hdmaExtSourceModePresent   = 0x01
+	hdmaRebindSentinelKeep     = 0xFF
+	hdmaPrioritySentinelKeep   = 0xFF
+	hdmaTilemapSentinelKeep    = 0xFFFF
+	hdmaSourceModeSentinelKeep = 0xFF
+)
+
+type scanlineLayerCommand struct {
+	LayerEnabled     bool
+	ApplyScroll      bool
+	ScrollX          int16
+	ScrollY          int16
+	ApplyTransform   bool
+	TransformA       int16
+	TransformB       int16
+	TransformC       int16
+	TransformD       int16
+	CenterX          int16
+	CenterY          int16
+	ApplyRebind      bool
+	TransformBinding uint8
+	ApplyPriority    bool
+	Priority         uint8
+	ApplyTilemapBase bool
+	TilemapBase      uint16
+	ApplySourceMode  bool
+	SourceMode       uint8
+}
+
+type scanlineCommandSet struct {
+	Layers [4]scanlineLayerCommand
+}
+
+func (p *PPU) hdmaScanlineStride() uint32 {
+	stride := uint32(hdmaBaseScanlineBytes)
+	if (p.HDMAControl & hdmaRebindTablePresent) != 0 {
+		stride += 4 // One binding byte per layer
+	}
+	if (p.HDMAControl & hdmaPriorityTablePresent) != 0 {
+		stride += 4 // One priority byte per layer
+	}
+	if (p.HDMAControl & hdmaTilemapTablePresent) != 0 {
+		stride += 8 // One uint16 tilemap base per layer
+	}
+	if (p.HDMAExtControl & hdmaExtSourceModePresent) != 0 {
+		stride += 4 // One source-mode byte per layer
+	}
+	return stride
+}
+
+func (p *PPU) decodeScanlineCommands(scanline int) scanlineCommandSet {
+	var commands scanlineCommandSet
+	tableAddr := uint32(p.HDMATableBase) + uint32(scanline)*p.hdmaScanlineStride()
+	rebindBase := tableAddr + hdmaBaseScanlineBytes
+	priorityBase := rebindBase
+	if (p.HDMAControl & hdmaRebindTablePresent) != 0 {
+		priorityBase += 4
+	}
+	tilemapBase := priorityBase
+	if (p.HDMAControl & hdmaPriorityTablePresent) != 0 {
+		tilemapBase += 4
+	}
+	sourceModeBase := tilemapBase
+	if (p.HDMAControl & hdmaTilemapTablePresent) != 0 {
+		sourceModeBase += 8
+	}
+
+	for layerNum := 0; layerNum < 4; layerNum++ {
+		layerEnabled := (p.HDMAControl & (1 << (layerNum + 1))) != 0
+		command := &commands.Layers[layerNum]
+		command.LayerEnabled = layerEnabled
+		if !layerEnabled {
+			continue
+		}
+
+		addr := tableAddr + uint32(layerNum*hdmaLayerPayloadBytes)
+		if addr+15 >= 65536 {
+			continue
+		}
+		addrU16 := uint16(addr)
+
+		command.ApplyScroll = true
+		command.ScrollX = int16(uint16(p.VRAM[addrU16]) | (uint16(p.VRAM[addrU16+1]) << 8))
+		command.ScrollY = int16(uint16(p.VRAM[addrU16+2]) | (uint16(p.VRAM[addrU16+3]) << 8))
+		command.ApplyTransform = true
+		command.TransformA = int16(uint16(p.VRAM[addrU16+4]) | (uint16(p.VRAM[addrU16+5]) << 8))
+		command.TransformB = int16(uint16(p.VRAM[addrU16+6]) | (uint16(p.VRAM[addrU16+7]) << 8))
+		command.TransformC = int16(uint16(p.VRAM[addrU16+8]) | (uint16(p.VRAM[addrU16+9]) << 8))
+		command.TransformD = int16(uint16(p.VRAM[addrU16+10]) | (uint16(p.VRAM[addrU16+11]) << 8))
+		command.CenterX = int16(uint16(p.VRAM[addrU16+12]) | (uint16(p.VRAM[addrU16+13]) << 8))
+		command.CenterY = int16(uint16(p.VRAM[addrU16+14]) | (uint16(p.VRAM[addrU16+15]) << 8))
+
+		if (p.HDMAControl & hdmaRebindTablePresent) != 0 {
+			rebindAddr := rebindBase + uint32(layerNum)
+			if rebindAddr < 65536 {
+				binding := p.VRAM[uint16(rebindAddr)]
+				if binding != hdmaRebindSentinelKeep {
+					command.ApplyRebind = true
+					command.TransformBinding = binding & 0x03
+				}
+			}
+		}
+		if (p.HDMAControl & hdmaPriorityTablePresent) != 0 {
+			priorityAddr := priorityBase + uint32(layerNum)
+			if priorityAddr < 65536 {
+				priority := p.VRAM[uint16(priorityAddr)]
+				if priority != hdmaPrioritySentinelKeep {
+					command.ApplyPriority = true
+					command.Priority = priority & 0x03
+				}
+			}
+		}
+		if (p.HDMAControl & hdmaTilemapTablePresent) != 0 {
+			layerTilemapAddr := tilemapBase + uint32(layerNum*2)
+			if layerTilemapAddr+1 < 65536 {
+				tilemapBaseValue := uint16(p.VRAM[uint16(layerTilemapAddr)]) | (uint16(p.VRAM[uint16(layerTilemapAddr+1)]) << 8)
+				if tilemapBaseValue != hdmaTilemapSentinelKeep {
+					command.ApplyTilemapBase = true
+					command.TilemapBase = tilemapBaseValue
+				}
+			}
+		}
+		if (p.HDMAExtControl & hdmaExtSourceModePresent) != 0 {
+			sourceModeAddr := sourceModeBase + uint32(layerNum)
+			if sourceModeAddr < 65536 {
+				sourceMode := p.VRAM[uint16(sourceModeAddr)]
+				if sourceMode != hdmaSourceModeSentinelKeep {
+					command.ApplySourceMode = true
+					command.SourceMode = sourceMode & 0x01
+				}
+			}
+		}
+	}
+
+	return commands
+}
+
+func (p *PPU) applyScanlineCommands(scanline int, commands scanlineCommandSet) {
+	for layerNum := 0; layerNum < 4; layerNum++ {
+		command := commands.Layers[layerNum]
+		if !command.LayerEnabled {
+			continue
+		}
+
+		layer := p.getBackgroundLayer(layerNum)
+		if layer == nil {
+			continue
+		}
+
+		if command.ApplyRebind {
+			layer.TransformChannel = command.TransformBinding & 0x03
+		}
+		if command.ApplyPriority {
+			layer.Priority = command.Priority & 0x03
+		}
+		if command.ApplyTilemapBase {
+			layer.TilemapBase = command.TilemapBase
+		}
+		if command.ApplySourceMode {
+			layer.SourceMode = command.SourceMode & 0x01
+		}
+		layer, channel := p.resolveLayerTransformChannel(layerNum)
+		if layer == nil || channel == nil {
+			continue
+		}
+
+		if command.ApplyScroll {
+			layer.ScrollX = command.ScrollX
+			layer.ScrollY = command.ScrollY
+			p.HDMAScrollX[layerNum][scanline] = command.ScrollX
+			p.HDMAScrollY[layerNum][scanline] = command.ScrollY
+		}
+
+		if command.ApplyTransform && channel.Enabled {
+			channel.A = command.TransformA
+			channel.B = command.TransformB
+			channel.C = command.TransformC
+			channel.D = command.TransformD
+			channel.CenterX = command.CenterX
+			channel.CenterY = command.CenterY
+			p.HDMAMatrixA[layerNum][scanline] = command.TransformA
+			p.HDMAMatrixB[layerNum][scanline] = command.TransformB
+			p.HDMAMatrixC[layerNum][scanline] = command.TransformC
+			p.HDMAMatrixD[layerNum][scanline] = command.TransformD
+			p.HDMAMatrixCX[layerNum][scanline] = command.CenterX
+			p.HDMAMatrixCY[layerNum][scanline] = command.CenterY
+		}
+	}
+}
+
 // StepPPU steps the PPU by a number of cycles (clock-driven)
 // Optimized version: processes scanlines in batches for better performance
 // Returns error if any
@@ -246,31 +442,31 @@ func (p *PPU) renderDot(scanline, dot int) {
 	// Reuse scratch storage to avoid per-pixel allocations.
 	elements := p.renderElementScratch[:0]
 
-	// Add background layers with their implicit priority (BG3=3, BG2=2, BG1=1, BG0=0)
+	// Add background layers with their explicit layer priority.
 	if p.BG3.Enabled {
 		elements = append(elements, renderElement{
-			priority:    3,
+			priority:    p.BG3.Priority,
 			elementType: 0,
 			layerNum:    3,
 		})
 	}
 	if p.BG2.Enabled {
 		elements = append(elements, renderElement{
-			priority:    2,
+			priority:    p.BG2.Priority,
 			elementType: 0,
 			layerNum:    2,
 		})
 	}
 	if p.BG1.Enabled {
 		elements = append(elements, renderElement{
-			priority:    1,
+			priority:    p.BG1.Priority,
 			elementType: 0,
 			layerNum:    1,
 		})
 	}
 	if p.BG0.Enabled {
 		elements = append(elements, renderElement{
-			priority:    0,
+			priority:    p.BG0.Priority,
 			elementType: 0,
 			layerNum:    0,
 		})
@@ -314,19 +510,12 @@ func (p *PPU) renderDot(scanline, dot int) {
 		if elem.elementType == 0 {
 			// Render background layer
 			layerNum := elem.layerNum
-			var layer *BackgroundLayer
-			switch layerNum {
-			case 0:
-				layer = &p.BG0
-			case 1:
-				layer = &p.BG1
-			case 2:
-				layer = &p.BG2
-			case 3:
-				layer = &p.BG3
+			layer, channel := p.resolveLayerTransformChannel(layerNum)
+			if layer == nil || channel == nil {
+				continue
 			}
 
-			if layer.MatrixEnabled || (layerNum == 0 && p.MatrixEnabled) {
+			if channel.Enabled {
 				p.renderDotMatrixMode(layerNum, x, y)
 			} else {
 				p.renderDotBackgroundLayer(layerNum, x, y)
@@ -663,7 +852,7 @@ func (p *PPU) renderDotBackgroundLayer(layerNum, x, y int) {
 
 	// Look up color in CGRAM, or synthesize direct color if enabled.
 	color := p.getColorFromCGRAM(paletteIndex, colorIndex)
-	if layer.MatrixDirectColor {
+	if _, channel := p.resolveLayerTransformChannel(layerNum); channel != nil && channel.DirectColor {
 		// Synthesize RGB from palette+pixel index to bypass CGRAM.
 		combined := (uint16(paletteIndex&0x0F) << 4) | uint16(colorIndex&0x0F)
 		r5 := uint32(combined&0x07) * 31 / 7
@@ -695,22 +884,12 @@ func (p *PPU) renderDotBackgroundLayer(layerNum, x, y int) {
 // Implements Mode 7-style affine transformation
 // layerNum: 0=BG0, 1=BG1, 2=BG2, 3=BG3
 func (p *PPU) renderDotMatrixMode(layerNum, x, y int) {
-	// Get layer
-	var layer *BackgroundLayer
-	switch layerNum {
-	case 0:
-		layer = &p.BG0
-	case 1:
-		layer = &p.BG1
-	case 2:
-		layer = &p.BG2
-	case 3:
-		layer = &p.BG3
-	default:
+	layer, channel := p.resolveLayerTransformChannel(layerNum)
+	if layer == nil || channel == nil {
 		return
 	}
 
-	if !layer.Enabled || !layer.MatrixEnabled {
+	if !layer.Enabled || !channel.Enabled {
 		return
 	}
 
@@ -722,10 +901,10 @@ func (p *PPU) renderDotMatrixMode(layerNum, x, y int) {
 	// Apply mirroring if enabled
 	screenX := int16(x)
 	screenY := int16(y)
-	if layer.MatrixMirrorH {
+	if channel.MirrorH {
 		screenX = int16(ScreenWidth - 1 - x)
 	}
-	if layer.MatrixMirrorV {
+	if channel.MirrorV {
 		screenY = int16(ScreenHeight - 1 - y)
 	}
 
@@ -735,14 +914,14 @@ func (p *PPU) renderDotMatrixMode(layerNum, x, y int) {
 	// Where A, B, C, D are 8.8 fixed point (1.0 = 0x0100)
 
 	// Calculate relative to center
-	relX := int32(screenX) - int32(layer.MatrixCenterX)
-	relY := int32(screenY) - int32(layer.MatrixCenterY)
+	relX := int32(screenX) - int32(channel.CenterX)
+	relY := int32(screenY) - int32(channel.CenterY)
 
 	// Apply transformation matrix (8.8 fixed point multiplication)
 	// Matrix values are int16 (8.8 fixed point)
 	// Result needs to be divided by 256 (>> 8) to get integer result
-	worldX := (int32(layer.MatrixA)*relX + int32(layer.MatrixB)*relY) >> 8
-	worldY := (int32(layer.MatrixC)*relX + int32(layer.MatrixD)*relY) >> 8
+	worldX := (int32(channel.A)*relX + int32(channel.B)*relY) >> 8
+	worldY := (int32(channel.C)*relX + int32(channel.D)*relY) >> 8
 
 	// Add layer scroll offset
 	worldX += int32(layer.ScrollX)
@@ -765,7 +944,7 @@ func (p *PPU) renderDotMatrixMode(layerNum, x, y int) {
 
 	if !worldXValid || !worldYValid {
 		// Outside screen bounds - handle based on mode
-		switch layer.MatrixOutsideMode {
+		switch channel.OutsideMode {
 		case 0: // Repeat/wrap mode (default)
 			worldX = worldX % int32(tilemapPixelWidth)
 			if worldX < 0 {
@@ -853,7 +1032,7 @@ func (p *PPU) renderDotMatrixMode(layerNum, x, y int) {
 
 	// Look up color in CGRAM, or synthesize direct color if enabled.
 	color := p.getColorFromCGRAM(paletteIndex, colorIndex)
-	if layer.MatrixDirectColor {
+	if channel.DirectColor {
 		// Synthesize RGB from palette+pixel index to bypass CGRAM.
 		combined := (uint16(paletteIndex&0x0F) << 4) | uint16(colorIndex&0x0F)
 		r5 := uint32(combined&0x07) * 31 / 7
@@ -1016,96 +1195,25 @@ func (p *PPU) renderDotSprites(x, y int) {
 	}
 }
 
-// updateHDMA updates HDMA scroll and matrix values for the current scanline
-// HDMA table format (per scanline, per layer):
-//   - If layer has Matrix Mode enabled: 14 bytes per layer
-//     [ScrollX_L, ScrollX_H, ScrollY_L, ScrollY_H,
-//     MatrixA_L, MatrixA_H, MatrixB_L, MatrixB_H,
-//     MatrixC_L, MatrixC_H, MatrixD_L, MatrixD_H,
-//     CenterX_L, CenterX_H, CenterY_L, CenterY_H]
-//   - If layer has normal mode: 4 bytes per layer
-//     [ScrollX_L, ScrollX_H, ScrollY_L, ScrollY_H]
+// updateHDMA applies per-scanline raster commands.
+// Base table format is 64 bytes per scanline: 16 bytes per layer
+// [ScrollX_L, ScrollX_H, ScrollY_L, ScrollY_H,
 //
-// Table is organized by layer: BG0, BG1, BG2, BG3
+//	MatrixA_L, MatrixA_H, MatrixB_L, MatrixB_H,
+//	MatrixC_L, MatrixC_H, MatrixD_L, MatrixD_H,
+//	CenterX_L, CenterX_H, CenterY_L, CenterY_H]
+//
+// Optional extension when HDMAControl bit 5 is set:
+//
+//	4 rebind bytes follow the 64-byte block, one per layer.
+//	0xFF = keep current binding, 0x00-0x03 = bind layer to transform channel.
+//
+// Rebinding is applied before scroll/transform parameters so the decoded
+// transform payload targets the newly bound channel for that scanline.
 func (p *PPU) updateHDMA(scanline int) {
 	if !p.HDMAEnabled || scanline >= VisibleScanlines {
 		return
 	}
-
-	// Calculate base address for this scanline
-	// Each scanline entry contains data for all enabled layers
-	tableAddr := uint32(p.HDMATableBase) + uint32(scanline*64) // Max 64 bytes per scanline (4 layers × 16 bytes)
-
-	// Update each layer based on HDMA control bits
-	for layerNum := 0; layerNum < 4; layerNum++ {
-		var layer *BackgroundLayer
-		switch layerNum {
-		case 0:
-			layer = &p.BG0
-		case 1:
-			layer = &p.BG1
-		case 2:
-			layer = &p.BG2
-		case 3:
-			layer = &p.BG3
-		default:
-			continue
-		}
-
-		// Check if this layer is enabled for HDMA (bits 1-4 of HDMAControl)
-		layerHDMAEnabled := (p.HDMAControl & (1 << (layerNum + 1))) != 0
-		if !layerHDMAEnabled {
-			continue
-		}
-
-		// Calculate offset for this layer (16 bytes per layer)
-		layerOffset := uint32(layerNum * 16)
-		addr := tableAddr + layerOffset
-
-		if addr+15 < 65536 {
-			addrU16 := uint16(addr)
-
-			// Always read scroll values (first 4 bytes)
-			scrollX := int16(uint16(p.VRAM[addrU16]) | (uint16(p.VRAM[addrU16+1]) << 8))
-			scrollY := int16(uint16(p.VRAM[addrU16+2]) | (uint16(p.VRAM[addrU16+3]) << 8))
-			layer.ScrollX = scrollX
-			layer.ScrollY = scrollY
-
-			// If layer has Matrix Mode enabled, read matrix parameters (next 12 bytes)
-			if layer.MatrixEnabled {
-				// Matrix A (8.8 fixed point)
-				matrixA := int16(uint16(p.VRAM[addrU16+4]) | (uint16(p.VRAM[addrU16+5]) << 8))
-				// Matrix B (8.8 fixed point)
-				matrixB := int16(uint16(p.VRAM[addrU16+6]) | (uint16(p.VRAM[addrU16+7]) << 8))
-				// Matrix C (8.8 fixed point)
-				matrixC := int16(uint16(p.VRAM[addrU16+8]) | (uint16(p.VRAM[addrU16+9]) << 8))
-				// Matrix D (8.8 fixed point)
-				matrixD := int16(uint16(p.VRAM[addrU16+10]) | (uint16(p.VRAM[addrU16+11]) << 8))
-				// Center X
-				centerX := int16(uint16(p.VRAM[addrU16+12]) | (uint16(p.VRAM[addrU16+13]) << 8))
-				// Center Y
-				centerY := int16(uint16(p.VRAM[addrU16+14]) | (uint16(p.VRAM[addrU16+15]) << 8))
-
-				// Update matrix parameters
-				layer.MatrixA = matrixA
-				layer.MatrixB = matrixB
-				layer.MatrixC = matrixC
-				layer.MatrixD = matrixD
-				layer.MatrixCenterX = centerX
-				layer.MatrixCenterY = centerY
-
-				// Store for debug
-				p.HDMAMatrixA[layerNum][scanline] = matrixA
-				p.HDMAMatrixB[layerNum][scanline] = matrixB
-				p.HDMAMatrixC[layerNum][scanline] = matrixC
-				p.HDMAMatrixD[layerNum][scanline] = matrixD
-				p.HDMAMatrixCX[layerNum][scanline] = centerX
-				p.HDMAMatrixCY[layerNum][scanline] = centerY
-			}
-
-			// Store scroll for debug
-			p.HDMAScrollX[layerNum][scanline] = scrollX
-			p.HDMAScrollY[layerNum][scanline] = scrollY
-		}
-	}
+	commands := p.decodeScanlineCommands(scanline)
+	p.applyScanlineCommands(scanline, commands)
 }

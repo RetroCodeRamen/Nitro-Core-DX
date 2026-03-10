@@ -762,7 +762,7 @@ endmodule
 
 - **Hardware Specification**: `HARDWARE_SPECIFICATION.md` - Section 7: Input System
 - **Input System Code**: `internal/input/input.go`
-- **Programming Manual**: `NITRO_CORE_DX_PROGRAMMING_MANUAL.md` - Input System section
+- **Programming Manual**: `PROGRAMMING_MANUAL.md` - Input System section
 
 ---
 

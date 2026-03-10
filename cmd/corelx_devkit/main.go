@@ -194,7 +194,12 @@ type devKitState struct {
 
 func main() {
 	openPath := flag.String("file", "", "CoreLX source file to open")
+	audioBackend := flag.String("audio-backend", "", "Audio backend override: auto|ymfm|legacy (default: auto with YMFM fallback)")
 	flag.Parse()
+	if err := applyAudioBackendSetting(*audioBackend); err != nil {
+		fmt.Fprintf(os.Stderr, "invalid audio backend: %v\n", err)
+		os.Exit(1)
+	}
 
 	tempDir, err := os.MkdirTemp("", "nitro-core-dx-devkit-*")
 	if err != nil {
@@ -263,6 +268,9 @@ func main() {
 	}
 	state.initUI()
 	state.window.SetMainMenu(state.buildMainMenu())
+	// Apply X11 maximize hint before first show so WM sees it when mapping (Linux/X11).
+	_ = applyX11MaximizeHint(state.window)
+	state.scheduleX11MaximizeHintRefresh()
 	state.setupKeyboardInput()
 	state.startEmulatorLoop()
 
@@ -296,19 +304,52 @@ func main() {
 		w.Close()
 	})
 
-	go func() {
-		time.Sleep(300 * time.Millisecond)
-		fyne.Do(func() {
-			if w != nil {
-				w.SetFixedSize(false)
-				if err := applyX11MaximizeHint(w); err != nil {
-					fmt.Fprintf(os.Stderr, "window hint warning: %v\n", err)
-				}
-			}
-		})
-	}()
-
 	w.ShowAndRun()
+}
+
+func applyAudioBackendSetting(flagValue string) error {
+	mode := strings.ToLower(strings.TrimSpace(flagValue))
+	if mode == "" {
+		if strings.TrimSpace(os.Getenv("NCDX_YM_BACKEND")) == "" {
+			return os.Setenv("NCDX_YM_BACKEND", "auto")
+		}
+		return nil
+	}
+	switch mode {
+	case "auto", "ymfm", "legacy":
+		return os.Setenv("NCDX_YM_BACKEND", mode)
+	default:
+		return fmt.Errorf("%q (expected auto|ymfm|legacy)", flagValue)
+	}
+}
+
+func (s *devKitState) scheduleX11MaximizeHintRefresh() {
+	go func() {
+		// Retry at several times so we apply as soon as the native handle is available
+		// (often only after Show()). Early attempts catch WMs that read hints at map time.
+		delays := []time.Duration{
+			0,
+			20 * time.Millisecond,
+			60 * time.Millisecond,
+			150 * time.Millisecond,
+			400 * time.Millisecond,
+			1000 * time.Millisecond,
+			2000 * time.Millisecond,
+		}
+		var applied bool
+		for _, delay := range delays {
+			time.Sleep(delay)
+			if err := applyX11MaximizeHint(s.window); err != nil {
+				continue
+			}
+			applied = true
+			appendWindowHintLog("window hint: X11 maximize hint applied")
+			break
+		}
+		if !applied {
+			appendWindowHintLog("window hint: X11 maximize hint not applied (Wayland or no native handle)")
+		}
+	}()
 }
 
 func (s *devKitState) initUI() {

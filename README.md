@@ -122,7 +122,7 @@ For detailed information about the development process and challenges, see [Deve
   - Waveform generation (sine, square, saw, noise)
   - PCM sample playback with loop and one-shot modes
   - Volume control and duration management
-  - FM extension host interface + audible OPM-lite synthesis path (current transitional implementation)
+  - FM extension host interface + YM2608-capable runtime backend path (with compatibility fallback controls)
 - **Interrupt System**: Complete IRQ/NMI handling with vector table
 - **ROM Loading**: Complete ROM header parsing and execution
 - **Test Suite**: Broad regression coverage across CPU/PPU/APU/emulator paths (includes some long-running timing tests)
@@ -147,12 +147,12 @@ For detailed information about the development process and challenges, see [Deve
 
 - **Nitro-Core-DX App Expansion**: Sound Studio, find/replace, richer editor UX polish
 - **CoreLX Toolchain**: unified asset model, packaging flow, structured assets, banked linker integration
-- **Audio Roadmap**: YM2608 migration planning and conformance-profile definition (implementation sequenced after Sprite/Dev Kit and Sound Studio gates)
+- **Audio Roadmap**: YM2608 conformance refinement, broader subsystem parity, and future Sound Studio-facing authoring flow
 
 ### ❌ Optional Enhancements (Not Required)
 
 - **Vertical Sprites**: 3D sprite scaling for Matrix Mode (can be added later)
-- **FM Synthesis**: Current OPM-lite runtime path is transitional; V1 release target is YM2608
+- **FM Synthesis**: Current runtime uses a YM2608-capable backend path with ongoing conformance refinement; V1 release target remains YM2608
 
 For detailed status and documentation navigation, see [docs/README.md](docs/README.md) and [docs/HARDWARE_FEATURES_STATUS.md](docs/HARDWARE_FEATURES_STATUS.md).
 
@@ -168,12 +168,12 @@ For detailed status and documentation navigation, see [docs/README.md](docs/READ
 | **Tile Size** | 8×8 or 16×16 pixels (configurable per layer) |
 | **Max Sprites** | 128 sprites |
 | **Background Layers** | 4 independent layers (BG0, BG1, BG2, BG3) |
-| **Matrix Mode** | Mode 7-style effects with large world support |
-| **Audio Channels** | 4 legacy channels + in-progress FM extension (current OPM-lite runtime path; V1 target YM2608) |
+| **Matrix Mode** | Mode 7-style effects with per-layer transforms, HDMA updates, outside-screen handling, and direct color |
+| **Audio Channels** | 4 legacy channels + operational YM2608-capable FM backend path (with ongoing conformance refinement) |
 | **Audio Sample Rate** | 44,100 Hz |
 | **CPU Speed** | ~7.67 MHz (127,820 cycles per frame at 60 FPS, Genesis-like) |
 | **Memory** | 64KB per bank, 256 banks (16MB total address space) |
-| **ROM Size** | Up to 7.8MB (125 banks × 64KB) |
+| **ROM Size** | Up to 7.8MB (125 banks × 32KB LoROM windows) |
 | **Frame Rate** | Target: 60 FPS (Currently: steady 60 FPS on current desktop build) |
 
 ### Performance Targets
@@ -417,10 +417,10 @@ The project documentation is organized into several main documents:
   - 44,100 Hz sample rate
   - PCM playback support
   - Master volume control
-  - FM extension MMIO + timer/IRQ path with audible OPM-lite subset (current implementation while YM2608 migration is planned)
+  - FM extension MMIO + timer/IRQ path with YM2608-capable backend selection/fallback
 
 - **Precise Memory Mapping**
-  - Banked memory architecture (256 banks × 64KB = 16MB)
+  - Banked memory architecture (256 banks × 64KB = 16MB address space; ROM uses 32KB LoROM windows in banks 1-125)
   - WRAM (32KB), Extended WRAM (128KB), ROM (up to 7.8MB)
   - I/O register routing
 

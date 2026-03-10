@@ -29,7 +29,7 @@ git diff --stat
 
 ## Step 2: Update Documentation
 
-### 2.1 Programming Manual (`NITRO_CORE_DX_PROGRAMMING_MANUAL.md`)
+### 2.1 Programming Manual (`PROGRAMMING_MANUAL.md`)
 
 **Check and update:**
 - [ ] **New Instructions**: If any CPU instructions were added/modified, document them
@@ -190,7 +190,7 @@ rm <unwanted-file>
 ### 5.2 Update Version References
 
 **Files that may contain version numbers:**
-- [ ] `NITRO_CORE_DX_PROGRAMMING_MANUAL.md` (header)
+- [ ] `PROGRAMMING_MANUAL.md` (header)
 - [ ] `CHANGELOG.md` (new version section)
 - [ ] `README.md` (if version mentioned)
 - [ ] `go.mod` (if module version tracked)

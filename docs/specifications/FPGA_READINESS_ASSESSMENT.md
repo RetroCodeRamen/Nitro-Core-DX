@@ -7,13 +7,15 @@
 
 ## Executive Summary
 
+> **Scope Note (2026-03-10):** This document assesses **specification readiness for FPGA work**, not current in-tree RTL parity. The active FPGA RTL still lags the Go emulator in some areas, most notably the PPU (single matrix path in RTL vs. four per-layer matrix engines and configurable tilemap state in the emulator).
+
 **Overall Readiness: ✅ READY FOR IMPLEMENTATION** (Updated: January 30, 2026)
 
 **Status Update:** The FPGA Implementation Specification (v1.0) has been created, addressing **~90-95%** of the critical missing items identified in this assessment. See `FPGA_IMPLEMENTATION_SPECIFICATION.md` for hardware-level details.
 
 **Original Assessment:** The specification was **well-structured and comprehensive** for most subsystems, but required **additional detail** in several critical areas before FPGA implementation could begin. The spec was excellent for understanding behavior, but needed more hardware-level detail for actual FPGA design.
 
-**Current Status:** ✅ **READY** - Hardware-level specification now available.
+**Current Status:** ✅ **READY** - Hardware-level specification now available for implementation planning. This should not be read as “the current RTL already matches the emulator.”
 
 ---
 

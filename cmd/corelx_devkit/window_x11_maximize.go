@@ -5,6 +5,7 @@ package main
 import (
 	"encoding/binary"
 	"fmt"
+	"os"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/driver"
@@ -54,12 +55,16 @@ func applyX11MaximizeHint(w fyne.Window) error {
 	}
 	defer conn.Close()
 
-	// WM_SIZE_HINTS: 18 x 32-bit values (ICCCM). Set PMaxSize and large max dimensions
-	// so the WM enables Maximize and double-click title bar.
+	// WM_SIZE_HINTS: 18 x 32-bit values (ICCCM).
+	// Explicitly set both min and max sizes with a wide range so the WM
+	// consistently treats this window as resizable/maximizable.
 	buf := make([]byte, 18*4)
 	order := binary.LittleEndian
-	// flags: set PMaxSize so max_width/max_height are used
-	order.PutUint32(buf[0:], sizeHintsPMaxSize)
+	// flags: set PMinSize and PMaxSize so min/max bounds are authoritative
+	order.PutUint32(buf[0:], sizeHintsPMinSize|sizeHintsPMaxSize)
+	// indices 5 and 6 are min_width, min_height (0-indexed)
+	order.PutUint32(buf[5*4:], 1)
+	order.PutUint32(buf[6*4:], 1)
 	// indices 7 and 8 are max_width, max_height (0-indexed)
 	order.PutUint32(buf[7*4:], 65535)
 	order.PutUint32(buf[8*4:], 65535)
@@ -77,5 +82,16 @@ func applyX11MaximizeHint(w fyne.Window) error {
 	if err := cookie.Check(); err != nil {
 		return fmt.Errorf("ChangeProperty WM_NORMAL_HINTS: %w", err)
 	}
+	// Sync so the WM sees the hint before we return (helps with maximize/double-click).
+	conn.Sync()
 	return nil
+}
+
+func appendWindowHintLog(msg string) {
+	f, err := os.OpenFile("/tmp/ncdx_window.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	_, _ = f.WriteString(msg + "\n")
 }

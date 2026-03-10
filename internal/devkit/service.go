@@ -73,6 +73,9 @@ type Backend interface {
 	TempDir() string
 	BuildSource(source, sourcePath string) (*BuildResult, error)
 	LoadROMBytes(romBytes []byte) error
+	InstallRasterProgram(program emulator.RasterProgram) error
+	ClearRasterProgram() error
+	InstallRasterDemo(name string) error
 	Shutdown()
 	Snapshot() EmulatorSnapshot
 	ResetEmulator() error
@@ -195,6 +198,24 @@ func (s *Service) Shutdown() {
 			emu.Logger.Shutdown()
 		}
 	}
+}
+
+func (s *Service) InstallRasterProgram(program emulator.RasterProgram) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.emu == nil {
+		return fmt.Errorf("no ROM loaded")
+	}
+	return s.emu.InstallRasterProgram(program)
+}
+
+func (s *Service) ClearRasterProgram() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.emu == nil {
+		return fmt.Errorf("no ROM loaded")
+	}
+	return s.emu.ClearRasterProgram()
 }
 
 func (s *Service) Snapshot() EmulatorSnapshot {

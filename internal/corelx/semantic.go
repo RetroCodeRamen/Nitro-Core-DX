@@ -107,7 +107,8 @@ func (a *SemanticAnalyzer) registerBuiltinFunctions() {
 		"SPR_ENABLE", "SPR_SIZE_8", "SPR_SIZE_16",
 		"SPR_BLEND", "SPR_ALPHA",
 		"mem.write", "mem.read",
-		"bg.set_scroll", "bg.enable",
+		"bg.set_scroll", "bg.enable", "bg.disable", "bg.set_priority", "bg.set_tilemap_base", "bg.set_source_mode", "bg.bind_transform", "bg.set_tile_size",
+		"matrix.enable", "matrix.disable", "matrix.bind", "matrix.set_matrix", "matrix.set_center", "matrix.identity", "matrix.set_flags",
 	}
 	for _, name := range builtins {
 		a.symbols[name] = &Symbol{
@@ -309,7 +310,7 @@ func (a *SemanticAnalyzer) analyzeExpr(expr Expr) {
 		// Check if it's a built-in namespace (ppu, sprite, oam, apu, gfx)
 		builtinNamespaces := map[string]bool{
 			"ppu": true, "sprite": true, "oam": true, "apu": true, "gfx": true, "input": true,
-			"mem": true, "bg": true,
+			"mem": true, "bg": true, "matrix": true,
 		}
 		if builtinNamespaces[e.Name] {
 			// Built-in namespace, valid

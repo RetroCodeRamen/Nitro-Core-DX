@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -73,5 +74,20 @@ func TestCoreLXCodeEditorTypingBurstIsResponsive(t *testing.T) {
 	}
 	if elapsed > 500*time.Millisecond {
 		t.Fatalf("typing burst too slow: %s", elapsed)
+	}
+}
+
+func TestInferSpriteLabAssetPaletteHints(t *testing.T) {
+	source := `-- Sprite Lab asset (24x24, 4bpp)
+-- Packed byte format: byte = (right_pixel<<4) | left_pixel
+asset Slime: tileset hex
+    00 00
+
+-- Sprite Lab palette bank 3
+gfx.set_palette(3, 0, 0x0000)
+`
+	hints := inferSpriteLabAssetPaletteHints(strings.Split(source, "\n"))
+	if got, ok := hints["Slime"]; !ok || got != 3 {
+		t.Fatalf("expected Slime->3 hint, got %v (ok=%v)", got, ok)
 	}
 }

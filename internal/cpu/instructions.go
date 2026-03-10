@@ -30,7 +30,7 @@ func (c *CPU) executeMOV(mode, reg1, reg2 uint8) error {
 	case 2: // MOV R1, [R2] - Load from memory
 		addr := c.GetRegister(reg2)
 		bank := c.State.DBR
-		
+
 		// I/O addresses (offset 0x8000+ in bank 0) are 8-bit only
 		// For I/O addresses, read 8-bit and zero-extend to 16-bit
 		if addr >= 0x8000 && bank == 0 {
@@ -40,7 +40,7 @@ func (c *CPU) executeMOV(mode, reg1, reg2 uint8) error {
 			c.State.Cycles += 2 // Memory access
 			return nil
 		}
-		
+
 		// Normal memory (WRAM, Extended WRAM, or ROM space): 16-bit read
 		value := c.Mem.Read16(bank, addr)
 		c.SetRegister(reg1, value)
@@ -109,49 +109,169 @@ func (c *CPU) executeMOV(mode, reg1, reg2 uint8) error {
 		// Returning error to catch ROM bugs early
 		return fmt.Errorf("MOV mode 8 is reserved and not implemented (this indicates a ROM bug or invalid instruction encoding)")
 
+	case 9: // MOV R1, [R2+imm] - Indexed load
+		disp := int16(c.FetchImmediate())
+		base := int32(c.GetRegister(reg2))
+		addr := uint16(base + int32(disp))
+		bank := c.State.DBR
+
+		// I/O addresses (offset 0x8000+ in bank 0) are 8-bit only
+		// For I/O addresses, read 8-bit and zero-extend to 16-bit
+		var value uint16
+		if addr >= 0x8000 && bank == 0 {
+			value = uint16(c.Mem.Read8(0, addr))
+		} else {
+			value = c.Mem.Read16(bank, addr)
+		}
+		c.SetRegister(reg1, value)
+		c.UpdateFlags(value)
+		c.State.Cycles += 3 // indexed address calc + memory access
+		return nil
+
+	case 10: // MOV [R1+imm], R2 - Indexed store
+		disp := int16(c.FetchImmediate())
+		base := int32(c.GetRegister(reg1))
+		addr := uint16(base + int32(disp))
+		value := c.GetRegister(reg2)
+		bank := c.State.DBR
+
+		// I/O addresses (offset 0x8000+ in bank 0) are 8-bit only
+		// For I/O addresses, always use bank 0 and write only the low byte
+		if addr >= 0x8000 && bank == 0 {
+			c.Mem.Write8(0, addr, uint8(value&0xFF))
+		} else {
+			c.Mem.Write16(bank, addr, value)
+		}
+		c.State.Cycles += 3 // indexed address calc + memory access
+		return nil
+
+	case 11: // MOV R1, [R2]+ - Load with post-increment (word stride)
+		addr := c.GetRegister(reg2)
+		bank := c.State.DBR
+
+		var value uint16
+		if addr >= 0x8000 && bank == 0 {
+			value = uint16(c.Mem.Read8(0, addr))
+		} else {
+			value = c.Mem.Read16(bank, addr)
+		}
+		c.SetRegister(reg1, value)
+		c.UpdateFlags(value)
+		c.SetRegister(reg2, addr+2)
+		c.State.Cycles += 3 // memory access + pointer update
+		return nil
+
+	case 12: // MOV [R1]-, R2 - Pre-decrement store (word stride)
+		addr := c.GetRegister(reg1) - 2
+		c.SetRegister(reg1, addr)
+		value := c.GetRegister(reg2)
+		bank := c.State.DBR
+
+		if addr >= 0x8000 && bank == 0 {
+			c.Mem.Write8(0, addr, uint8(value&0xFF))
+		} else {
+			c.Mem.Write16(bank, addr, value)
+		}
+		c.State.Cycles += 3 // pointer update + memory access
+		return nil
+
 	default:
-		return fmt.Errorf("unknown MOV mode: %d (modes 0-7 are valid, 8-15 are reserved)", mode)
+		return fmt.Errorf("unknown MOV mode: %d (valid: 0-7, 9-12; reserved: 8, 13-15)", mode)
 	}
 }
 
 // executeADD executes ADD instructions
 func (c *CPU) executeADD(mode, reg1, reg2 uint8) error {
-	var value uint16
-	if mode == 0 {
-		// ADD R1, R2
-		value = c.GetRegister(reg2)
-	} else {
-		// ADD R1, #imm
-		value = c.FetchImmediate()
+	switch mode {
+	case 0: // ADD R1, R2 (16-bit)
+		value := c.GetRegister(reg2)
+		a := c.GetRegister(reg1)
+		result := a + value
+		c.SetRegister(reg1, result)
+		c.UpdateFlagsWithOverflow(a, value, result, false)
 		c.State.Cycles++
-	}
+		return nil
 
-	a := c.GetRegister(reg1)
-	result := a + value
-	c.SetRegister(reg1, result)
-	c.UpdateFlagsWithOverflow(a, value, result, false)
-	c.State.Cycles++
-	return nil
+	case 1: // ADD R1, #imm (16-bit)
+		value := c.FetchImmediate()
+		c.State.Cycles++
+		a := c.GetRegister(reg1)
+		result := a + value
+		c.SetRegister(reg1, result)
+		c.UpdateFlagsWithOverflow(a, value, result, false)
+		c.State.Cycles++
+		return nil
+
+	case 2: // ADD.B R1, R2 (8-bit low-byte, result zero-extended)
+		a8 := uint8(c.GetRegister(reg1) & 0x00FF)
+		b8 := uint8(c.GetRegister(reg2) & 0x00FF)
+		result8 := a8 + b8
+		c.SetRegister(reg1, uint16(result8))
+		c.UpdateFlagsWithOverflow8(a8, b8, result8, false)
+		c.State.Cycles++
+		return nil
+
+	case 3: // ADD.B R1, #imm (8-bit low-byte immediate, result zero-extended)
+		imm := c.FetchImmediate()
+		c.State.Cycles++
+		a8 := uint8(c.GetRegister(reg1) & 0x00FF)
+		b8 := uint8(imm & 0x00FF)
+		result8 := a8 + b8
+		c.SetRegister(reg1, uint16(result8))
+		c.UpdateFlagsWithOverflow8(a8, b8, result8, false)
+		c.State.Cycles++
+		return nil
+
+	default:
+		return fmt.Errorf("unknown ADD mode: %d", mode)
+	}
 }
 
 // executeSUB executes SUB instructions
 func (c *CPU) executeSUB(mode, reg1, reg2 uint8) error {
-	var value uint16
-	if mode == 0 {
-		// SUB R1, R2
-		value = c.GetRegister(reg2)
-	} else {
-		// SUB R1, #imm
-		value = c.FetchImmediate()
+	switch mode {
+	case 0: // SUB R1, R2 (16-bit)
+		value := c.GetRegister(reg2)
+		a := c.GetRegister(reg1)
+		result := a - value
+		c.SetRegister(reg1, result)
+		c.UpdateFlagsWithOverflow(a, value, result, true)
 		c.State.Cycles++
-	}
+		return nil
 
-	a := c.GetRegister(reg1)
-	result := a - value
-	c.SetRegister(reg1, result)
-	c.UpdateFlagsWithOverflow(a, value, result, true)
-	c.State.Cycles++
-	return nil
+	case 1: // SUB R1, #imm (16-bit)
+		value := c.FetchImmediate()
+		c.State.Cycles++
+		a := c.GetRegister(reg1)
+		result := a - value
+		c.SetRegister(reg1, result)
+		c.UpdateFlagsWithOverflow(a, value, result, true)
+		c.State.Cycles++
+		return nil
+
+	case 2: // SUB.B R1, R2 (8-bit low-byte, result zero-extended)
+		a8 := uint8(c.GetRegister(reg1) & 0x00FF)
+		b8 := uint8(c.GetRegister(reg2) & 0x00FF)
+		result8 := a8 - b8
+		c.SetRegister(reg1, uint16(result8))
+		c.UpdateFlagsWithOverflow8(a8, b8, result8, true)
+		c.State.Cycles++
+		return nil
+
+	case 3: // SUB.B R1, #imm (8-bit low-byte immediate, result zero-extended)
+		imm := c.FetchImmediate()
+		c.State.Cycles++
+		a8 := uint8(c.GetRegister(reg1) & 0x00FF)
+		b8 := uint8(imm & 0x00FF)
+		result8 := a8 - b8
+		c.SetRegister(reg1, uint16(result8))
+		c.UpdateFlagsWithOverflow8(a8, b8, result8, true)
+		c.State.Cycles++
+		return nil
+
+	default:
+		return fmt.Errorf("unknown SUB mode: %d", mode)
+	}
 }
 
 // executeMUL executes MUL instructions
@@ -306,27 +426,94 @@ func (c *CPU) executeSHL(mode, reg1, reg2 uint8) error {
 
 // executeSHR executes SHR instructions
 func (c *CPU) executeSHR(mode, reg1, reg2 uint8) error {
-	var shift uint8
-	if mode == 0 {
-		// SHR R1, R2
-		shift = uint8(c.GetRegister(reg2) & 0xF) // Limit to 0-15
-	} else {
-		// SHR R1, #imm
+	a := c.GetRegister(reg1)
+	var count uint8
+
+	switch mode {
+	case 0: // SHR R1, R2
+		count = uint8(c.GetRegister(reg2) & 0xF) // Limit to 0-15
+		if count > 0 {
+			carry := (a & (1 << (count - 1))) != 0
+			result := a >> count
+			c.SetRegister(reg1, result)
+			c.UpdateFlagsWithCarry(result, carry)
+		} else {
+			c.UpdateFlags(a)
+		}
+
+	case 1: // SHR R1, #imm
 		imm := c.FetchImmediate()
-		shift = uint8(imm & 0xF)
+		count = uint8(imm & 0xF)
 		c.State.Cycles++
+		if count > 0 {
+			carry := (a & (1 << (count - 1))) != 0
+			result := a >> count
+			c.SetRegister(reg1, result)
+			c.UpdateFlagsWithCarry(result, carry)
+		} else {
+			c.UpdateFlags(a)
+		}
+
+	case 2: // SAR R1, R2
+		count = uint8(c.GetRegister(reg2) & 0xF)
+		if count > 0 {
+			carry := (a & (1 << (count - 1))) != 0
+			result := uint16(int16(a) >> count)
+			c.SetRegister(reg1, result)
+			c.UpdateFlagsWithCarry(result, carry)
+		} else {
+			c.UpdateFlags(a)
+		}
+
+	case 3: // SAR R1, #imm
+		imm := c.FetchImmediate()
+		count = uint8(imm & 0xF)
+		c.State.Cycles++
+		if count > 0 {
+			carry := (a & (1 << (count - 1))) != 0
+			result := uint16(int16(a) >> count)
+			c.SetRegister(reg1, result)
+			c.UpdateFlagsWithCarry(result, carry)
+		} else {
+			c.UpdateFlags(a)
+		}
+
+	case 4: // ROL R1, R2 (through carry)
+		count = uint8(c.GetRegister(reg2) & 0xF)
+		if count > 0 {
+			extended := (uint32(c.State.Flags>>FlagC)&0x1)<<16 | uint32(a)
+			for i := uint8(0); i < count; i++ {
+				out := (extended >> 16) & 0x1
+				extended = ((extended << 1) & 0x1FFFF) | out
+			}
+			result := uint16(extended & 0xFFFF)
+			carry := ((extended >> 16) & 0x1) != 0
+			c.SetRegister(reg1, result)
+			c.UpdateFlagsWithCarry(result, carry)
+		} else {
+			c.UpdateFlags(a)
+		}
+
+	case 5: // ROR R1, R2 (through carry)
+		count = uint8(c.GetRegister(reg2) & 0xF)
+		if count > 0 {
+			extended := (uint32(c.State.Flags>>FlagC)&0x1)<<16 | uint32(a)
+			for i := uint8(0); i < count; i++ {
+				out := extended & 0x1
+				extended = (extended >> 1) | (out << 16)
+			}
+			result := uint16(extended & 0xFFFF)
+			carry := ((extended >> 16) & 0x1) != 0
+			c.SetRegister(reg1, result)
+			c.UpdateFlagsWithCarry(result, carry)
+		} else {
+			c.UpdateFlags(a)
+		}
+
+	default:
+		return fmt.Errorf("unknown shift/rotate mode: %d", mode)
 	}
 
-	a := c.GetRegister(reg1)
-	var carry bool
-	if shift > 0 {
-		carry = (a & (1 << (shift - 1))) != 0
-		result := a >> shift
-		c.SetRegister(reg1, result)
-		c.UpdateFlagsWithCarry(result, carry)
-	} else {
-		c.UpdateFlags(a)
-	}
 	c.State.Cycles++
 	return nil
 }
@@ -337,7 +524,7 @@ func (c *CPU) executeCMPAndBranches(mode, reg1, reg2 uint8) error {
 	// - Mode 0: CMP R1, R2 (register mode)
 	// - Mode 1: CMP R1, #imm (immediate mode) OR BEQ (branch)
 	// - Mode 2-6: Branch instructions (BNE, BGT, BLT, BGE, BLE)
-	// 
+	//
 	// To distinguish CMP immediate from BEQ, we check if reg2 is used:
 	// - CMP uses reg1 and reg2 (or immediate)
 	// - Branches don't use reg1/reg2 meaningfully (they're part of instruction encoding)
@@ -365,7 +552,7 @@ func (c *CPU) executeCMPAndBranches(mode, reg1, reg2 uint8) error {
 	// - Mode 0: CMP reg
 	// - Mode 1: Check if reg1==0 && reg2==0 -> BEQ, else CMP immediate
 	// - Mode 2-6: Branch instructions
-	
+
 	if mode == 0 {
 		// CMP R1, R2 (register mode)
 		value := c.GetRegister(reg2)
@@ -375,11 +562,11 @@ func (c *CPU) executeCMPAndBranches(mode, reg1, reg2 uint8) error {
 		c.State.Cycles++
 		return nil
 	}
-	
+
 	// For mode >= 1, check if it's a branch instruction
 	// Branch instructions: mode 1-6 map to BEQ, BNE, BGT, BLT, BGE, BLE
 	// But CMP immediate also uses mode 1!
-	// 
+	//
 	// Looking at the instruction encoding more carefully:
 	// The instruction word is: 0xC[mode][reg1][reg2]
 	// For branches, the standard encoding seems to be with reg1=0, reg2=0
@@ -424,7 +611,7 @@ func (c *CPU) executeCMPAndBranches(mode, reg1, reg2 uint8) error {
 	// it has register operands (reg1 != 0 or reg2 != 0), it might be CMP immediate. But BEQ is 0xC100 which has reg1=0, reg2=0.
 	//
 	// So: if mode == 1 && (reg1 != 0 || reg2 != 0), treat as CMP immediate. Otherwise, BEQ.
-	
+
 	if mode == 1 && (reg1 != 0 || reg2 != 0) {
 		// CMP R1, #imm (immediate mode) - distinguished from BEQ by having register operands
 		value := c.FetchImmediate()
@@ -449,7 +636,7 @@ func (c *CPU) executeCMPAndBranches(mode, reg1, reg2 uint8) error {
 		// So this shouldn't happen, but let's handle it
 		return fmt.Errorf("invalid CMP/branch mode: %d (reg1=%d, reg2=%d)", mode, reg1, reg2)
 	}
-	
+
 	offset := int16(c.FetchImmediate())
 	c.State.Cycles++
 
@@ -497,35 +684,63 @@ func (c *CPU) executeCMPAndBranches(mode, reg1, reg2 uint8) error {
 	return nil
 }
 
+func (c *CPU) resolveAbsoluteROMTarget(bankReg, offsetReg uint8) (uint8, uint16, error) {
+	targetBank := uint8(c.GetRegister(bankReg) & 0x00FF)
+	if targetBank < 1 || targetBank > 125 {
+		return 0, 0, fmt.Errorf("CRITICAL: absolute jump/call to invalid bank %d (valid ROM banks are 1..125)", targetBank)
+	}
+
+	targetOffset := c.GetRegister(offsetReg) &^ 1
+	if targetOffset < 0x8000 {
+		return 0, 0, fmt.Errorf("CRITICAL: absolute jump/call to invalid offset 0x%04X (ROM code must be at 0x8000+)", targetOffset)
+	}
+
+	return targetBank, targetOffset, nil
+}
+
 // executeJMP executes JMP instruction
-func (c *CPU) executeJMP() error {
-	offset := int16(c.FetchImmediate())
-	c.State.Cycles++
+func (c *CPU) executeJMP(mode, reg1, reg2 uint8) error {
+	switch mode {
+	case 0: // JMP #rel16
+		offset := int16(c.FetchImmediate())
+		c.State.Cycles++
 
-	// Offset is relative to PC after instruction and offset word
-	newOffset := int32(c.State.PCOffset) + int32(offset)
+		// Offset is relative to PC after instruction and offset word
+		newOffset := int32(c.State.PCOffset) + int32(offset)
 
-	// Validate that the new offset is valid for ROM execution
-	// ROM code must be at offset 0x8000+ within a bank
-	if newOffset < 0x8000 {
-		return fmt.Errorf("CRITICAL: JMP to invalid address 0x%04X (ROM code must be at 0x8000+). This indicates a bug in the ROM or invalid jump offset", newOffset)
+		// Validate that the new offset is valid for ROM execution
+		// ROM code must be at offset 0x8000+ within a bank
+		if newOffset < 0x8000 {
+			return fmt.Errorf("CRITICAL: JMP to invalid address 0x%04X (ROM code must be at 0x8000+). This indicates a bug in the ROM or invalid jump offset", newOffset)
+		}
+		if newOffset > 0xFFFF {
+			c.State.PCOffset = 0xFFFF
+		} else {
+			c.State.PCOffset = uint16(newOffset)
+		}
+		// Ensure PC stays aligned (instructions are 16-bit)
+		c.State.PCOffset &^= 1
+		c.State.Cycles++
+		return nil
+
+	case 1: // JMP [bankReg:offsetReg]
+		targetBank, targetOffset, err := c.resolveAbsoluteROMTarget(reg1, reg2)
+		if err != nil {
+			return err
+		}
+		c.State.PBR = targetBank
+		c.State.PCBank = targetBank
+		c.State.PCOffset = targetOffset
+		c.State.Cycles++
+		return nil
+
+	default:
+		return fmt.Errorf("unknown JMP mode: %d", mode)
 	}
-	if newOffset > 0xFFFF {
-		c.State.PCOffset = 0xFFFF
-	} else {
-		c.State.PCOffset = uint16(newOffset)
-	}
-	// Ensure PC stays aligned (instructions are 16-bit)
-	c.State.PCOffset &^= 1
-	c.State.Cycles++
-	return nil
 }
 
 // executeCALL executes CALL instruction
-func (c *CPU) executeCALL() error {
-	offset := int16(c.FetchImmediate())
-	c.State.Cycles++
-
+func (c *CPU) executeCALL(mode, reg1, reg2 uint8) error {
 	// Push return address and flags (matching RET pop order: Flags, PCOffset, PBR).
 	// RET pops 3 words: Flags first, then PCOffset, then PBR.
 	// Push in the reverse order so LIFO matches.
@@ -533,23 +748,43 @@ func (c *CPU) executeCALL() error {
 	c.Push16(c.State.PCOffset)       // PCOffset (popped second by RET)
 	c.Push16(uint16(c.State.Flags))  // Flags (popped first by RET)
 
-	// Jump to target
-	newOffset := int32(c.State.PCOffset) + int32(offset)
+	switch mode {
+	case 0: // CALL #rel16
+		offset := int16(c.FetchImmediate())
+		c.State.Cycles++
 
-	// Validate that the new offset is valid for ROM execution
-	// ROM code must be at offset 0x8000+ within a bank
-	if newOffset < 0x8000 {
-		return fmt.Errorf("CRITICAL: CALL to invalid address 0x%04X (ROM code must be at 0x8000+). This indicates a bug in the ROM or invalid call offset", newOffset)
+		// Jump to target
+		newOffset := int32(c.State.PCOffset) + int32(offset)
+
+		// Validate that the new offset is valid for ROM execution
+		// ROM code must be at offset 0x8000+ within a bank
+		if newOffset < 0x8000 {
+			return fmt.Errorf("CRITICAL: CALL to invalid address 0x%04X (ROM code must be at 0x8000+). This indicates a bug in the ROM or invalid call offset", newOffset)
+		}
+		if newOffset > 0xFFFF {
+			c.State.PCOffset = 0xFFFF
+		} else {
+			c.State.PCOffset = uint16(newOffset)
+		}
+		// Ensure PC stays aligned (instructions are 16-bit)
+		c.State.PCOffset &^= 1
+		c.State.Cycles += 3
+		return nil
+
+	case 1: // CALL [bankReg:offsetReg]
+		targetBank, targetOffset, err := c.resolveAbsoluteROMTarget(reg1, reg2)
+		if err != nil {
+			return err
+		}
+		c.State.PBR = targetBank
+		c.State.PCBank = targetBank
+		c.State.PCOffset = targetOffset
+		c.State.Cycles += 3
+		return nil
+
+	default:
+		return fmt.Errorf("unknown CALL mode: %d", mode)
 	}
-	if newOffset > 0xFFFF {
-		c.State.PCOffset = 0xFFFF
-	} else {
-		c.State.PCOffset = uint16(newOffset)
-	}
-	// Ensure PC stays aligned (instructions are 16-bit)
-	c.State.PCOffset &^= 1
-	c.State.Cycles += 3
-	return nil
 }
 
 // executeRET executes RET instruction
@@ -572,7 +807,7 @@ func (c *CPU) executeRET() error {
 
 	// Check if stack is empty
 	if c.State.SP >= 0x1FFF {
-		return fmt.Errorf("stack underflow: RET called with empty stack (SP=0x%04X)", c.State.SP)
+		return fmt.Errorf("stack underflow: RET called with empty stack (PC=%02X:%04X, SP=0x%04X)", c.State.PCBank, c.State.PCOffset, c.State.SP)
 	}
 
 	// Check if stack is corrupted
@@ -668,7 +903,7 @@ func (c *CPU) Pop16() (uint16, error) {
 	addrLow := c.State.SP
 	low := uint16(c.Mem.Read8(0, c.State.SP))
 	spAfter := c.State.SP
-	
+
 	// Debug: Verify SP was actually modified
 	if spAfter == spBefore {
 		panic(fmt.Sprintf("CRITICAL: Pop16 didn't modify SP! Before: 0x%04X, After: 0x%04X", spBefore, spAfter))
@@ -681,12 +916,12 @@ func (c *CPU) Pop16() (uint16, error) {
 	}
 
 	result := (high << 8) | low
-	
+
 	// Debug logging (remove after fixing)
 	_ = spBefore
 	_ = addrHigh
 	_ = addrLow
 	_ = spAfter
-	
+
 	return result, nil
 }

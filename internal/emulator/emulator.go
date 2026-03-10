@@ -88,7 +88,7 @@ func NewEmulatorWithLogger(logger *debug.Logger) *Emulator {
 	cpuLogger := cpu.NewCPULoggerAdapter(logger, cpu.CPULogNone)
 	timerIRQType := uint8(cpu.INT_TIMER)
 
-	// Create CPU with bus (not MemorySystem)
+	// Create CPU with the canonical bus-backed memory model.
 	cpu := cpu.NewCPU(bus, cpuLogger)
 
 	// Set up PPU interrupt callback to trigger CPU interrupts

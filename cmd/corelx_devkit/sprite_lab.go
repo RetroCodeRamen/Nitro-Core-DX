@@ -192,6 +192,8 @@ func (s *devKitState) buildSpriteLabPane() fyne.CanvasObject {
 
 	hexPreview := newReadOnlyTextArea()
 	hexPreview.SetMinRowsVisible(8)
+	indexPreview := newReadOnlyTextArea()
+	indexPreview.SetMinRowsVisible(8)
 	hexColorMap := canvas.NewImageFromImage(image.NewNRGBA(image.Rect(0, 0, 1, 1)))
 	hexColorMap.FillMode = canvas.ImageFillContain
 	hexColorMap.ScaleMode = canvas.ImageScaleFastest
@@ -363,6 +365,7 @@ func (s *devKitState) buildSpriteLabPane() fyne.CanvasObject {
 		)
 		previewImage.Refresh()
 		refreshSpriteLabHexPreview(hexPreview, pixels, spriteW, spriteH)
+		refreshSpriteLabIndexPreview(indexPreview, pixels, spriteW, spriteH)
 		hexColorMap.Image = renderSpriteLabHexColorMapImage(pixels, palettes, selectedBank, spriteW, spriteH, transparentZero)
 		hexColorMap.Refresh()
 		selectedLabel.SetText(fmt.Sprintf("Color: %X (Bank %d)", selectedColor, selectedBank))
@@ -767,7 +770,7 @@ func (s *devKitState) buildSpriteLabPane() fyne.CanvasObject {
 	includePaletteCheck := widget.NewCheck("Include palette setup in code snippet", nil)
 	includePaletteCheck.SetChecked(true)
 
-	insertButton := widget.NewButton("Insert CoreLX Asset", func() {
+	insertButton := widget.NewButton("Insert Source Snippet", func() {
 		name := sanitizeSpriteLabName(nameEntry.Text)
 		assetSnippet, err := spriteLabCoreLXAssetSnippet(name, pixels, spriteW, spriteH)
 		if err != nil {
@@ -780,7 +783,7 @@ func (s *devKitState) buildSpriteLabPane() fyne.CanvasObject {
 		}
 		next += assetSnippet
 		if includePaletteCheck.Checked {
-			paletteSnippet, pErr := spriteLabPaletteInitSnippet(selectedBank, palettes)
+			paletteSnippet, pErr := spriteLabPaletteInitSnippet(selectedBank, palettes, pixels)
 			if pErr != nil {
 				dialog.ShowError(pErr, s.window)
 				return
@@ -798,7 +801,7 @@ func (s *devKitState) buildSpriteLabPane() fyne.CanvasObject {
 	})
 	insertButton.Importance = widget.HighImportance
 
-	applyProjectButton := widget.NewButton("Apply To Project", func() {
+	applyProjectButton := widget.NewButton("Apply Source Asset", func() {
 		name := sanitizeSpriteLabName(nameEntry.Text)
 		assetSnippet, err := spriteLabCoreLXAssetSnippet(name, pixels, spriteW, spriteH)
 		if err != nil {
@@ -807,7 +810,7 @@ func (s *devKitState) buildSpriteLabPane() fyne.CanvasObject {
 		}
 		paletteSnippet := ""
 		if includePaletteCheck.Checked {
-			paletteSnippet, err = spriteLabPaletteInitSnippet(selectedBank, palettes)
+			paletteSnippet, err = spriteLabPaletteInitSnippet(selectedBank, palettes, pixels)
 			if err != nil {
 				dialog.ShowError(err, s.window)
 				return
@@ -828,7 +831,7 @@ func (s *devKitState) buildSpriteLabPane() fyne.CanvasObject {
 	})
 	applyProjectButton.Importance = widget.HighImportance
 
-	applyManifestButton := widget.NewButton("Apply To Manifest", func() {
+	applyManifestButton := widget.NewButton("Apply Manifest Asset", func() {
 		name := sanitizeSpriteLabName(nameEntry.Text)
 		hexData, err := spriteLabAssetHexData(pixels, spriteW, spriteH)
 		if err != nil {
@@ -977,18 +980,26 @@ func (s *devKitState) buildSpriteLabPane() fyne.CanvasObject {
 		statsLabel,
 	)
 
+	hotkeysLabel := widget.NewLabel("Hotkeys: B pencil, E erase, X mirror, G grid, T transparency, I/J/K/L shift wrap, Ctrl+Z/Ctrl+Y undo/redo")
+	hotkeysLabel.Wrapping = fyne.TextWrapWord
 	exportTab := container.NewVBox(
-		container.NewGridWithColumns(2, loadButton, saveButton),
+		widget.NewLabel("Asset File"),
+		loadButton,
+		saveButton,
+		widget.NewSeparator(),
+		widget.NewLabel("Code/Manifest"),
 		includePaletteCheck,
 		applyManifestButton,
 		applyProjectButton,
 		insertButton,
 		copyHexButton,
-		widget.NewLabel("Hotkeys: B pencil, E erase, X mirror, G grid, T transparency, I/J/K/L shift wrap, Ctrl+Z/Ctrl+Y undo/redo"),
+		widget.NewSeparator(),
+		hotkeysLabel,
 	)
 
 	inspectorAccordion := widget.NewAccordion(
-		widget.NewAccordionItem("Packed 4bpp Bytes", hexPreview),
+		widget.NewAccordionItem("Packed 4bpp Bytes (byte = right<<4 | left)", hexPreview),
+		widget.NewAccordionItem("Per-Pixel Color Indices (00..0F)", indexPreview),
 		widget.NewAccordionItem("Hex Color Map", hexColorMap),
 	)
 	inspectorAccordion.MultiOpen = true
@@ -1340,6 +1351,38 @@ func refreshSpriteLabHexPreview(entry *widget.Entry, pixels []uint8, width, heig
 	entry.Disable()
 }
 
+func refreshSpriteLabIndexPreview(entry *widget.Entry, pixels []uint8, width, height int) {
+	if width <= 0 || height <= 0 {
+		entry.Enable()
+		entry.SetText("error: invalid dimensions")
+		entry.Disable()
+		return
+	}
+	expected := width * height
+	if len(pixels) != expected {
+		entry.Enable()
+		entry.SetText(fmt.Sprintf("error: expected %d pixels, got %d", expected, len(pixels)))
+		entry.Disable()
+		return
+	}
+	var sb strings.Builder
+	for y := 0; y < height; y++ {
+		if y > 0 {
+			sb.WriteByte('\n')
+		}
+		base := y * width
+		for x := 0; x < width; x++ {
+			if x > 0 {
+				sb.WriteByte(' ')
+			}
+			sb.WriteString(fmt.Sprintf("%02X", pixels[base+x]&0x0F))
+		}
+	}
+	entry.Enable()
+	entry.SetText(sb.String())
+	entry.Disable()
+}
+
 func shiftSpritePixelsWrap(pixels []uint8, width, height, dx, dy int) ([]uint8, bool) {
 	if width <= 0 || height <= 0 || len(pixels) != width*height {
 		return append([]uint8(nil), pixels...), false
@@ -1447,6 +1490,7 @@ func spriteLabCoreLXAssetSnippet(name string, pixels []uint8, width, height int)
 
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("-- Sprite Lab asset (%dx%d, 4bpp)\n", width, height))
+	sb.WriteString("-- Packed byte format: byte = (right_pixel<<4) | left_pixel\n")
 	sb.WriteString("asset ")
 	sb.WriteString(sanitizeSpriteLabName(name))
 	sb.WriteString(": ")
@@ -1488,23 +1532,37 @@ func spriteLabAssetTypeForDimensions(width, height int) string {
 	return "tileset"
 }
 
-func spriteLabPaletteInitSnippet(bank int, palettes []uint16) (string, error) {
+func spriteLabPaletteInitSnippet(bank int, palettes []uint16, pixels []uint8) (string, error) {
 	if bank < 0 || bank >= spriteLabPaletteBanks {
 		return "", fmt.Errorf("palette bank out of range: %d", bank)
 	}
 	if len(palettes) != spriteLabPaletteCount {
 		return "", fmt.Errorf("palette data length must be %d", spriteLabPaletteCount)
 	}
+	if len(pixels) == 0 {
+		return "", fmt.Errorf("sprite pixels are required for palette snippet generation")
+	}
+
+	used := make([]bool, spriteLabColorsPerBank)
+	for _, px := range pixels {
+		used[int(px&0x0F)] = true
+	}
+
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("-- Sprite Lab palette bank %d\n", bank))
+	sb.WriteString(fmt.Sprintf("-- Sprite Lab palette bank %d (used indices)\n", bank))
 	base := bank * spriteLabColorsPerBank
 	for i := 0; i < spriteLabColorsPerBank; i++ {
-		sb.WriteString(fmt.Sprintf("gfx.set_palette(%d, %d, 0x%04X)", bank, i, palettes[base+i]))
-		if i < spriteLabColorsPerBank-1 {
-			sb.WriteByte('\n')
+		if !used[i] {
+			continue
 		}
+		sb.WriteString(fmt.Sprintf("gfx.set_palette(%d, %d, 0x%04X)", bank, i, palettes[base+i]))
+		sb.WriteByte('\n')
 	}
-	return sb.String(), nil
+	out := strings.TrimRight(sb.String(), "\n")
+	if out == "" {
+		return "", fmt.Errorf("no used palette indices found for sprite")
+	}
+	return out, nil
 }
 
 func upsertSpriteLabBlocksIntoSource(source, assetName, assetSnippet string, includePalette bool, paletteBank int, paletteSnippet string) (string, string, error) {

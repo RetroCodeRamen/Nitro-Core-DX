@@ -1,6 +1,8 @@
 package apu
 
-import "testing"
+import (
+	"testing"
+)
 
 func writeOPMReg(fm *FMOPM, addr, value uint8) {
 	fm.Write8(FMRegAddr, addr)
@@ -8,6 +10,7 @@ func writeOPMReg(fm *FMOPM, addr, value uint8) {
 }
 
 func TestFMOPMHostRegisterFile(t *testing.T) {
+	t.Setenv("NCDX_YM_BACKEND", "legacy")
 	fm := NewFMOPM(nil)
 
 	fm.Write8(FMRegAddr, 0x34)
@@ -28,6 +31,7 @@ func TestFMOPMHostRegisterFile(t *testing.T) {
 }
 
 func TestFMOPMControlAndReset(t *testing.T) {
+	t.Setenv("NCDX_YM_BACKEND", "legacy")
 	fm := NewFMOPM(nil)
 
 	fm.Write8(FMRegAddr, 0x10)
@@ -56,6 +60,7 @@ func TestFMOPMControlAndReset(t *testing.T) {
 }
 
 func TestAPURoutesFMExtensionOffsets(t *testing.T) {
+	t.Setenv("NCDX_YM_BACKEND", "legacy")
 	apu := NewAPU(44100, nil)
 
 	// CPU-visible 0x9100 maps to APU offset 0x0100.
@@ -75,6 +80,7 @@ func TestAPURoutesFMExtensionOffsets(t *testing.T) {
 }
 
 func TestFMOPMTimerAStatusAndIRQ(t *testing.T) {
+	t.Setenv("NCDX_YM_BACKEND", "legacy")
 	fm := NewFMOPM(nil)
 	fm.Write8(FMRegControl, 0x01) // enable extension
 
@@ -111,6 +117,7 @@ func TestFMOPMTimerAStatusAndIRQ(t *testing.T) {
 }
 
 func TestFMOPMTimerBFlagWithoutIRQEnable(t *testing.T) {
+	t.Setenv("NCDX_YM_BACKEND", "legacy")
 	fm := NewFMOPM(nil)
 	fm.Write8(FMRegControl, 0x01) // enable extension
 
@@ -131,6 +138,7 @@ func TestFMOPMTimerBFlagWithoutIRQEnable(t *testing.T) {
 }
 
 func TestAPUFMTimerIRQCallbackRisingEdge(t *testing.T) {
+	t.Setenv("NCDX_YM_BACKEND", "legacy")
 	apu := NewAPU(44100, nil)
 	apu.Write8(FMExtensionOffsetBase+FMRegControl, 0x01) // enable FM extension
 
@@ -172,6 +180,7 @@ func TestAPUFMTimerIRQCallbackRisingEdge(t *testing.T) {
 }
 
 func TestFMOPMAudibleSubsetGeneratesSamples(t *testing.T) {
+	t.Setenv("NCDX_YM_BACKEND", "legacy")
 	fm := NewFMOPM(nil)
 	fm.SampleRate = 44100
 	fm.Write8(FMRegControl, 0x01) // enable
@@ -202,6 +211,7 @@ func TestFMOPMAudibleSubsetGeneratesSamples(t *testing.T) {
 }
 
 func TestFMOPMAudibleSubsetKeyOffStopsOutput(t *testing.T) {
+	t.Setenv("NCDX_YM_BACKEND", "legacy")
 	fm := NewFMOPM(nil)
 	fm.SampleRate = 44100
 	fm.Write8(FMRegControl, 0x01) // enable

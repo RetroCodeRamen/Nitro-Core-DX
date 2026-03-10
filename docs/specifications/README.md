@@ -6,8 +6,10 @@ This directory contains hardware specifications, pin definitions, FPGA documenta
 
 - `COMPLETE_HARDWARE_SPECIFICATION_V2.1.md`
   - Current evidence-based base hardware spec (CPU/PPU/APU/input/timing/registers)
+- `PPU_TRANSFORM_CHANNEL_ARCHITECTURE.md`
+  - Stage 1 architecture baseline for the long-term PPU transform/raster model (multi-channel affine planes, raster command tables, emulator/FPGA target contract)
 - `APU_FM_OPM_EXTENSION_SPEC.md`
-  - Current FM extension runtime design + implementation status (legacy APU + FM host interface; OPM-lite transitional path)
+  - Current FM extension runtime design + implementation status (YM2608-targeted host interface + backend selection/fallback model)
 - `CARTRIDGE_PIN_SPECIFICATION.md`
   - Cartridge connector pinout/spec
 - `CONTROLLER_PIN_SPECIFICATION.md`
@@ -20,6 +22,14 @@ This directory contains hardware specifications, pin definitions, FPGA documenta
 - `FPGA_READINESS_ASSESSMENT.md`
 - `FPGA_READINESS_COMPARISON.md`
 - `SPEC_AUDIT_DISCREPANCIES.md`
+- FPGA docs in this section describe the **target FPGA architecture/specification direction**.
+- They are not a guarantee that the in-tree RTL is already at full emulator parity.
+- Current RTL-vs-emulator implementation status should be cross-checked against:
+  - `../HARDWARE_FEATURES_STATUS.md`
+  - current FPGA source under `FPGA/nitro_core_dx_fpga/src/`
+- Implementation status snapshots:
+  - `../HARDWARE_FEATURES_STATUS.md`
+  - `SPEC_AUDIT_DISCREPANCIES.md`
 
 ## Historical / Superseded Specs (Keep for Context)
 

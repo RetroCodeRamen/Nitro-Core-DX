@@ -7,6 +7,8 @@
 
 ## Summary
 
+> **Scope Note (2026-03-10):** This is a comparison of **documentation/spec completeness** between the readiness assessment and the FPGA implementation spec. It does not claim that the current in-tree FPGA RTL has already reached emulator parity.
+
 **Status: ✅ SIGNIFICANTLY IMPROVED**
 
 We've addressed **most** of the critical missing items identified in the readiness assessment. The FPGA Implementation Specification now provides the hardware-level detail needed for FPGA implementation.
@@ -282,7 +284,7 @@ We've addressed **most** of the critical missing items identified in the readine
 **Overall Readiness: ⚠️ PARTIALLY READY (75-80%)**
 
 ### After (FPGA_IMPLEMENTATION_SPECIFICATION.md):
-**Overall Readiness: ✅ READY FOR IMPLEMENTATION (90-95%)**
+**Overall Readiness: ✅ READY FOR IMPLEMENTATION PLANNING (90-95%)**
 
 ---
 
@@ -335,7 +337,7 @@ We've addressed **most** of the critical missing items identified in the readine
 - ⚠️ Power consumption estimates (optional)
 - ⚠️ Some minor implementation details (can be resolved during implementation)
 
-**Recommendation:** **The specification is now READY for FPGA implementation.** The remaining items are optional enhancements that can be added during the implementation phase or in future revisions.
+**Recommendation:** **The specification is now ready for FPGA implementation planning.** The remaining items are optional enhancements at the spec level, but current RTL parity still needs to be tracked separately.
 
 ---
 
@@ -345,8 +347,8 @@ We've addressed **most** of the critical missing items identified in the readine
 2. ✅ **DONE:** Address critical missing sections
 3. ⚠️ **OPTIONAL:** Add visual timing diagrams (future enhancement)
 4. ⚠️ **OPTIONAL:** Add power consumption estimates (future enhancement)
-5. ✅ **READY:** Begin FPGA implementation
+5. ✅ **READY:** Begin FPGA implementation planning / parity work
 
 ---
 
-**Status:** ✅ **READY FOR FPGA IMPLEMENTATION**
+**Status:** ✅ **READY FOR FPGA IMPLEMENTATION PLANNING**

@@ -27,7 +27,7 @@ type CPUState struct {
 	Cycles uint32
 
 	// Interrupt state
-	InterruptMask   uint8
+	InterruptMask    uint8
 	InterruptPending uint8
 }
 
@@ -51,8 +51,8 @@ const (
 
 // Interrupt vector addresses (in bank 0)
 const (
-	VectorIRQ  = 0xFFE0 // IRQ vector (2 bytes: bank, offset)
-	VectorNMI  = 0xFFE2 // NMI vector (2 bytes: bank, offset)
+	VectorIRQ   = 0xFFE0 // IRQ vector (2 bytes: bank, offset)
+	VectorNMI   = 0xFFE2 // NMI vector (2 bytes: bank, offset)
 	VectorRESET = 0xFFE4 // Reset vector (2 bytes: bank, offset) - for future use
 )
 
@@ -123,11 +123,11 @@ func (c *CPU) SetEntryPoint(bank uint8, offset uint16) {
 		// ROM code should start at 0x8000+ in the bank
 		// But we'll allow it and let the safety check catch it
 	}
-	
+
 	c.State.PCBank = bank
 	c.State.PCOffset = offset &^ 1 // Ensure 16-bit alignment
 	c.State.PBR = bank
-	
+
 	// Verify it was set correctly
 	if c.State.PCBank != bank {
 		panic(fmt.Sprintf("SetEntryPoint failed: PCBank is %d, expected %d", c.State.PCBank, bank))
@@ -209,7 +209,7 @@ func (c *CPU) UpdateFlagsWithCarry(result uint16, carry bool) {
 // UpdateFlagsWithOverflow updates Z, N, C, and V flags for signed arithmetic
 func (c *CPU) UpdateFlagsWithOverflow(a, b, result uint16, isSubtract bool) {
 	c.UpdateFlags(result)
-	
+
 	// Calculate carry (unsigned overflow)
 	var carry bool
 	if isSubtract {
@@ -218,7 +218,7 @@ func (c *CPU) UpdateFlagsWithOverflow(a, b, result uint16, isSubtract bool) {
 		carry = result < a || result < b
 	}
 	c.SetFlag(FlagC, carry)
-	
+
 	// Calculate overflow (signed overflow)
 	aSigned := int16(a)
 	bSigned := int16(b)
@@ -234,11 +234,39 @@ func (c *CPU) UpdateFlagsWithOverflow(a, b, result uint16, isSubtract bool) {
 	c.SetFlag(FlagV, overflow)
 }
 
+// UpdateFlagsWithOverflow8 updates Z, N, C, and V flags for 8-bit arithmetic.
+// Result/flags are based on low-byte arithmetic, with N taken from bit 7.
+func (c *CPU) UpdateFlagsWithOverflow8(a, b, result uint8, isSubtract bool) {
+	c.SetFlag(FlagZ, result == 0)
+	c.SetFlag(FlagN, (result&0x80) != 0)
+
+	var carry bool
+	if isSubtract {
+		carry = a >= b
+	} else {
+		carry = uint16(a)+uint16(b) > 0xFF
+	}
+	c.SetFlag(FlagC, carry)
+
+	aSigned := int8(a)
+	bSigned := int8(b)
+	resultSigned := int8(result)
+	var overflow bool
+	if isSubtract {
+		overflow = (aSigned < 0 && bSigned > 0 && resultSigned >= 0) ||
+			(aSigned >= 0 && bSigned < 0 && resultSigned < 0)
+	} else {
+		overflow = (aSigned >= 0 && bSigned >= 0 && resultSigned < 0) ||
+			(aSigned < 0 && bSigned < 0 && resultSigned >= 0)
+	}
+	c.SetFlag(FlagV, overflow)
+}
+
 // FetchInstruction fetches the next instruction from memory
 func (c *CPU) FetchInstruction() uint16 {
 	// Ensure PC is aligned (instructions are 16-bit)
 	c.State.PCOffset &^= 1
-	
+
 	// Use PCBank for instruction fetch (PBR should match, but PCBank is authoritative)
 	// PCBank and PBR should always be in sync. They are updated together in:
 	// - SetEntryPoint: sets both to entry bank
@@ -251,7 +279,7 @@ func (c *CPU) FetchInstruction() uint16 {
 		// Sync PBR to PCBank if they're out of sync (defensive safety measure)
 		c.State.PBR = c.State.PCBank
 	}
-	
+
 	// Safety check: If PCBank is 0 and offset is >= 0x8000, this is I/O space, not ROM!
 	// This indicates a serious bug - PC should never be in I/O space for instruction fetch
 	// This likely means PCBank was incorrectly set to 0, or there's a bug in bank switching
@@ -264,14 +292,14 @@ func (c *CPU) FetchInstruction() uint16 {
 		// The real issue is that PCBank should not be 0 when executing ROM code
 		return 0x0000 // NOP - but this is wrong, PCBank should be 1+
 	}
-	
+
 	// Read instruction from [bank:PCOffset]
 	low := c.Mem.Read8(bank, c.State.PCOffset)
 	high := c.Mem.Read8(bank, c.State.PCOffset+1)
-	
+
 	// Construct instruction word (little-endian: low byte first, then high byte)
 	instruction := uint16(low) | (uint16(high) << 8)
-	
+
 	c.State.PCOffset += 2
 	c.State.Cycles++
 	return instruction
@@ -281,7 +309,7 @@ func (c *CPU) FetchInstruction() uint16 {
 func (c *CPU) FetchImmediate() uint16 {
 	// Ensure PC is aligned (immediates are 16-bit)
 	c.State.PCOffset &^= 1
-	
+
 	// Use PCBank for immediate fetch (same as instruction fetch)
 	// PCBank and PBR should always be in sync (see FetchInstruction for details)
 	bank := c.State.PCBank
@@ -289,7 +317,7 @@ func (c *CPU) FetchImmediate() uint16 {
 		// Sync PBR to PCBank if they're out of sync (defensive safety measure)
 		c.State.PBR = c.State.PCBank
 	}
-	
+
 	low := c.Mem.Read8(bank, c.State.PCOffset)
 	high := c.Mem.Read8(bank, c.State.PCOffset+1)
 	c.State.PCOffset += 2
@@ -302,31 +330,31 @@ func (c *CPU) ExecuteInstruction() error {
 	// Safety check: If PCBank is 0 and we're in I/O space, this is a critical error
 	// This should never happen - ROM code should be in bank 1+
 	if c.State.PCBank == 0 && c.State.PCOffset >= 0x8000 {
-		return fmt.Errorf("CRITICAL: Attempting to execute from I/O space (bank 0, offset 0x%04X). PCBank should be 1+ for ROM execution. Current state: PCBank=%d, PCOffset=0x%04X, PBR=%d. This indicates PCBank was incorrectly set to 0 or Reset() was called after LoadROM", 
+		return fmt.Errorf("CRITICAL: Attempting to execute from I/O space (bank 0, offset 0x%04X). PCBank should be 1+ for ROM execution. Current state: PCBank=%d, PCOffset=0x%04X, PBR=%d. This indicates PCBank was incorrectly set to 0 or Reset() was called after LoadROM",
 			c.State.PCOffset, c.State.PCBank, c.State.PCOffset, c.State.PBR)
 	}
-	
+
 	// Safety check: If PCBank is 1+ but PCOffset is < 0x8000, this is invalid
 	// ROM code must be at offset 0x8000+ within a bank
 	if c.State.PCBank >= 1 && c.State.PCBank <= 125 && c.State.PCOffset < 0x8000 {
-		return fmt.Errorf("CRITICAL: Attempting to execute from invalid ROM address (bank %d, offset 0x%04X). ROM code must be at offset 0x8000+ within a bank. This indicates PC was corrupted or an invalid jump occurred", 
+		return fmt.Errorf("CRITICAL: Attempting to execute from invalid ROM address (bank %d, offset 0x%04X). ROM code must be at offset 0x8000+ within a bank. This indicates PC was corrupted or an invalid jump occurred",
 			c.State.PCBank, c.State.PCOffset)
 	}
-	
+
 	// Fetch instruction
 	instruction := c.FetchInstruction()
-	
+
 	// Decode instruction
 	opcode := uint8((instruction >> 12) & 0xF)
 	mode := uint8((instruction >> 8) & 0xF)
 	reg1 := uint8((instruction >> 4) & 0xF)
 	reg2 := uint8(instruction & 0xF)
-	
+
 	// Log instruction if logger is available
 	if c.Log != nil {
 		c.Log.LogCPU(instruction, c.State, 1)
 	}
-	
+
 	// Execute based on opcode
 	switch opcode {
 	case 0x0: // NOP
@@ -335,7 +363,7 @@ func (c *CPU) ExecuteInstruction() error {
 		if err := c.executeMOV(mode, reg1, reg2); err != nil {
 			// Calculate the PC where this instruction was fetched from
 			fetchPC := c.State.PCOffset - 2
-			return fmt.Errorf("%s (instruction: 0x%04X, mode: %d, reg1: %d, reg2: %d, PC: %02X:%04X, PBR: %02X)", 
+			return fmt.Errorf("%s (instruction: 0x%04X, mode: %d, reg1: %d, reg2: %d, PC: %02X:%04X, PBR: %02X)",
 				err, instruction, mode, reg1, reg2, c.State.PCBank, fetchPC, c.State.PBR)
 		}
 		return nil
@@ -362,9 +390,9 @@ func (c *CPU) ExecuteInstruction() error {
 	case 0xC: // CMP and branches
 		return c.executeCMPAndBranches(mode, reg1, reg2)
 	case 0xD: // JMP
-		return c.executeJMP()
+		return c.executeJMP(mode, reg1, reg2)
 	case 0xE: // CALL
-		return c.executeCALL()
+		return c.executeCALL(mode, reg1, reg2)
 	case 0xF: // RET
 		return c.executeRET()
 	default:
@@ -378,7 +406,7 @@ func (c *CPU) ExecuteCycles(targetCycles uint32) error {
 		if err := c.ExecuteInstruction(); err != nil {
 			return err
 		}
-		
+
 		// Check for interrupts (at end of instruction)
 		if c.State.InterruptPending != 0 {
 			// NMI is non-maskable (always handled)
@@ -469,5 +497,3 @@ func (c *CPU) TriggerInterrupt(interruptType uint8) {
 func (c *CPU) GetPC() string {
 	return fmt.Sprintf("%02X:%04X", c.State.PCBank, c.State.PCOffset)
 }
-
-

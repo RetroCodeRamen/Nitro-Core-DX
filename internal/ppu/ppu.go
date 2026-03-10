@@ -27,16 +27,10 @@ type PPU struct {
 
 	// Background layers (each has its own matrix transformation)
 	BG0, BG1, BG2, BG3 BackgroundLayer
-
-	// Legacy Matrix Mode (deprecated - use per-layer matrix instead)
-	// Kept for backward compatibility, maps to BG0 matrix
-	MatrixEnabled    bool
-	MatrixA, MatrixB int16 // 8.8 fixed point
-	MatrixC, MatrixD int16 // 8.8 fixed point
-	MatrixCenterX    int16
-	MatrixCenterY    int16
-	MatrixMirrorH    bool
-	MatrixMirrorV    bool
+	// Transform channels are the runtime matrix engines bound to visible layers.
+	// Stage 2 keeps layer-owned matrix fields for compatibility, but rendering and
+	// HDMA now resolve matrix state through these channels.
+	TransformChannels [4]TransformChannel
 
 	// Windowing
 	Window0, Window1 Window
@@ -45,9 +39,10 @@ type PPU struct {
 	WindowSubEnable  uint8
 
 	// HDMA
-	HDMAEnabled   bool
-	HDMATableBase uint16
-	HDMAControl   uint8 // Bit 0=enable, bits 1-4=layer enable (BG0-BG3), bits 5-7=matrix update enable per layer
+	HDMAEnabled    bool
+	HDMATableBase  uint16
+	HDMAControl    uint8 // Bit 0=enable, bits 1-4=layer enable (BG0-BG3), bit 5=rebind table, bit 6=priority table, bit 7=tilemap-base table
+	HDMAExtControl uint8 // Bit 0=source-mode table present
 
 	// Debug
 	debugFrameCount int
@@ -160,22 +155,30 @@ type BackgroundLayer struct {
 	ScrollX     int16
 	ScrollY     int16
 	Enabled     bool
-	TileSize    bool // false = 8×8, true = 16×16
+	Priority    uint8 // 0-3, higher renders on top
+	TileSize    bool  // false = 8×8, true = 16×16
+	SourceMode  uint8 // 0=tilemap, 1=bitmap (reserved; tilemap is the only active runtime source today)
 	TilemapBase uint16
-
-	// Matrix Mode (per-layer transformation)
-	MatrixEnabled     bool
-	MatrixA, MatrixB  int16 // 8.8 fixed point
-	MatrixC, MatrixD  int16 // 8.8 fixed point
-	MatrixCenterX     int16
-	MatrixCenterY     int16
-	MatrixMirrorH     bool
-	MatrixMirrorV     bool
-	MatrixOutsideMode uint8 // 0=repeat/wrap, 1=backdrop, 2=character #0
-	MatrixDirectColor bool  // Direct color mode (bypass CGRAM, use direct RGB)
+	// TransformChannel selects the runtime transform channel bound to this layer.
+	// Defaults to the layer index.
+	TransformChannel uint8
 	// Mosaic effect
 	MosaicEnabled bool
 	MosaicSize    uint8 // 1-15 (1 = no effect, 15 = max block size)
+}
+
+// TransformChannel represents a runtime affine transform engine that can be
+// bound to a visible layer.
+type TransformChannel struct {
+	Enabled     bool
+	A, B        int16 // 8.8 fixed point
+	C, D        int16 // 8.8 fixed point
+	CenterX     int16
+	CenterY     int16
+	MirrorH     bool
+	MirrorV     bool
+	OutsideMode uint8
+	DirectColor bool
 }
 
 // Window represents a window
@@ -185,7 +188,7 @@ type Window struct {
 
 // NewPPU creates a new PPU instance
 func NewPPU(logger *debug.Logger) *PPU {
-	return &PPU{
+	p := &PPU{
 		BG0:             BackgroundLayer{},
 		BG1:             BackgroundLayer{},
 		BG2:             BackgroundLayer{},
@@ -195,11 +198,290 @@ func NewPPU(logger *debug.Logger) *PPU {
 		Logger:          logger,
 		activeScanlineY: -1,
 	}
+	p.initializeDefaultTransformBindings()
+	return p
+}
+
+func (p *PPU) initializeDefaultTransformBindings() {
+	p.BG0.Priority = 0
+	p.BG1.Priority = 1
+	p.BG2.Priority = 2
+	p.BG3.Priority = 3
+	p.BG0.TransformChannel = 0
+	p.BG1.TransformChannel = 1
+	p.BG2.TransformChannel = 2
+	p.BG3.TransformChannel = 3
+}
+
+func (p *PPU) reconcileTransformBindings() {
+	// Old save states decode missing uint8 fields as zero, so treat the all-zero
+	// BG1/BG2/BG3 binding pattern as "uninitialized defaults".
+	if p.BG1.TransformChannel == 0 && p.BG2.TransformChannel == 0 && p.BG3.TransformChannel == 0 {
+		p.BG1.TransformChannel = 1
+		p.BG2.TransformChannel = 2
+		p.BG3.TransformChannel = 3
+	}
+	if p.BG0.TransformChannel > 3 {
+		p.BG0.TransformChannel = 0
+	}
+	if p.BG1.TransformChannel > 3 {
+		p.BG1.TransformChannel = 1
+	}
+	if p.BG2.TransformChannel > 3 {
+		p.BG2.TransformChannel = 2
+	}
+	if p.BG3.TransformChannel > 3 {
+		p.BG3.TransformChannel = 3
+	}
+}
+
+// SyncTransformBindingsForStateLoad restores default bindings for older states.
+func (p *PPU) SyncTransformBindingsForStateLoad() {
+	p.reconcileTransformBindings()
+}
+
+func (p *PPU) getBackgroundLayer(layerNum int) *BackgroundLayer {
+	switch layerNum {
+	case 0:
+		return &p.BG0
+	case 1:
+		return &p.BG1
+	case 2:
+		return &p.BG2
+	case 3:
+		return &p.BG3
+	default:
+		return nil
+	}
+}
+
+func (p *PPU) applyLayerControlRegister(layerNum int, value uint8) {
+	layer := p.getBackgroundLayer(layerNum)
+	if layer == nil {
+		return
+	}
+	layer.Enabled = (value & 0x01) != 0
+	layer.TileSize = (value & 0x02) != 0
+	layer.Priority = (value >> 2) & 0x03
+}
+
+func (p *PPU) readLayerControlRegister(layerNum int) uint8 {
+	layer := p.getBackgroundLayer(layerNum)
+	if layer == nil {
+		return 0
+	}
+	var value uint8
+	if layer.Enabled {
+		value |= 0x01
+	}
+	if layer.TileSize {
+		value |= 0x02
+	}
+	value |= (layer.Priority & 0x03) << 2
+	return value
+}
+
+func (p *PPU) applyLayerSourceModeRegister(layerNum int, value uint8) {
+	layer := p.getBackgroundLayer(layerNum)
+	if layer == nil {
+		return
+	}
+	layer.SourceMode = value & 0x01
+}
+
+func (p *PPU) readLayerSourceModeRegister(layerNum int) uint8 {
+	layer := p.getBackgroundLayer(layerNum)
+	if layer == nil {
+		return 0
+	}
+	return layer.SourceMode & 0x01
+}
+
+func (p *PPU) applyLayerTransformBindRegister(layerNum int, value uint8) {
+	layer := p.getBackgroundLayer(layerNum)
+	if layer == nil {
+		return
+	}
+	layer.TransformChannel = value & 0x03
+}
+
+func (p *PPU) readLayerTransformBindRegister(layerNum int) uint8 {
+	layer := p.getBackgroundLayer(layerNum)
+	if layer == nil {
+		return 0
+	}
+	return layer.TransformChannel & 0x03
+}
+
+func (p *PPU) writeLayerTilemapBaseLow(layerNum int, value uint8) {
+	layer := p.getBackgroundLayer(layerNum)
+	if layer == nil {
+		return
+	}
+	layer.TilemapBase = (layer.TilemapBase & 0xFF00) | uint16(value)
+}
+
+func (p *PPU) writeLayerTilemapBaseHigh(layerNum int, value uint8) {
+	layer := p.getBackgroundLayer(layerNum)
+	if layer == nil {
+		return
+	}
+	layer.TilemapBase = (layer.TilemapBase & 0x00FF) | (uint16(value) << 8)
+}
+
+func (p *PPU) readLayerTilemapBaseLow(layerNum int) uint8 {
+	layer := p.getBackgroundLayer(layerNum)
+	if layer == nil {
+		return 0
+	}
+	return uint8(layer.TilemapBase & 0xFF)
+}
+
+func (p *PPU) readLayerTilemapBaseHigh(layerNum int) uint8 {
+	layer := p.getBackgroundLayer(layerNum)
+	if layer == nil {
+		return 0
+	}
+	return uint8(layer.TilemapBase >> 8)
+}
+
+func (p *PPU) getTransformChannel(index uint8) *TransformChannel {
+	if index > 3 {
+		return &p.TransformChannels[0]
+	}
+	return &p.TransformChannels[index]
+}
+
+func (p *PPU) getLayerBoundTransformChannel(layerNum int) *TransformChannel {
+	layer := p.getBackgroundLayer(layerNum)
+	if layer == nil {
+		return &p.TransformChannels[0]
+	}
+	return p.getTransformChannel(layer.TransformChannel)
+}
+
+func (p *PPU) resolveLayerTransformChannel(layerNum int) (*BackgroundLayer, *TransformChannel) {
+	p.reconcileTransformBindings()
+	layer := p.getBackgroundLayer(layerNum)
+	if layer == nil {
+		return nil, nil
+	}
+	return layer, p.getTransformChannel(layer.TransformChannel)
 }
 
 // Read8 reads an 8-bit value from PPU registers
 func (p *PPU) Read8(offset uint16) uint8 {
 	switch offset {
+	case 0x08: // BG0_CONTROL
+		return p.readLayerControlRegister(0)
+	case 0x09: // BG1_CONTROL
+		return p.readLayerControlRegister(1)
+	case 0x21: // BG2_CONTROL
+		return p.readLayerControlRegister(2)
+	case 0x26: // BG3_CONTROL
+		return p.readLayerControlRegister(3)
+	case 0x68: // BG0_SOURCE_MODE
+		return p.readLayerSourceModeRegister(0)
+	case 0x69: // BG1_SOURCE_MODE
+		return p.readLayerSourceModeRegister(1)
+	case 0x6A: // BG2_SOURCE_MODE
+		return p.readLayerSourceModeRegister(2)
+	case 0x6B: // BG3_SOURCE_MODE
+		return p.readLayerSourceModeRegister(3)
+	case 0x6C: // BG0_TRANSFORM_BIND
+		return p.readLayerTransformBindRegister(0)
+	case 0x6D: // BG1_TRANSFORM_BIND
+		return p.readLayerTransformBindRegister(1)
+	case 0x6E: // BG2_TRANSFORM_BIND
+		return p.readLayerTransformBindRegister(2)
+	case 0x6F: // BG3_TRANSFORM_BIND
+		return p.readLayerTransformBindRegister(3)
+	case 0x77: // BG0_TILEMAP_BASE_L
+		return p.readLayerTilemapBaseLow(0)
+	case 0x78: // BG0_TILEMAP_BASE_H
+		return p.readLayerTilemapBaseHigh(0)
+	case 0x79: // BG1_TILEMAP_BASE_L
+		return p.readLayerTilemapBaseLow(1)
+	case 0x7A: // BG1_TILEMAP_BASE_H
+		return p.readLayerTilemapBaseHigh(1)
+	case 0x7B: // BG2_TILEMAP_BASE_L
+		return p.readLayerTilemapBaseLow(2)
+	case 0x7C: // BG2_TILEMAP_BASE_H
+		return p.readLayerTilemapBaseHigh(2)
+	case 0x7D: // BG3_TILEMAP_BASE_L
+		return p.readLayerTilemapBaseLow(3)
+	case 0x7E: // BG3_TILEMAP_BASE_H
+		return p.readLayerTilemapBaseHigh(3)
+	case 0x7F: // HDMA_EXTENSION_CONTROL
+		return p.HDMAExtControl
+	case 0x18: // MATRIX_CONTROL (BG0)
+		channel := p.getLayerBoundTransformChannel(0)
+		var value uint8
+		if channel.Enabled {
+			value |= 0x01
+		}
+		if channel.MirrorH {
+			value |= 0x02
+		}
+		if channel.MirrorV {
+			value |= 0x04
+		}
+		value |= (channel.OutsideMode & 0x03) << 3
+		if channel.DirectColor {
+			value |= 0x20
+		}
+		return value
+	case 0x2B: // BG1_MATRIX_CONTROL
+		channel := p.getLayerBoundTransformChannel(1)
+		var value uint8
+		if channel.Enabled {
+			value |= 0x01
+		}
+		if channel.MirrorH {
+			value |= 0x02
+		}
+		if channel.MirrorV {
+			value |= 0x04
+		}
+		value |= (channel.OutsideMode & 0x03) << 3
+		if channel.DirectColor {
+			value |= 0x20
+		}
+		return value
+	case 0x38: // BG2_MATRIX_CONTROL
+		channel := p.getLayerBoundTransformChannel(2)
+		var value uint8
+		if channel.Enabled {
+			value |= 0x01
+		}
+		if channel.MirrorH {
+			value |= 0x02
+		}
+		if channel.MirrorV {
+			value |= 0x04
+		}
+		value |= (channel.OutsideMode & 0x03) << 3
+		if channel.DirectColor {
+			value |= 0x20
+		}
+		return value
+	case 0x45: // BG3_MATRIX_CONTROL
+		channel := p.getLayerBoundTransformChannel(3)
+		var value uint8
+		if channel.Enabled {
+			value |= 0x01
+		}
+		if channel.MirrorH {
+			value |= 0x02
+		}
+		if channel.MirrorV {
+			value |= 0x04
+		}
+		value |= (channel.OutsideMode & 0x03) << 3
+		if channel.DirectColor {
+			value |= 0x20
+		}
+		return value
 	case 0x10: // VRAM_DATA
 		value := p.VRAM[p.VRAMAddr]
 		p.VRAMAddr++
@@ -278,9 +560,19 @@ func (p *PPU) Read8(offset uint16) uint8 {
 			return 0x01
 		}
 		return 0x00
-	case 0x61: // DMA_LENGTH_L
+	case 0x61: // DMA_SOURCE_BANK
+		return p.DMASourceBank
+	case 0x62: // DMA_SOURCE_OFFSET_L
+		return uint8(p.DMASourceOffset & 0xFF)
+	case 0x63: // DMA_SOURCE_OFFSET_H
+		return uint8(p.DMASourceOffset >> 8)
+	case 0x64: // DMA_DEST_ADDR_L
+		return uint8(p.DMADestAddr & 0xFF)
+	case 0x65: // DMA_DEST_ADDR_H
+		return uint8(p.DMADestAddr >> 8)
+	case 0x66: // DMA_LENGTH_L
 		return uint8(p.DMALength & 0xFF)
-	case 0x62: // DMA_LENGTH_H
+	case 0x67: // DMA_LENGTH_H
 		return uint8(p.DMALength >> 8)
 	default:
 		return 0
@@ -312,11 +604,9 @@ func (p *PPU) Write8(offset uint16, value uint8) {
 
 	// BG0/BG1 control
 	case 0x08: // BG0_CONTROL
-		p.BG0.Enabled = (value & 0x01) != 0
-		p.BG0.TileSize = (value & 0x02) != 0
+		p.applyLayerControlRegister(0, value)
 	case 0x09: // BG1_CONTROL
-		p.BG1.Enabled = (value & 0x01) != 0
-		p.BG1.TileSize = (value & 0x02) != 0
+		p.applyLayerControlRegister(1, value)
 
 	// BG2 scroll
 	case 0x0A: // BG2_SCROLLX_L
@@ -448,44 +738,40 @@ func (p *PPU) Write8(offset uint16, value uint8) {
 
 	// Matrix Mode (Legacy - maps to BG0 for backward compatibility)
 	case 0x18: // MATRIX_CONTROL (BG0)
-		p.MatrixEnabled = (value & 0x01) != 0
-		p.MatrixMirrorH = (value & 0x02) != 0
-		p.MatrixMirrorV = (value & 0x04) != 0
-		p.BG0.MatrixOutsideMode = (value >> 3) & 0x3  // Bits [4:3]
-		p.BG0.MatrixDirectColor = (value & 0x20) != 0 // Bit 5
-		// Also update BG0 matrix
-		p.BG0.MatrixEnabled = (value & 0x01) != 0
-		p.BG0.MatrixMirrorH = (value & 0x02) != 0
-		p.BG0.MatrixMirrorV = (value & 0x04) != 0
+		channel := p.getLayerBoundTransformChannel(0)
+		channel.Enabled = (value & 0x01) != 0
+		channel.MirrorH = (value & 0x02) != 0
+		channel.MirrorV = (value & 0x04) != 0
+		channel.OutsideMode = (value >> 3) & 0x3
+		channel.DirectColor = (value & 0x20) != 0
 	case 0x19: // MATRIX_A_L (BG0)
-		p.MatrixA = int16((uint16(p.MatrixA) & 0xFF00) | uint16(value))
-		p.BG0.MatrixA = p.MatrixA
+		channel := p.getLayerBoundTransformChannel(0)
+		channel.A = int16((uint16(channel.A) & 0xFF00) | uint16(value))
 	case 0x1A: // MATRIX_A_H (BG0)
-		p.MatrixA = int16((uint16(p.MatrixA) & 0x00FF) | (uint16(value) << 8))
-		p.BG0.MatrixA = p.MatrixA
+		channel := p.getLayerBoundTransformChannel(0)
+		channel.A = int16((uint16(channel.A) & 0x00FF) | (uint16(value) << 8))
 	case 0x1B: // MATRIX_B_L (BG0)
-		p.MatrixB = int16((uint16(p.MatrixB) & 0xFF00) | uint16(value))
-		p.BG0.MatrixB = p.MatrixB
+		channel := p.getLayerBoundTransformChannel(0)
+		channel.B = int16((uint16(channel.B) & 0xFF00) | uint16(value))
 	case 0x1C: // MATRIX_B_H (BG0)
-		p.MatrixB = int16((uint16(p.MatrixB) & 0x00FF) | (uint16(value) << 8))
-		p.BG0.MatrixB = p.MatrixB
+		channel := p.getLayerBoundTransformChannel(0)
+		channel.B = int16((uint16(channel.B) & 0x00FF) | (uint16(value) << 8))
 	case 0x1D: // MATRIX_C_L (BG0)
-		p.MatrixC = int16((uint16(p.MatrixC) & 0xFF00) | uint16(value))
-		p.BG0.MatrixC = p.MatrixC
+		channel := p.getLayerBoundTransformChannel(0)
+		channel.C = int16((uint16(channel.C) & 0xFF00) | uint16(value))
 	case 0x1E: // MATRIX_C_H (BG0)
-		p.MatrixC = int16((uint16(p.MatrixC) & 0x00FF) | (uint16(value) << 8))
-		p.BG0.MatrixC = p.MatrixC
+		channel := p.getLayerBoundTransformChannel(0)
+		channel.C = int16((uint16(channel.C) & 0x00FF) | (uint16(value) << 8))
 	case 0x1F: // MATRIX_D_L (BG0)
-		p.MatrixD = int16((uint16(p.MatrixD) & 0xFF00) | uint16(value))
-		p.BG0.MatrixD = p.MatrixD
+		channel := p.getLayerBoundTransformChannel(0)
+		channel.D = int16((uint16(channel.D) & 0xFF00) | uint16(value))
 	case 0x20: // MATRIX_D_H (BG0)
-		p.MatrixD = int16((uint16(p.MatrixD) & 0x00FF) | (uint16(value) << 8))
-		p.BG0.MatrixD = p.MatrixD
+		channel := p.getLayerBoundTransformChannel(0)
+		channel.D = int16((uint16(channel.D) & 0x00FF) | (uint16(value) << 8))
 
 	// BG2/BG3 control
 	case 0x21: // BG2_CONTROL
-		p.BG2.Enabled = (value & 0x01) != 0
-		p.BG2.TileSize = (value & 0x02) != 0
+		p.applyLayerControlRegister(2, value)
 	case 0x22: // BG3_SCROLLX_L
 		p.BG3.ScrollX = int16((uint16(p.BG3.ScrollX) & 0xFF00) | uint16(value))
 	case 0x23: // BG3_SCROLLX_H
@@ -495,118 +781,156 @@ func (p *PPU) Write8(offset uint16, value uint8) {
 	case 0x25: // BG3_SCROLLY_H
 		p.BG3.ScrollY = int16((uint16(p.BG3.ScrollY) & 0x00FF) | (uint16(value) << 8))
 	case 0x26: // BG3_CONTROL
-		p.BG3.Enabled = (value & 0x01) != 0
-		p.BG3.TileSize = (value & 0x02) != 0
+		p.applyLayerControlRegister(3, value)
 
 	// Matrix center (BG0)
 	case 0x27: // MATRIX_CENTER_X_L (BG0)
-		p.MatrixCenterX = int16((uint16(p.MatrixCenterX) & 0xFF00) | uint16(value))
-		p.BG0.MatrixCenterX = p.MatrixCenterX
+		channel := p.getLayerBoundTransformChannel(0)
+		channel.CenterX = int16((uint16(channel.CenterX) & 0xFF00) | uint16(value))
 	case 0x28: // MATRIX_CENTER_X_H (BG0)
-		p.MatrixCenterX = int16((uint16(p.MatrixCenterX) & 0x00FF) | (uint16(value) << 8))
-		p.BG0.MatrixCenterX = p.MatrixCenterX
+		channel := p.getLayerBoundTransformChannel(0)
+		channel.CenterX = int16((uint16(channel.CenterX) & 0x00FF) | (uint16(value) << 8))
 	case 0x29: // MATRIX_CENTER_Y_L (BG0)
-		p.MatrixCenterY = int16((uint16(p.MatrixCenterY) & 0xFF00) | uint16(value))
-		p.BG0.MatrixCenterY = p.MatrixCenterY
+		channel := p.getLayerBoundTransformChannel(0)
+		channel.CenterY = int16((uint16(channel.CenterY) & 0xFF00) | uint16(value))
 	case 0x2A: // MATRIX_CENTER_Y_H (BG0)
-		p.MatrixCenterY = int16((uint16(p.MatrixCenterY) & 0x00FF) | (uint16(value) << 8))
-		p.BG0.MatrixCenterY = p.MatrixCenterY
+		channel := p.getLayerBoundTransformChannel(0)
+		channel.CenterY = int16((uint16(channel.CenterY) & 0x00FF) | (uint16(value) << 8))
 
 	// BG1 Matrix Mode (per-layer transformation)
 	case 0x2B: // BG1_MATRIX_CONTROL
-		p.BG1.MatrixEnabled = (value & 0x01) != 0
-		p.BG1.MatrixMirrorH = (value & 0x02) != 0
-		p.BG1.MatrixMirrorV = (value & 0x04) != 0
-		p.BG1.MatrixOutsideMode = (value >> 3) & 0x3  // Bits [4:3]
-		p.BG1.MatrixDirectColor = (value & 0x20) != 0 // Bit 5
+		channel := p.getLayerBoundTransformChannel(1)
+		channel.Enabled = (value & 0x01) != 0
+		channel.MirrorH = (value & 0x02) != 0
+		channel.MirrorV = (value & 0x04) != 0
+		channel.OutsideMode = (value >> 3) & 0x3
+		channel.DirectColor = (value & 0x20) != 0
 	case 0x2C: // BG1_MATRIX_A_L
-		p.BG1.MatrixA = int16((uint16(p.BG1.MatrixA) & 0xFF00) | uint16(value))
+		channel := p.getLayerBoundTransformChannel(1)
+		channel.A = int16((uint16(channel.A) & 0xFF00) | uint16(value))
 	case 0x2D: // BG1_MATRIX_A_H
-		p.BG1.MatrixA = int16((uint16(p.BG1.MatrixA) & 0x00FF) | (uint16(value) << 8))
+		channel := p.getLayerBoundTransformChannel(1)
+		channel.A = int16((uint16(channel.A) & 0x00FF) | (uint16(value) << 8))
 	case 0x2E: // BG1_MATRIX_B_L
-		p.BG1.MatrixB = int16((uint16(p.BG1.MatrixB) & 0xFF00) | uint16(value))
+		channel := p.getLayerBoundTransformChannel(1)
+		channel.B = int16((uint16(channel.B) & 0xFF00) | uint16(value))
 	case 0x2F: // BG1_MATRIX_B_H
-		p.BG1.MatrixB = int16((uint16(p.BG1.MatrixB) & 0x00FF) | (uint16(value) << 8))
+		channel := p.getLayerBoundTransformChannel(1)
+		channel.B = int16((uint16(channel.B) & 0x00FF) | (uint16(value) << 8))
 	case 0x30: // BG1_MATRIX_C_L
-		p.BG1.MatrixC = int16((uint16(p.BG1.MatrixC) & 0xFF00) | uint16(value))
+		channel := p.getLayerBoundTransformChannel(1)
+		channel.C = int16((uint16(channel.C) & 0xFF00) | uint16(value))
 	case 0x31: // BG1_MATRIX_C_H
-		p.BG1.MatrixC = int16((uint16(p.BG1.MatrixC) & 0x00FF) | (uint16(value) << 8))
+		channel := p.getLayerBoundTransformChannel(1)
+		channel.C = int16((uint16(channel.C) & 0x00FF) | (uint16(value) << 8))
 	case 0x32: // BG1_MATRIX_D_L
-		p.BG1.MatrixD = int16((uint16(p.BG1.MatrixD) & 0xFF00) | uint16(value))
+		channel := p.getLayerBoundTransformChannel(1)
+		channel.D = int16((uint16(channel.D) & 0xFF00) | uint16(value))
 	case 0x33: // BG1_MATRIX_D_H
-		p.BG1.MatrixD = int16((uint16(p.BG1.MatrixD) & 0x00FF) | (uint16(value) << 8))
+		channel := p.getLayerBoundTransformChannel(1)
+		channel.D = int16((uint16(channel.D) & 0x00FF) | (uint16(value) << 8))
 	case 0x34: // BG1_MATRIX_CENTER_X_L
-		p.BG1.MatrixCenterX = int16((uint16(p.BG1.MatrixCenterX) & 0xFF00) | uint16(value))
+		channel := p.getLayerBoundTransformChannel(1)
+		channel.CenterX = int16((uint16(channel.CenterX) & 0xFF00) | uint16(value))
 	case 0x35: // BG1_MATRIX_CENTER_X_H
-		p.BG1.MatrixCenterX = int16((uint16(p.BG1.MatrixCenterX) & 0x00FF) | (uint16(value) << 8))
+		channel := p.getLayerBoundTransformChannel(1)
+		channel.CenterX = int16((uint16(channel.CenterX) & 0x00FF) | (uint16(value) << 8))
 	case 0x36: // BG1_MATRIX_CENTER_Y_L
-		p.BG1.MatrixCenterY = int16((uint16(p.BG1.MatrixCenterY) & 0xFF00) | uint16(value))
+		channel := p.getLayerBoundTransformChannel(1)
+		channel.CenterY = int16((uint16(channel.CenterY) & 0xFF00) | uint16(value))
 	case 0x37: // BG1_MATRIX_CENTER_Y_H
-		p.BG1.MatrixCenterY = int16((uint16(p.BG1.MatrixCenterY) & 0x00FF) | (uint16(value) << 8))
+		channel := p.getLayerBoundTransformChannel(1)
+		channel.CenterY = int16((uint16(channel.CenterY) & 0x00FF) | (uint16(value) << 8))
 
 	// BG2 Matrix Mode
 	case 0x38: // BG2_MATRIX_CONTROL
-		p.BG2.MatrixEnabled = (value & 0x01) != 0
-		p.BG2.MatrixMirrorH = (value & 0x02) != 0
-		p.BG2.MatrixMirrorV = (value & 0x04) != 0
-		p.BG2.MatrixOutsideMode = (value >> 3) & 0x3  // Bits [4:3]
-		p.BG2.MatrixDirectColor = (value & 0x20) != 0 // Bit 5
+		channel := p.getLayerBoundTransformChannel(2)
+		channel.Enabled = (value & 0x01) != 0
+		channel.MirrorH = (value & 0x02) != 0
+		channel.MirrorV = (value & 0x04) != 0
+		channel.OutsideMode = (value >> 3) & 0x3
+		channel.DirectColor = (value & 0x20) != 0
 	case 0x39: // BG2_MATRIX_A_L
-		p.BG2.MatrixA = int16((uint16(p.BG2.MatrixA) & 0xFF00) | uint16(value))
+		channel := p.getLayerBoundTransformChannel(2)
+		channel.A = int16((uint16(channel.A) & 0xFF00) | uint16(value))
 	case 0x3A: // BG2_MATRIX_A_H
-		p.BG2.MatrixA = int16((uint16(p.BG2.MatrixA) & 0x00FF) | (uint16(value) << 8))
+		channel := p.getLayerBoundTransformChannel(2)
+		channel.A = int16((uint16(channel.A) & 0x00FF) | (uint16(value) << 8))
 	case 0x3B: // BG2_MATRIX_B_L
-		p.BG2.MatrixB = int16((uint16(p.BG2.MatrixB) & 0xFF00) | uint16(value))
+		channel := p.getLayerBoundTransformChannel(2)
+		channel.B = int16((uint16(channel.B) & 0xFF00) | uint16(value))
 	case 0x3C: // BG2_MATRIX_B_H
-		p.BG2.MatrixB = int16((uint16(p.BG2.MatrixB) & 0x00FF) | (uint16(value) << 8))
+		channel := p.getLayerBoundTransformChannel(2)
+		channel.B = int16((uint16(channel.B) & 0x00FF) | (uint16(value) << 8))
 	case 0x3D: // BG2_MATRIX_C_L
-		p.BG2.MatrixC = int16((uint16(p.BG2.MatrixC) & 0xFF00) | uint16(value))
+		channel := p.getLayerBoundTransformChannel(2)
+		channel.C = int16((uint16(channel.C) & 0xFF00) | uint16(value))
 	case 0x3E: // BG2_MATRIX_C_H
-		p.BG2.MatrixC = int16((uint16(p.BG2.MatrixC) & 0x00FF) | (uint16(value) << 8))
+		channel := p.getLayerBoundTransformChannel(2)
+		channel.C = int16((uint16(channel.C) & 0x00FF) | (uint16(value) << 8))
 	case 0x3F: // BG2_MATRIX_D_L
-		p.BG2.MatrixD = int16((uint16(p.BG2.MatrixD) & 0xFF00) | uint16(value))
+		channel := p.getLayerBoundTransformChannel(2)
+		channel.D = int16((uint16(channel.D) & 0xFF00) | uint16(value))
 	case 0x40: // BG2_MATRIX_D_H
-		p.BG2.MatrixD = int16((uint16(p.BG2.MatrixD) & 0x00FF) | (uint16(value) << 8))
+		channel := p.getLayerBoundTransformChannel(2)
+		channel.D = int16((uint16(channel.D) & 0x00FF) | (uint16(value) << 8))
 	case 0x41: // BG2_MATRIX_CENTER_X_L
-		p.BG2.MatrixCenterX = int16((uint16(p.BG2.MatrixCenterX) & 0xFF00) | uint16(value))
+		channel := p.getLayerBoundTransformChannel(2)
+		channel.CenterX = int16((uint16(channel.CenterX) & 0xFF00) | uint16(value))
 	case 0x42: // BG2_MATRIX_CENTER_X_H
-		p.BG2.MatrixCenterX = int16((uint16(p.BG2.MatrixCenterX) & 0x00FF) | (uint16(value) << 8))
+		channel := p.getLayerBoundTransformChannel(2)
+		channel.CenterX = int16((uint16(channel.CenterX) & 0x00FF) | (uint16(value) << 8))
 	case 0x43: // BG2_MATRIX_CENTER_Y_L
-		p.BG2.MatrixCenterY = int16((uint16(p.BG2.MatrixCenterY) & 0xFF00) | uint16(value))
+		channel := p.getLayerBoundTransformChannel(2)
+		channel.CenterY = int16((uint16(channel.CenterY) & 0xFF00) | uint16(value))
 	case 0x44: // BG2_MATRIX_CENTER_Y_H
-		p.BG2.MatrixCenterY = int16((uint16(p.BG2.MatrixCenterY) & 0x00FF) | (uint16(value) << 8))
+		channel := p.getLayerBoundTransformChannel(2)
+		channel.CenterY = int16((uint16(channel.CenterY) & 0x00FF) | (uint16(value) << 8))
 
 	// BG3 Matrix Mode
 	case 0x45: // BG3_MATRIX_CONTROL
-		p.BG3.MatrixEnabled = (value & 0x01) != 0
-		p.BG3.MatrixMirrorH = (value & 0x02) != 0
-		p.BG3.MatrixMirrorV = (value & 0x04) != 0
-		p.BG3.MatrixOutsideMode = (value >> 3) & 0x3  // Bits [4:3]
-		p.BG3.MatrixDirectColor = (value & 0x20) != 0 // Bit 5
+		channel := p.getLayerBoundTransformChannel(3)
+		channel.Enabled = (value & 0x01) != 0
+		channel.MirrorH = (value & 0x02) != 0
+		channel.MirrorV = (value & 0x04) != 0
+		channel.OutsideMode = (value >> 3) & 0x3
+		channel.DirectColor = (value & 0x20) != 0
 	case 0x46: // BG3_MATRIX_A_L
-		p.BG3.MatrixA = int16((uint16(p.BG3.MatrixA) & 0xFF00) | uint16(value))
+		channel := p.getLayerBoundTransformChannel(3)
+		channel.A = int16((uint16(channel.A) & 0xFF00) | uint16(value))
 	case 0x47: // BG3_MATRIX_A_H
-		p.BG3.MatrixA = int16((uint16(p.BG3.MatrixA) & 0x00FF) | (uint16(value) << 8))
+		channel := p.getLayerBoundTransformChannel(3)
+		channel.A = int16((uint16(channel.A) & 0x00FF) | (uint16(value) << 8))
 	case 0x48: // BG3_MATRIX_B_L
-		p.BG3.MatrixB = int16((uint16(p.BG3.MatrixB) & 0xFF00) | uint16(value))
+		channel := p.getLayerBoundTransformChannel(3)
+		channel.B = int16((uint16(channel.B) & 0xFF00) | uint16(value))
 	case 0x49: // BG3_MATRIX_B_H
-		p.BG3.MatrixB = int16((uint16(p.BG3.MatrixB) & 0x00FF) | (uint16(value) << 8))
+		channel := p.getLayerBoundTransformChannel(3)
+		channel.B = int16((uint16(channel.B) & 0x00FF) | (uint16(value) << 8))
 	case 0x4A: // BG3_MATRIX_C_L
-		p.BG3.MatrixC = int16((uint16(p.BG3.MatrixC) & 0xFF00) | uint16(value))
+		channel := p.getLayerBoundTransformChannel(3)
+		channel.C = int16((uint16(channel.C) & 0xFF00) | uint16(value))
 	case 0x4B: // BG3_MATRIX_C_H
-		p.BG3.MatrixC = int16((uint16(p.BG3.MatrixC) & 0x00FF) | (uint16(value) << 8))
+		channel := p.getLayerBoundTransformChannel(3)
+		channel.C = int16((uint16(channel.C) & 0x00FF) | (uint16(value) << 8))
 	case 0x4C: // BG3_MATRIX_D_L
-		p.BG3.MatrixD = int16((uint16(p.BG3.MatrixD) & 0xFF00) | uint16(value))
+		channel := p.getLayerBoundTransformChannel(3)
+		channel.D = int16((uint16(channel.D) & 0xFF00) | uint16(value))
 	case 0x4D: // BG3_MATRIX_D_H
-		p.BG3.MatrixD = int16((uint16(p.BG3.MatrixD) & 0x00FF) | (uint16(value) << 8))
+		channel := p.getLayerBoundTransformChannel(3)
+		channel.D = int16((uint16(channel.D) & 0x00FF) | (uint16(value) << 8))
 	case 0x4E: // BG3_MATRIX_CENTER_X_L
-		p.BG3.MatrixCenterX = int16((uint16(p.BG3.MatrixCenterX) & 0xFF00) | uint16(value))
+		channel := p.getLayerBoundTransformChannel(3)
+		channel.CenterX = int16((uint16(channel.CenterX) & 0xFF00) | uint16(value))
 	case 0x4F: // BG3_MATRIX_CENTER_X_H
-		p.BG3.MatrixCenterX = int16((uint16(p.BG3.MatrixCenterX) & 0x00FF) | (uint16(value) << 8))
+		channel := p.getLayerBoundTransformChannel(3)
+		channel.CenterX = int16((uint16(channel.CenterX) & 0x00FF) | (uint16(value) << 8))
 	case 0x50: // BG3_MATRIX_CENTER_Y_L
-		p.BG3.MatrixCenterY = int16((uint16(p.BG3.MatrixCenterY) & 0xFF00) | uint16(value))
+		channel := p.getLayerBoundTransformChannel(3)
+		channel.CenterY = int16((uint16(channel.CenterY) & 0xFF00) | uint16(value))
 	case 0x51: // BG3_MATRIX_CENTER_Y_H
-		p.BG3.MatrixCenterY = int16((uint16(p.BG3.MatrixCenterY) & 0x00FF) | (uint16(value) << 8))
+		channel := p.getLayerBoundTransformChannel(3)
+		channel.CenterY = int16((uint16(channel.CenterY) & 0x00FF) | (uint16(value) << 8))
 
 	// Windowing (0x52-0x5C)
 	case 0x52: // WINDOW0_LEFT
@@ -635,8 +959,10 @@ func (p *PPU) Write8(offset uint16, value uint8) {
 	// HDMA (0x5D-0x5F)
 	case 0x5D: // HDMA_CONTROL
 		// Bit 0: HDMA enable
-		// Bits 1-4: Layer enable for scroll HDMA (BG0-BG3)
-		// Bits 5-7: Reserved for future use (matrix HDMA is always enabled if layer has matrix enabled)
+		// Bits 1-4: Layer enable (BG0-BG3)
+		// Bit 5: Rebind table present
+		// Bit 6: Priority table present
+		// Bit 7: Tilemap-base table present
 		p.HDMAEnabled = (value & 0x01) != 0
 		p.HDMAControl = value
 	case 0x5E: // HDMA_TABLE_BASE_L
@@ -683,6 +1009,43 @@ func (p *PPU) Write8(offset uint16, value uint8) {
 	case 0x67: // DMA_LENGTH_H
 		p.DMALength = (p.DMALength & 0x00FF) | (uint16(value) << 8)
 
+	// Layer source-mode registers (0x68-0x6B)
+	case 0x68: // BG0_SOURCE_MODE
+		p.applyLayerSourceModeRegister(0, value)
+	case 0x69: // BG1_SOURCE_MODE
+		p.applyLayerSourceModeRegister(1, value)
+	case 0x6A: // BG2_SOURCE_MODE
+		p.applyLayerSourceModeRegister(2, value)
+	case 0x6B: // BG3_SOURCE_MODE
+		p.applyLayerSourceModeRegister(3, value)
+	case 0x6C: // BG0_TRANSFORM_BIND
+		p.applyLayerTransformBindRegister(0, value)
+	case 0x6D: // BG1_TRANSFORM_BIND
+		p.applyLayerTransformBindRegister(1, value)
+	case 0x6E: // BG2_TRANSFORM_BIND
+		p.applyLayerTransformBindRegister(2, value)
+	case 0x6F: // BG3_TRANSFORM_BIND
+		p.applyLayerTransformBindRegister(3, value)
+	case 0x77: // BG0_TILEMAP_BASE_L
+		p.writeLayerTilemapBaseLow(0, value)
+	case 0x78: // BG0_TILEMAP_BASE_H
+		p.writeLayerTilemapBaseHigh(0, value)
+	case 0x79: // BG1_TILEMAP_BASE_L
+		p.writeLayerTilemapBaseLow(1, value)
+	case 0x7A: // BG1_TILEMAP_BASE_H
+		p.writeLayerTilemapBaseHigh(1, value)
+	case 0x7B: // BG2_TILEMAP_BASE_L
+		p.writeLayerTilemapBaseLow(2, value)
+	case 0x7C: // BG2_TILEMAP_BASE_H
+		p.writeLayerTilemapBaseHigh(2, value)
+	case 0x7D: // BG3_TILEMAP_BASE_L
+		p.writeLayerTilemapBaseLow(3, value)
+	case 0x7E: // BG3_TILEMAP_BASE_H
+		p.writeLayerTilemapBaseHigh(3, value)
+	case 0x7F: // HDMA_EXTENSION_CONTROL
+		// Bit 0: Source-mode table present
+		p.HDMAExtControl = value
+
 	// Text rendering registers (0x70-0x76)
 	case 0x70: // TEXT_X_L
 		p.TextX = (p.TextX & 0xFF00) | uint16(value)
@@ -711,6 +1074,7 @@ func (p *PPU) Write8(offset uint16, value uint8) {
 	default:
 		// Unknown register, ignore
 	}
+
 }
 
 // stepDMA executes one cycle of DMA transfer (transfers one byte per cycle)
@@ -809,10 +1173,9 @@ func (p *PPU) decodeCGRAMColor(cgramIndex uint8) uint32 {
 	return (r << 16) | (g << 8) | b
 }
 
-// executeDMA executes a DMA transfer immediately (legacy function, kept for compatibility)
-// This is now a wrapper that calls stepDMA until complete
-// Note: This is used by tests. For cycle-accurate operation, DMA should be stepped
-// incrementally via stepDMA() during StepPPU.
+// executeDMA executes a DMA transfer immediately.
+// Deprecated: this is a test-only compatibility shim. Clock-driven runtime code
+// should step DMA incrementally via StepPPU/stepDMA.
 func (p *PPU) executeDMA() {
 	if !p.DMAEnabled || p.MemoryReader == nil {
 		return
@@ -850,9 +1213,9 @@ func (p *PPU) Write16(offset uint16, value uint16) {
 	p.Write8(offset+1, uint8(value>>8))
 }
 
-// RenderFrame renders a complete frame (DEPRECATED - use StepPPU for clock-driven operation)
-// This function is kept for compatibility but is NOT used in clock-driven mode
-// Clock-driven mode uses StepPPU() which calls startFrame() and endFrame() automatically
+// RenderFrame renders a complete frame.
+// Deprecated: this is a compatibility entry point for older frame-based callers.
+// Runtime code should use StepPPU for clock-driven operation.
 func (p *PPU) RenderFrame() {
 	// DEPRECATED: This is the old frame-based rendering function
 	// In clock-driven mode, PPU rendering happens via StepPPU() -> stepDot() -> renderDot()
@@ -922,7 +1285,7 @@ func (p *PPU) RenderFrame() {
 		p.renderBackgroundLayer(1)
 	}
 	if p.BG0.Enabled {
-		if p.MatrixEnabled {
+		if channel := p.getTransformChannel(p.BG0.TransformChannel); channel.Enabled {
 			p.renderMatrixMode()
 		} else {
 			p.renderBackgroundLayer(0)

@@ -1,4 +1,4 @@
-.PHONY: test-fast test-full test-long test-emulator test-commands release-linux
+.PHONY: test-fast test-full test-long test-emulator test-commands check-ym2608-manifest check-ym2608-manifest-strict check-ym2608-policy ci-audio release-linux
 
 GO ?= go
 GO_TEST_TAGS ?= no_sdl_ttf
@@ -23,6 +23,35 @@ test-full:
 # Explicit long-running timing tests
 test-long:
 	$(GO_TEST_COMMON) ./internal/emulator -run 'TestAudioTimingLongRun|TestAudioTimingFractionalAccumulator' -v -timeout 180s
+
+# YM2608 extraction manifest parity check (fails on deterministic drift)
+check-ym2608-manifest:
+	@if [ -f ./scripts/check_ym2608_extraction_manifest.sh ]; then \
+		bash ./scripts/check_ym2608_extraction_manifest.sh; \
+	else \
+		echo "Skipping YM2608 manifest check (scripts/check_ym2608_extraction_manifest.sh missing)"; \
+	fi
+
+# Optional strict parity check: requires commit pins when git metadata exists in source repos.
+check-ym2608-manifest-strict:
+	@if [ -f ./scripts/check_ym2608_extraction_manifest.sh ]; then \
+		YM2608_STRICT_COMMIT_PINS=1 bash ./scripts/check_ym2608_extraction_manifest.sh; \
+	else \
+		echo "Skipping strict YM2608 manifest check (scripts/check_ym2608_extraction_manifest.sh missing)"; \
+	fi
+
+# Consolidated policy-validation bundle (default + strict + policy tests)
+check-ym2608-policy: check-ym2608-manifest check-ym2608-manifest-strict
+	@if [ -d ./cmd/ym2608_manifest_gen ]; then \
+		$(GO_TEST_COMMON) ./cmd/ym2608_manifest_gen -timeout 120s; \
+	else \
+		echo "Skipping ./cmd/ym2608_manifest_gen tests (directory missing)"; \
+	fi
+	$(GO_TEST_COMMON) ./internal/apu -run 'TestYM2608Stage5Slice21' -timeout 120s
+
+# CI-focused audio gate (manifest + core YM2608 test packages)
+ci-audio: check-ym2608-manifest
+	$(GO_TEST_COMMON) ./internal/apu ./internal/memory ./internal/emulator -timeout 180s
 
 # Package Nitro-Core-DX integrated app (Linux archive for Releases)
 release-linux:

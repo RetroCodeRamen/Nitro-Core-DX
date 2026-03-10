@@ -1,0 +1,1730 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MainWindow</class>
+ <widget class="QMainWindow" name="MainWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>900</width>
+    <height>700</height>
+   </rect>
+  </property>
+  <property name="acceptDrops">
+   <bool>true</bool>
+  </property>
+  <property name="windowTitle">
+   <string>BambooTracker</string>
+  </property>
+  <widget class="QWidget" name="centralWidget">
+   <layout class="QHBoxLayout" name="horizontalLayout_2">
+    <property name="spacing">
+     <number>0</number>
+    </property>
+    <property name="leftMargin">
+     <number>0</number>
+    </property>
+    <property name="topMargin">
+     <number>0</number>
+    </property>
+    <property name="rightMargin">
+     <number>0</number>
+    </property>
+    <property name="bottomMargin">
+     <number>0</number>
+    </property>
+    <item>
+     <widget class="QSplitter" name="splitter">
+      <property name="orientation">
+       <enum>Qt::Vertical</enum>
+      </property>
+      <property name="childrenCollapsible">
+       <bool>true</bool>
+      </property>
+      <widget class="QWidget" name="layoutWidget">
+       <layout class="QHBoxLayout" name="horizontalLayout" stretch="0,0,0,0">
+        <property name="spacing">
+         <number>9</number>
+        </property>
+        <property name="leftMargin">
+         <number>9</number>
+        </property>
+        <property name="topMargin">
+         <number>9</number>
+        </property>
+        <property name="rightMargin">
+         <number>9</number>
+        </property>
+        <property name="bottomMargin">
+         <number>9</number>
+        </property>
+        <item>
+         <widget class="QGroupBox" name="orderListGroupBox">
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Preferred" vsizetype="Ignored">
+            <horstretch>0</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
+          <property name="title">
+           <string>Order List</string>
+          </property>
+          <layout class="QVBoxLayout" name="verticalLayout_6">
+           <property name="leftMargin">
+            <number>3</number>
+           </property>
+           <property name="topMargin">
+            <number>3</number>
+           </property>
+           <property name="rightMargin">
+            <number>3</number>
+           </property>
+           <property name="bottomMargin">
+            <number>3</number>
+           </property>
+           <item>
+            <widget class="OrderListEditor" name="orderList">
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Preferred" vsizetype="Ignored">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+             <property name="minimumSize">
+              <size>
+               <width>200</width>
+               <height>0</height>
+              </size>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <layout class="QVBoxLayout" name="verticalLayout_4">
+          <property name="spacing">
+           <number>3</number>
+          </property>
+          <property name="sizeConstraint">
+           <enum>QLayout::SetDefaultConstraint</enum>
+          </property>
+          <item>
+           <widget class="QGroupBox" name="songSettingsGroupBox">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+            <property name="title">
+             <string>Song Settings</string>
+            </property>
+            <layout class="QGridLayout" name="gridLayout_2">
+             <property name="leftMargin">
+              <number>6</number>
+             </property>
+             <property name="topMargin">
+              <number>6</number>
+             </property>
+             <property name="rightMargin">
+              <number>6</number>
+             </property>
+             <property name="bottomMargin">
+              <number>6</number>
+             </property>
+             <property name="spacing">
+              <number>6</number>
+             </property>
+             <item row="0" column="0">
+              <widget class="QLabel" name="tempoLabel">
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+               <property name="text">
+                <string>Tempo</string>
+               </property>
+               <property name="alignment">
+                <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
+               </property>
+              </widget>
+             </item>
+             <item row="0" column="1">
+              <widget class="WheelSpinBox" name="tempoSpinBox">
+               <property name="keyboardTracking">
+                <bool>false</bool>
+               </property>
+               <property name="minimum">
+                <number>32</number>
+               </property>
+               <property name="maximum">
+                <number>255</number>
+               </property>
+               <property name="value">
+                <number>150</number>
+               </property>
+              </widget>
+             </item>
+             <item row="1" column="0">
+              <widget class="QLabel" name="speedLabel">
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+               <property name="text">
+                <string>Speed</string>
+               </property>
+               <property name="alignment">
+                <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
+               </property>
+              </widget>
+             </item>
+             <item row="1" column="1">
+              <widget class="WheelSpinBox" name="speedSpinBox">
+               <property name="keyboardTracking">
+                <bool>false</bool>
+               </property>
+               <property name="minimum">
+                <number>1</number>
+               </property>
+               <property name="maximum">
+                <number>31</number>
+               </property>
+               <property name="value">
+                <number>6</number>
+               </property>
+              </widget>
+             </item>
+             <item row="2" column="0">
+              <widget class="QLabel" name="patternSizeLabel">
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+               <property name="text">
+                <string>Pattern size</string>
+               </property>
+               <property name="alignment">
+                <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
+               </property>
+              </widget>
+             </item>
+             <item row="2" column="1">
+              <widget class="WheelSpinBox" name="patternSizeSpinBox">
+               <property name="keyboardTracking">
+                <bool>false</bool>
+               </property>
+               <property name="minimum">
+                <number>1</number>
+               </property>
+               <property name="maximum">
+                <number>256</number>
+               </property>
+               <property name="value">
+                <number>64</number>
+               </property>
+              </widget>
+             </item>
+             <item row="3" column="0">
+              <widget class="QCheckBox" name="grooveCheckBox">
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+               <property name="text">
+                <string>Groove</string>
+               </property>
+              </widget>
+             </item>
+             <item row="3" column="1">
+              <widget class="WheelSpinBox" name="grooveSpinBox">
+               <property name="enabled">
+                <bool>false</bool>
+               </property>
+               <property name="keyboardTracking">
+                <bool>false</bool>
+               </property>
+               <property name="prefix">
+                <string notr="true">#</string>
+               </property>
+               <property name="maximum">
+                <number>127</number>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+          </item>
+          <item>
+           <widget class="QGroupBox" name="editSettingsGroupBox">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+            <property name="title">
+             <string>Edit settings</string>
+            </property>
+            <layout class="QGridLayout" name="gridLayout">
+             <property name="leftMargin">
+              <number>6</number>
+             </property>
+             <property name="topMargin">
+              <number>6</number>
+             </property>
+             <property name="rightMargin">
+              <number>6</number>
+             </property>
+             <property name="bottomMargin">
+              <number>6</number>
+             </property>
+             <property name="spacing">
+              <number>6</number>
+             </property>
+             <item row="0" column="0">
+              <widget class="QLabel" name="editableStepLabel">
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+               <property name="text">
+                <string>Step</string>
+               </property>
+               <property name="alignment">
+                <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
+               </property>
+              </widget>
+             </item>
+             <item row="0" column="1">
+              <widget class="WheelSpinBox" name="editableStepSpinBox">
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+               <property name="keyboardTracking">
+                <bool>false</bool>
+               </property>
+               <property name="minimum">
+                <number>0</number>
+               </property>
+               <property name="maximum">
+                <number>256</number>
+               </property>
+              </widget>
+             </item>
+             <item row="1" column="0" colspan="2">
+              <widget class="QCheckBox" name="keyRepeatCheckBox">
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+               <property name="text">
+                <string>Key repetition</string>
+               </property>
+               <property name="checked">
+                <bool>true</bool>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <layout class="QVBoxLayout" name="verticalLayout_3">
+          <property name="spacing">
+           <number>3</number>
+          </property>
+          <property name="sizeConstraint">
+           <enum>QLayout::SetDefaultConstraint</enum>
+          </property>
+          <item>
+           <widget class="QGroupBox" name="moduleSettingsGroupBox">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+            <property name="title">
+             <string>Module Settings</string>
+            </property>
+            <layout class="QVBoxLayout" name="verticalLayout_5">
+             <property name="leftMargin">
+              <number>6</number>
+             </property>
+             <property name="topMargin">
+              <number>6</number>
+             </property>
+             <property name="rightMargin">
+              <number>6</number>
+             </property>
+             <property name="bottomMargin">
+              <number>6</number>
+             </property>
+             <item>
+              <widget class="QLineEdit" name="modTitleLineEdit">
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+               <property name="placeholderText">
+                <string>Title</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLineEdit" name="authorLineEdit">
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+               <property name="placeholderText">
+                <string>Author</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLineEdit" name="copyrightLineEdit">
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+               <property name="placeholderText">
+                <string>Copyright</string>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+          </item>
+          <item>
+           <widget class="WaveVisual" name="waveVisual" native="true">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Minimum" vsizetype="Preferred">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+            <property name="minimumSize">
+             <size>
+              <width>180</width>
+              <height>45</height>
+             </size>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QGroupBox" name="songsGroupBox">
+            <property name="title">
+             <string>Songs</string>
+            </property>
+            <layout class="QVBoxLayout" name="verticalLayout_2">
+             <property name="leftMargin">
+              <number>6</number>
+             </property>
+             <property name="topMargin">
+              <number>6</number>
+             </property>
+             <property name="rightMargin">
+              <number>6</number>
+             </property>
+             <property name="bottomMargin">
+              <number>6</number>
+             </property>
+             <item>
+              <widget class="QComboBox" name="songComboBox">
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <widget class="QGroupBox" name="instrumentListGroupBox">
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Expanding" vsizetype="Ignored">
+            <horstretch>0</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
+          <property name="title">
+           <string>Instruments</string>
+          </property>
+          <layout class="QVBoxLayout" name="verticalLayout">
+           <property name="spacing">
+            <number>0</number>
+           </property>
+           <property name="leftMargin">
+            <number>3</number>
+           </property>
+           <property name="topMargin">
+            <number>3</number>
+           </property>
+           <property name="rightMargin">
+            <number>3</number>
+           </property>
+           <property name="bottomMargin">
+            <number>3</number>
+           </property>
+           <item>
+            <widget class="DropDetectListWidget" name="instrumentList">
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Expanding" vsizetype="Ignored">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+             <property name="contextMenuPolicy">
+              <enum>Qt::CustomContextMenu</enum>
+             </property>
+             <property name="styleSheet">
+              <string notr="true"/>
+             </property>
+             <property name="frameShape">
+              <enum>QFrame::Panel</enum>
+             </property>
+             <property name="showDropIndicator" stdset="0">
+              <bool>false</bool>
+             </property>
+             <property name="dragEnabled">
+              <bool>true</bool>
+             </property>
+             <property name="dragDropMode">
+              <enum>QAbstractItemView::DragDrop</enum>
+             </property>
+             <property name="defaultDropAction">
+              <enum>Qt::ActionMask</enum>
+             </property>
+             <property name="iconSize">
+              <size>
+               <width>16</width>
+               <height>16</height>
+              </size>
+             </property>
+             <property name="isWrapping" stdset="0">
+              <bool>true</bool>
+             </property>
+             <property name="resizeMode">
+              <enum>QListView::Adjust</enum>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+      <widget class="PatternEditor" name="patternEditor">
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Preferred" vsizetype="MinimumExpanding">
+         <horstretch>0</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
+       </property>
+      </widget>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+  <widget class="QMenuBar" name="menuBar">
+   <property name="geometry">
+    <rect>
+     <x>0</x>
+     <y>0</y>
+     <width>900</width>
+     <height>24</height>
+    </rect>
+   </property>
+   <widget class="QMenu" name="menuFile">
+    <property name="title">
+     <string>&amp;File</string>
+    </property>
+    <widget class="QMenu" name="menuExport">
+     <property name="title">
+      <string>&amp;Export</string>
+     </property>
+     <addaction name="actionWAV"/>
+     <addaction name="separator"/>
+     <addaction name="actionVGM"/>
+     <addaction name="actionS98"/>
+    </widget>
+    <widget class="QMenu" name="menu_Recent_Files">
+     <property name="title">
+      <string>&amp;Recent Files</string>
+     </property>
+     <addaction name="actionClear"/>
+     <addaction name="separator"/>
+    </widget>
+    <addaction name="actionNew"/>
+    <addaction name="actionOpen"/>
+    <addaction name="actionSave"/>
+    <addaction name="actionSave_As"/>
+    <addaction name="separator"/>
+    <addaction name="menuExport"/>
+    <addaction name="separator"/>
+    <addaction name="actionConfiguration"/>
+    <addaction name="separator"/>
+    <addaction name="menu_Recent_Files"/>
+    <addaction name="separator"/>
+    <addaction name="actionExit"/>
+   </widget>
+   <widget class="QMenu" name="menuEdit">
+    <property name="title">
+     <string>&amp;Edit</string>
+    </property>
+    <widget class="QMenu" name="menuSelect">
+     <property name="title">
+      <string>&amp;Select</string>
+     </property>
+     <addaction name="actionAll"/>
+     <addaction name="actionNone"/>
+     <addaction name="separator"/>
+     <addaction name="actionRow"/>
+     <addaction name="actionColumn"/>
+     <addaction name="separator"/>
+     <addaction name="actionPattern"/>
+     <addaction name="actionOrder"/>
+    </widget>
+    <widget class="QMenu" name="menuPaste_Special">
+     <property name="title">
+      <string>Paste Specia&amp;l</string>
+     </property>
+     <addaction name="separator"/>
+     <addaction name="actionMix"/>
+     <addaction name="actionOverwrite"/>
+     <addaction name="action_Insert"/>
+     <addaction name="separator"/>
+     <addaction name="action_Cursor"/>
+     <addaction name="action_Selection"/>
+     <addaction name="action_Fill"/>
+    </widget>
+    <widget class="QMenu" name="menu_Bookmarks">
+     <property name="title">
+      <string>&amp;Bookmarks</string>
+     </property>
+     <addaction name="action_Toggle_Bookmark"/>
+     <addaction name="action_Next_Bookmark"/>
+     <addaction name="action_Previous_Bookmark"/>
+    </widget>
+    <addaction name="actionUndo"/>
+    <addaction name="actionRedo"/>
+    <addaction name="separator"/>
+    <addaction name="actionCut"/>
+    <addaction name="actionCopy"/>
+    <addaction name="actionPaste"/>
+    <addaction name="menuPaste_Special"/>
+    <addaction name="actionDelete"/>
+    <addaction name="separator"/>
+    <addaction name="menuSelect"/>
+    <addaction name="separator"/>
+    <addaction name="action_Go_To"/>
+    <addaction name="menu_Bookmarks"/>
+    <addaction name="separator"/>
+    <addaction name="action_Instrument_Mask"/>
+    <addaction name="action_Volume_Mask"/>
+   </widget>
+   <widget class="QMenu" name="menuPattern">
+    <property name="title">
+     <string>Patter&amp;n</string>
+    </property>
+    <widget class="QMenu" name="menuTranspose">
+     <property name="title">
+      <string>&amp;Transpose</string>
+     </property>
+     <addaction name="actionDecrease_Note"/>
+     <addaction name="actionIncrease_Note"/>
+     <addaction name="actionDecrease_Octave"/>
+     <addaction name="actionIncrease_Octave"/>
+    </widget>
+    <widget class="QMenu" name="menu_Change_Values">
+     <property name="title">
+      <string>&amp;Change Values</string>
+     </property>
+     <addaction name="actionFine_Decrease_Values"/>
+     <addaction name="actionFine_Increase_Values"/>
+     <addaction name="actionCoarse_D_ecrease_Values"/>
+     <addaction name="actionCoarse_I_ncrease_Values"/>
+    </widget>
+    <addaction name="actionInterpolate"/>
+    <addaction name="actionReverse"/>
+    <addaction name="actionReplace_Instrument"/>
+    <addaction name="separator"/>
+    <addaction name="actionExpand"/>
+    <addaction name="actionShrink"/>
+    <addaction name="separator"/>
+    <addaction name="menuTranspose"/>
+    <addaction name="menu_Change_Values"/>
+   </widget>
+   <widget class="QMenu" name="menuSong">
+    <property name="title">
+     <string>S&amp;ong</string>
+    </property>
+    <addaction name="actionInsert_Order"/>
+    <addaction name="actionRemove_Order"/>
+    <addaction name="actionDuplicate_Order"/>
+    <addaction name="actionClone_Patterns"/>
+    <addaction name="actionClone_Order"/>
+    <addaction name="separator"/>
+    <addaction name="actionMove_Order_Up"/>
+    <addaction name="actionMove_Order_Down"/>
+    <addaction name="separator"/>
+    <addaction name="action_Transpose_Song"/>
+    <addaction name="action_Swap_Tracks"/>
+    <addaction name="separator"/>
+    <addaction name="action_Hide_Tracks"/>
+    <addaction name="separator"/>
+    <addaction name="action_Estimate_Song_Length"/>
+   </widget>
+   <widget class="QMenu" name="menuModule">
+    <property name="title">
+     <string>&amp;Module</string>
+    </property>
+    <widget class="QMenu" name="menuCleanup">
+     <property name="title">
+      <string>Clean&amp;up</string>
+     </property>
+     <addaction name="actionRemove_Unused_Instruments"/>
+     <addaction name="actionRemove_Unused_Patterns"/>
+     <addaction name="actionRemove_Duplicate_Instruments"/>
+     <addaction name="actionRemove_Unused_ADPCM_Samples"/>
+    </widget>
+    <addaction name="actionModule_Properties"/>
+    <addaction name="actionComments"/>
+    <addaction name="separator"/>
+    <addaction name="actionGroove_Settings"/>
+    <addaction name="action_Bookmark_Manager"/>
+    <addaction name="action_Key_Signature_Manager"/>
+    <addaction name="separator"/>
+    <addaction name="menuCleanup"/>
+   </widget>
+   <widget class="QMenu" name="menuInstrument">
+    <property name="title">
+     <string>&amp;Instrument</string>
+    </property>
+    <addaction name="actionNew_Instrument"/>
+    <addaction name="actionNew_Drumki_t"/>
+    <addaction name="actionRemove_Instrument"/>
+    <addaction name="actionClone_Instrument"/>
+    <addaction name="actionDeep_Clone_Instrument"/>
+    <addaction name="separator"/>
+    <addaction name="actionLoad_From_File"/>
+    <addaction name="actionSave_To_File"/>
+    <addaction name="separator"/>
+    <addaction name="actionImport_From_Bank_File"/>
+    <addaction name="actionExport_To_Bank_File"/>
+    <addaction name="separator"/>
+    <addaction name="actionRename_Instrument"/>
+    <addaction name="separator"/>
+    <addaction name="actionEdit"/>
+   </widget>
+   <widget class="QMenu" name="menuTracker">
+    <property name="title">
+     <string>&amp;Tracker</string>
+    </property>
+    <addaction name="actionPlay"/>
+    <addaction name="actionPlay_Pattern"/>
+    <addaction name="actionPlay_From_Start"/>
+    <addaction name="actionPlay_From_Cursor"/>
+    <addaction name="actionPlay_From_Marker"/>
+    <addaction name="actionStop"/>
+    <addaction name="separator"/>
+    <addaction name="actionEdit_Mode"/>
+    <addaction name="actionSet_Ro_w_Marker"/>
+    <addaction name="separator"/>
+    <addaction name="actionToggle_Track"/>
+    <addaction name="actionSolo_Track"/>
+    <addaction name="separator"/>
+    <addaction name="actionKill_Sound"/>
+   </widget>
+   <widget class="QMenu" name="menuHelp">
+    <property name="title">
+     <string>&amp;Help</string>
+    </property>
+    <addaction name="action_Effect_List"/>
+    <addaction name="actionShortcuts"/>
+    <addaction name="separator"/>
+    <addaction name="actionAbout"/>
+    <addaction name="action_Welcome"/>
+   </widget>
+   <widget class="QMenu" name="menuVie_w">
+    <property name="title">
+     <string>Vie&amp;w</string>
+    </property>
+    <addaction name="action_Toolbar"/>
+    <addaction name="action_Status_Bar"/>
+    <addaction name="action_Wave_View"/>
+    <addaction name="separator"/>
+    <addaction name="actionFollow_Mode"/>
+   </widget>
+   <addaction name="menuFile"/>
+   <addaction name="menuEdit"/>
+   <addaction name="menuPattern"/>
+   <addaction name="menuSong"/>
+   <addaction name="menuModule"/>
+   <addaction name="menuInstrument"/>
+   <addaction name="menuTracker"/>
+   <addaction name="menuVie_w"/>
+   <addaction name="menuHelp"/>
+  </widget>
+  <widget class="QToolBar" name="mainToolBar">
+   <property name="windowTitle">
+    <string>Main toolbar</string>
+   </property>
+   <property name="iconSize">
+    <size>
+     <width>16</width>
+     <height>16</height>
+    </size>
+   </property>
+   <attribute name="toolBarArea">
+    <enum>TopToolBarArea</enum>
+   </attribute>
+   <attribute name="toolBarBreak">
+    <bool>false</bool>
+   </attribute>
+   <addaction name="actionNew"/>
+   <addaction name="actionOpen"/>
+   <addaction name="actionSave"/>
+   <addaction name="separator"/>
+   <addaction name="actionUndo"/>
+   <addaction name="actionRedo"/>
+   <addaction name="separator"/>
+   <addaction name="actionCut"/>
+   <addaction name="actionCopy"/>
+   <addaction name="actionPaste"/>
+   <addaction name="separator"/>
+   <addaction name="actionInsert_Order"/>
+   <addaction name="actionRemove_Order"/>
+   <addaction name="actionMove_Order_Down"/>
+   <addaction name="actionMove_Order_Up"/>
+   <addaction name="actionDuplicate_Order"/>
+   <addaction name="separator"/>
+   <addaction name="actionModule_Properties"/>
+   <addaction name="separator"/>
+   <addaction name="actionPlay"/>
+   <addaction name="actionPlay_Pattern"/>
+   <addaction name="actionStop"/>
+   <addaction name="actionEdit_Mode"/>
+   <addaction name="separator"/>
+   <addaction name="actionConfiguration"/>
+  </widget>
+  <widget class="QStatusBar" name="statusBar"/>
+  <widget class="QToolBar" name="subToolBar">
+   <property name="windowTitle">
+    <string>Secondary toolbar</string>
+   </property>
+   <attribute name="toolBarArea">
+    <enum>TopToolBarArea</enum>
+   </attribute>
+   <attribute name="toolBarBreak">
+    <bool>false</bool>
+   </attribute>
+  </widget>
+  <action name="actionNew">
+   <property name="enabled">
+    <bool>true</bool>
+   </property>
+   <property name="icon">
+    <iconset resource="../resources/icon/icon.qrc">
+     <normaloff>:/icon/new</normaloff>:/icon/new</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;New...</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+N</string>
+   </property>
+  </action>
+  <action name="actionOpen">
+   <property name="enabled">
+    <bool>true</bool>
+   </property>
+   <property name="icon">
+    <iconset resource="../resources/icon/icon.qrc">
+     <normaloff>:/icon/open</normaloff>:/icon/open</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Open...</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+O</string>
+   </property>
+  </action>
+  <action name="actionSave">
+   <property name="enabled">
+    <bool>true</bool>
+   </property>
+   <property name="icon">
+    <iconset resource="../resources/icon/icon.qrc">
+     <normaloff>:/icon/save</normaloff>:/icon/save</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Save</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+S</string>
+   </property>
+  </action>
+  <action name="actionSave_As">
+   <property name="enabled">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Save &amp;As...</string>
+   </property>
+  </action>
+  <action name="actionExit">
+   <property name="text">
+    <string>E&amp;xit</string>
+   </property>
+  </action>
+  <action name="actionUndo">
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
+   <property name="icon">
+    <iconset resource="../resources/icon/icon.qrc">
+     <normaloff>:/icon/undo</normaloff>:/icon/undo</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Undo</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+Z</string>
+   </property>
+  </action>
+  <action name="actionRedo">
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
+   <property name="icon">
+    <iconset resource="../resources/icon/icon.qrc">
+     <normaloff>:/icon/redo</normaloff>:/icon/redo</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Redo</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+Y</string>
+   </property>
+  </action>
+  <action name="actionCut">
+   <property name="icon">
+    <iconset resource="../resources/icon/icon.qrc">
+     <normaloff>:/icon/cut</normaloff>:/icon/cut</iconset>
+   </property>
+   <property name="text">
+    <string>Cu&amp;t</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+X</string>
+   </property>
+  </action>
+  <action name="actionCopy">
+   <property name="icon">
+    <iconset resource="../resources/icon/icon.qrc">
+     <normaloff>:/icon/copy</normaloff>:/icon/copy</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Copy</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+C</string>
+   </property>
+  </action>
+  <action name="actionPaste">
+   <property name="icon">
+    <iconset resource="../resources/icon/icon.qrc">
+     <normaloff>:/icon/paste</normaloff>:/icon/paste</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Paste</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+V</string>
+   </property>
+  </action>
+  <action name="actionDelete">
+   <property name="text">
+    <string>&amp;Delete</string>
+   </property>
+   <property name="shortcut">
+    <string>Del</string>
+   </property>
+  </action>
+  <action name="actionAll">
+   <property name="text">
+    <string>&amp;All</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+A</string>
+   </property>
+  </action>
+  <action name="actionNone">
+   <property name="text">
+    <string>&amp;None</string>
+   </property>
+   <property name="shortcut">
+    <string>Esc</string>
+   </property>
+  </action>
+  <action name="actionExpand">
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
+   <property name="text">
+    <string>E&amp;xpand</string>
+   </property>
+  </action>
+  <action name="actionShrink">
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
+   <property name="text">
+    <string>S&amp;hrink</string>
+   </property>
+  </action>
+  <action name="actionDecrease_Note">
+   <property name="text">
+    <string>&amp;Decrease Note</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+F1</string>
+   </property>
+  </action>
+  <action name="actionIncrease_Note">
+   <property name="text">
+    <string>&amp;Increase Note</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+F2</string>
+   </property>
+  </action>
+  <action name="actionDecrease_Octave">
+   <property name="text">
+    <string>D&amp;ecrease Octave</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+F3</string>
+   </property>
+  </action>
+  <action name="actionIncrease_Octave">
+   <property name="text">
+    <string>I&amp;ncrease Octave</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+F4</string>
+   </property>
+  </action>
+  <action name="actionInsert_Order">
+   <property name="icon">
+    <iconset resource="../resources/icon/icon.qrc">
+     <normaloff>:/icon/insert_order</normaloff>:/icon/insert_order</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Insert Order</string>
+   </property>
+  </action>
+  <action name="actionRemove_Order">
+   <property name="icon">
+    <iconset resource="../resources/icon/icon.qrc">
+     <normaloff>:/icon/remove_order</normaloff>:/icon/remove_order</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Remove Order</string>
+   </property>
+  </action>
+  <action name="actionModule_Properties">
+   <property name="icon">
+    <iconset resource="../resources/icon/icon.qrc">
+     <normaloff>:/icon/property</normaloff>:/icon/property</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Module Properties...</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+P</string>
+   </property>
+  </action>
+  <action name="actionNew_Instrument">
+   <property name="icon">
+    <iconset resource="../resources/icon/icon.qrc">
+     <normaloff>:/icon/add_inst</normaloff>:/icon/add_inst</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;New Instrument</string>
+   </property>
+  </action>
+  <action name="actionRemove_Instrument">
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
+   <property name="icon">
+    <iconset resource="../resources/icon/icon.qrc">
+     <normaloff>:/icon/remove_inst</normaloff>:/icon/remove_inst</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Remove Instrument</string>
+   </property>
+  </action>
+  <action name="actionClone_Instrument">
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
+   <property name="icon">
+    <iconset resource="../resources/icon/icon.qrc">
+     <normaloff>:/icon/clone_inst</normaloff>:/icon/clone_inst</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Clone Instrument</string>
+   </property>
+  </action>
+  <action name="actionDeep_Clone_Instrument">
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
+   <property name="text">
+    <string>&amp;Deep Clone Instrument</string>
+   </property>
+  </action>
+  <action name="actionLoad_From_File">
+   <property name="enabled">
+    <bool>true</bool>
+   </property>
+   <property name="icon">
+    <iconset resource="../resources/icon/icon.qrc">
+     <normaloff>:/icon/load_inst</normaloff>:/icon/load_inst</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Load From File...</string>
+   </property>
+  </action>
+  <action name="actionSave_To_File">
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
+   <property name="icon">
+    <iconset resource="../resources/icon/icon.qrc">
+     <normaloff>:/icon/save_inst</normaloff>:/icon/save_inst</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Save To File...</string>
+   </property>
+  </action>
+  <action name="actionEdit">
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
+   <property name="icon">
+    <iconset resource="../resources/icon/icon.qrc">
+     <normaloff>:/icon/edit_inst</normaloff>:/icon/edit_inst</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Edit...</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+I</string>
+   </property>
+  </action>
+  <action name="actionPlay">
+   <property name="icon">
+    <iconset resource="../resources/icon/icon.qrc">
+     <normaloff>:/icon/play</normaloff>:/icon/play</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Play</string>
+   </property>
+  </action>
+  <action name="actionPlay_Pattern">
+   <property name="icon">
+    <iconset resource="../resources/icon/icon.qrc">
+     <normaloff>:/icon/play_pattern</normaloff>:/icon/play_pattern</iconset>
+   </property>
+   <property name="text">
+    <string>Play P&amp;attern</string>
+   </property>
+   <property name="shortcut">
+    <string>F6</string>
+   </property>
+  </action>
+  <action name="actionPlay_From_Start">
+   <property name="text">
+    <string>Play &amp;From Start</string>
+   </property>
+   <property name="shortcut">
+    <string>F5</string>
+   </property>
+  </action>
+  <action name="actionPlay_From_Cursor">
+   <property name="text">
+    <string>Play From C&amp;ursor</string>
+   </property>
+   <property name="shortcut">
+    <string>F7</string>
+   </property>
+  </action>
+  <action name="actionStop">
+   <property name="icon">
+    <iconset resource="../resources/icon/icon.qrc">
+     <normaloff>:/icon/stop</normaloff>:/icon/stop</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Stop</string>
+   </property>
+   <property name="shortcut">
+    <string>F8</string>
+   </property>
+  </action>
+  <action name="actionEdit_Mode">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="icon">
+    <iconset resource="../resources/icon/icon.qrc">
+     <normaloff>:/icon/record</normaloff>:/icon/record</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Edit Mode</string>
+   </property>
+   <property name="shortcut">
+    <string>Space</string>
+   </property>
+  </action>
+  <action name="actionToggle_Track">
+   <property name="text">
+    <string>To&amp;ggle Track</string>
+   </property>
+   <property name="shortcut">
+    <string>Alt+F9</string>
+   </property>
+  </action>
+  <action name="actionSolo_Track">
+   <property name="text">
+    <string>S&amp;olo Track</string>
+   </property>
+   <property name="shortcut">
+    <string>Alt+F10</string>
+   </property>
+  </action>
+  <action name="actionKill_Sound">
+   <property name="text">
+    <string>&amp;Kill Sound</string>
+   </property>
+   <property name="shortcut">
+    <string>F12</string>
+   </property>
+  </action>
+  <action name="actionAbout">
+   <property name="text">
+    <string>&amp;About...</string>
+   </property>
+  </action>
+  <action name="actionFollow_Mode">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="checked">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Fo&amp;llow Mode</string>
+   </property>
+   <property name="shortcut">
+    <string>ScrollLock</string>
+   </property>
+  </action>
+  <action name="actionGroove_Settings">
+   <property name="text">
+    <string>&amp;Groove Settings...</string>
+   </property>
+  </action>
+  <action name="actionConfiguration">
+   <property name="icon">
+    <iconset resource="../resources/icon/icon.qrc">
+     <normaloff>:/icon/config</normaloff>:/icon/config</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Configuration...</string>
+   </property>
+  </action>
+  <action name="actionDuplicate_Order">
+   <property name="icon">
+    <iconset resource="../resources/icon/icon.qrc">
+     <normaloff>:/icon/duplicate_order</normaloff>:/icon/duplicate_order</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Duplicate Order</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+D</string>
+   </property>
+  </action>
+  <action name="actionMove_Order_Up">
+   <property name="icon">
+    <iconset resource="../resources/icon/icon.qrc">
+     <normaloff>:/icon/order_up</normaloff>:/icon/order_up</iconset>
+   </property>
+   <property name="text">
+    <string>Move Order &amp;Up</string>
+   </property>
+  </action>
+  <action name="actionMove_Order_Down">
+   <property name="icon">
+    <iconset resource="../resources/icon/icon.qrc">
+     <normaloff>:/icon/order_down</normaloff>:/icon/order_down</iconset>
+   </property>
+   <property name="text">
+    <string>Move Order Do&amp;wn</string>
+   </property>
+  </action>
+  <action name="actionClone_Patterns">
+   <property name="text">
+    <string>&amp;Clone Patterns</string>
+   </property>
+   <property name="shortcut">
+    <string>Alt+D</string>
+   </property>
+  </action>
+  <action name="actionClone_Order">
+   <property name="text">
+    <string>Clone &amp;Order</string>
+   </property>
+  </action>
+  <action name="actionComments">
+   <property name="text">
+    <string>&amp;Comments...</string>
+   </property>
+  </action>
+  <action name="actionInterpolate">
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
+   <property name="text">
+    <string>&amp;Interpolate</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+G</string>
+   </property>
+  </action>
+  <action name="actionReverse">
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
+   <property name="text">
+    <string>&amp;Reverse</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+R</string>
+   </property>
+  </action>
+  <action name="actionReplace_Instrument">
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
+   <property name="text">
+    <string>R&amp;eplace Instrument</string>
+   </property>
+   <property name="shortcut">
+    <string>Alt+S</string>
+   </property>
+  </action>
+  <action name="actionRow">
+   <property name="text">
+    <string>&amp;Row</string>
+   </property>
+  </action>
+  <action name="actionColumn">
+   <property name="text">
+    <string>&amp;Column</string>
+   </property>
+  </action>
+  <action name="actionPattern">
+   <property name="text">
+    <string>&amp;Pattern</string>
+   </property>
+  </action>
+  <action name="actionOrder">
+   <property name="text">
+    <string>&amp;Order</string>
+   </property>
+  </action>
+  <action name="actionRemove_Unused_Instruments">
+   <property name="text">
+    <string>Remove Unused &amp;Instruments</string>
+   </property>
+  </action>
+  <action name="actionRemove_Unused_Patterns">
+   <property name="text">
+    <string>Remove Unused &amp;Patterns</string>
+   </property>
+  </action>
+  <action name="actionWAV">
+   <property name="text">
+    <string>&amp;WAV...</string>
+   </property>
+  </action>
+  <action name="actionVGM">
+   <property name="text">
+    <string>&amp;VGM...</string>
+   </property>
+  </action>
+  <action name="actionMix">
+   <property name="text">
+    <string>&amp;Mix</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+M</string>
+   </property>
+  </action>
+  <action name="actionOverwrite">
+   <property name="text">
+    <string>&amp;Overwrite</string>
+   </property>
+  </action>
+  <action name="actionImport_From_Bank_File">
+   <property name="text">
+    <string>&amp;Import From Bank File...</string>
+   </property>
+  </action>
+  <action name="actionS98">
+   <property name="text">
+    <string>&amp;S98...</string>
+   </property>
+  </action>
+  <action name="actionClear">
+   <property name="text">
+    <string>&amp;Clear</string>
+   </property>
+  </action>
+  <action name="action_Effect_List">
+   <property name="text">
+    <string>&amp;Effect List...</string>
+   </property>
+   <property name="toolTip">
+    <string>Effect List</string>
+   </property>
+   <property name="shortcut">
+    <string>F1</string>
+   </property>
+  </action>
+  <action name="actionShortcuts">
+   <property name="text">
+    <string>&amp;Shortcuts...</string>
+   </property>
+  </action>
+  <action name="actionExport_To_Bank_File">
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
+   <property name="text">
+    <string>E&amp;xport To Bank File...</string>
+   </property>
+  </action>
+  <action name="actionRemove_Duplicate_Instruments">
+   <property name="text">
+    <string>Remove &amp;Duplicate Instruments</string>
+   </property>
+  </action>
+  <action name="actionRename_Instrument">
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
+   <property name="icon">
+    <iconset resource="../resources/icon/icon.qrc">
+     <normaloff>:/icon/rename_inst</normaloff>:/icon/rename_inst</iconset>
+   </property>
+   <property name="text">
+    <string>Re&amp;name Instrument</string>
+   </property>
+  </action>
+  <action name="action_Bookmark_Manager">
+   <property name="text">
+    <string>&amp;Bookmark Manager...</string>
+   </property>
+  </action>
+  <action name="actionFine_Decrease_Values">
+   <property name="text">
+    <string>Fine &amp;Decrease Values</string>
+   </property>
+   <property name="shortcut">
+    <string>Shift+F1</string>
+   </property>
+  </action>
+  <action name="actionFine_Increase_Values">
+   <property name="text">
+    <string>Fine &amp;Increase Values</string>
+   </property>
+   <property name="shortcut">
+    <string>Shift+F2</string>
+   </property>
+  </action>
+  <action name="actionCoarse_D_ecrease_Values">
+   <property name="text">
+    <string>Coarse D&amp;ecrease Values</string>
+   </property>
+   <property name="shortcut">
+    <string>Shift+F3</string>
+   </property>
+  </action>
+  <action name="actionCoarse_I_ncrease_Values">
+   <property name="text">
+    <string>Coarse I&amp;ncrease Values</string>
+   </property>
+   <property name="shortcut">
+    <string>Shift+F4</string>
+   </property>
+  </action>
+  <action name="action_Toggle_Bookmark">
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
+   <property name="text">
+    <string>&amp;Toggle Bookmark</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+K</string>
+   </property>
+  </action>
+  <action name="action_Next_Bookmark">
+   <property name="text">
+    <string>&amp;Next Bookmark</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+PgDown</string>
+   </property>
+  </action>
+  <action name="action_Previous_Bookmark">
+   <property name="text">
+    <string>&amp;Previous Bookmark</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+PgUp</string>
+   </property>
+  </action>
+  <action name="action_Instrument_Mask">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>&amp;Instrument Mask</string>
+   </property>
+  </action>
+  <action name="action_Volume_Mask">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>&amp;Volume Mask</string>
+   </property>
+  </action>
+  <action name="actionSet_Ro_w_Marker">
+   <property name="text">
+    <string>Set Ro&amp;w Marker</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+B</string>
+   </property>
+  </action>
+  <action name="actionPlay_From_Marker">
+   <property name="text">
+    <string>Play From &amp;Marker</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+F7</string>
+   </property>
+  </action>
+  <action name="action_Go_To">
+   <property name="text">
+    <string>&amp;Go To...</string>
+   </property>
+   <property name="shortcut">
+    <string>Alt+G</string>
+   </property>
+  </action>
+  <action name="actionRemove_Unused_ADPCM_Samples">
+   <property name="text">
+    <string>Remove Unused &amp;ADPCM Samples</string>
+   </property>
+  </action>
+  <action name="action_Status_Bar">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="checked">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>&amp;Status Bar</string>
+   </property>
+  </action>
+  <action name="action_Toolbar">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="checked">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>&amp;Toolbar</string>
+   </property>
+  </action>
+  <action name="actionNew_Drumki_t">
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
+   <property name="text">
+    <string>New Drumki&amp;t</string>
+   </property>
+  </action>
+  <action name="action_Wave_View">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="checked">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>&amp;Wave View</string>
+   </property>
+  </action>
+  <action name="action_Transpose_Song">
+   <property name="text">
+    <string>&amp;Transpose Song...</string>
+   </property>
+  </action>
+  <action name="action_Swap_Tracks">
+   <property name="text">
+    <string>&amp;Swap Tracks...</string>
+   </property>
+  </action>
+  <action name="action_Insert">
+   <property name="text">
+    <string>&amp;Insert</string>
+   </property>
+  </action>
+  <action name="action_Cursor">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>&amp;Cursor</string>
+   </property>
+  </action>
+  <action name="action_Selection">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>&amp;Selection</string>
+   </property>
+  </action>
+  <action name="action_Fill">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>&amp;Fill</string>
+   </property>
+  </action>
+  <action name="action_Hide_Tracks">
+   <property name="text">
+    <string>&amp;Hide Tracks...</string>
+   </property>
+  </action>
+  <action name="action_Estimate_Song_Length">
+   <property name="text">
+    <string>&amp;Estimate Song Length...</string>
+   </property>
+  </action>
+  <action name="action_Key_Signature_Manager">
+   <property name="text">
+    <string>&amp;Key Signature Manager...</string>
+   </property>
+  </action>
+  <action name="action_Welcome">
+   <property name="text">
+    <string>&amp;Welcome...</string>
+   </property>
+  </action>
+ </widget>
+ <layoutdefault spacing="6" margin="11"/>
+ <customwidgets>
+  <customwidget>
+   <class>PatternEditor</class>
+   <extends>QFrame</extends>
+   <header>gui/pattern_editor/pattern_editor.hpp</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>OrderListEditor</class>
+   <extends>QFrame</extends>
+   <header>gui/order_list_editor/order_list_editor.hpp</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>WaveVisual</class>
+   <extends>QWidget</extends>
+   <header>gui/wave_visual.hpp</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>DropDetectListWidget</class>
+   <extends>QListWidget</extends>
+   <header>gui/drop_detect_list_widget.hpp</header>
+  </customwidget>
+  <customwidget>
+   <class>WheelSpinBox</class>
+   <extends>QSpinBox</extends>
+   <header>gui/wheel_spin_box.hpp</header>
+  </customwidget>
+ </customwidgets>
+ <tabstops>
+  <tabstop>tempoSpinBox</tabstop>
+  <tabstop>speedSpinBox</tabstop>
+  <tabstop>patternSizeSpinBox</tabstop>
+  <tabstop>grooveCheckBox</tabstop>
+  <tabstop>grooveSpinBox</tabstop>
+  <tabstop>editableStepSpinBox</tabstop>
+  <tabstop>keyRepeatCheckBox</tabstop>
+  <tabstop>modTitleLineEdit</tabstop>
+  <tabstop>authorLineEdit</tabstop>
+  <tabstop>copyrightLineEdit</tabstop>
+  <tabstop>songComboBox</tabstop>
+  <tabstop>instrumentList</tabstop>
+ </tabstops>
+ <resources>
+  <include location="../resources/icon/icon.qrc"/>
+ </resources>
+ <connections/>
+</ui>

@@ -20,6 +20,7 @@ func init() {
 	gob.Register(SaveState{})
 	gob.Register(cpu.CPUState{})
 	gob.Register(ppu.BackgroundLayer{})
+	gob.Register(ppu.TransformChannel{})
 	gob.Register(ppu.Window{})
 	gob.Register(apu.AudioChannel{})
 }
@@ -51,28 +52,25 @@ type SaveState struct {
 
 // PPUState represents PPU state for save/load
 type PPUState struct {
-	VRAM            [65536]uint8
-	CGRAM           [512]uint8
-	OAM             [768]uint8
+	VRAM               [65536]uint8
+	CGRAM              [512]uint8
+	OAM                [768]uint8
 	BG0, BG1, BG2, BG3 ppu.BackgroundLayer
-	MatrixEnabled   bool
-	MatrixA, MatrixB, MatrixC, MatrixD int16
-	MatrixCenterX, MatrixCenterY int16
-	MatrixMirrorH, MatrixMirrorV bool
-	Window0, Window1 ppu.Window
-	WindowControl   uint8
-	WindowMainEnable uint8
-	WindowSubEnable  uint8
-	HDMAEnabled     bool
-	HDMATableBase   uint16
-	FrameCounter    uint16
-	VBlankFlag      bool
-	VRAMAddr        uint16
-	CGRAMAddr       uint8
-	CGRAMWriteLatch bool
-	CGRAMWriteValue uint16
-	OAMAddr         uint8
-	OAMByteIndex    uint8
+	TransformChannels  [4]ppu.TransformChannel
+	Window0, Window1   ppu.Window
+	WindowControl      uint8
+	WindowMainEnable   uint8
+	WindowSubEnable    uint8
+	HDMAEnabled        bool
+	HDMATableBase      uint16
+	FrameCounter       uint16
+	VBlankFlag         bool
+	VRAMAddr           uint16
+	CGRAMAddr          uint8
+	CGRAMWriteLatch    bool
+	CGRAMWriteValue    uint16
+	OAMAddr            uint8
+	OAMByteIndex       uint8
 }
 
 // APUState represents APU state for save/load
@@ -90,26 +88,26 @@ type MemoryState struct {
 
 // InputState represents Input state for save/load
 type InputState struct {
-	Controller1Buttons uint16
-	Controller2Buttons uint16
-	Controller1Latched     uint16
-	Controller2Latched     uint16
-	Controller1LatchState  bool
-	Controller2LatchState  bool
+	Controller1Buttons    uint16
+	Controller2Buttons    uint16
+	Controller1Latched    uint16
+	Controller2Latched    uint16
+	Controller1LatchState bool
+	Controller2LatchState bool
 }
 
 // SaveState saves the current emulator state to a byte slice
 func (e *Emulator) SaveState() ([]byte, error) {
 	// Create save state structure
 	state := SaveState{
-		Version: 1, // Version 1 of save state format
-		CPUState: e.CPU.State,
-		PPUState: e.savePPUState(),
-		APUState: e.saveAPUState(),
+		Version:     1, // Version 1 of save state format
+		CPUState:    e.CPU.State,
+		PPUState:    e.savePPUState(),
+		APUState:    e.saveAPUState(),
 		MemoryState: e.saveMemoryState(),
-		InputState: e.saveInputState(),
-		Running: e.Running,
-		Paused:  e.Paused,
+		InputState:  e.saveInputState(),
+		Running:     e.Running,
+		Paused:      e.Paused,
 	}
 
 	// Serialize using gob
@@ -127,7 +125,7 @@ func (e *Emulator) LoadState(data []byte) error {
 	// Deserialize using gob
 	buf := bytes.NewBuffer(data)
 	decoder := gob.NewDecoder(buf)
-	
+
 	var state SaveState
 	if err := decoder.Decode(&state); err != nil {
 		return fmt.Errorf("failed to decode save state: %w", err)
@@ -153,37 +151,29 @@ func (e *Emulator) LoadState(data []byte) error {
 // savePPUState extracts PPU state for saving
 func (e *Emulator) savePPUState() PPUState {
 	return PPUState{
-		VRAM:            e.PPU.VRAM,
-		CGRAM:           e.PPU.CGRAM,
-		OAM:             e.PPU.OAM,
-		BG0:             e.PPU.BG0,
-		BG1:             e.PPU.BG1,
-		BG2:             e.PPU.BG2,
-		BG3:             e.PPU.BG3,
-		MatrixEnabled:   e.PPU.MatrixEnabled,
-		MatrixA:         e.PPU.MatrixA,
-		MatrixB:         e.PPU.MatrixB,
-		MatrixC:         e.PPU.MatrixC,
-		MatrixD:         e.PPU.MatrixD,
-		MatrixCenterX:   e.PPU.MatrixCenterX,
-		MatrixCenterY:   e.PPU.MatrixCenterY,
-		MatrixMirrorH:   e.PPU.MatrixMirrorH,
-		MatrixMirrorV:   e.PPU.MatrixMirrorV,
-		Window0:         e.PPU.Window0,
-		Window1:         e.PPU.Window1,
-		WindowControl:   e.PPU.WindowControl,
-		WindowMainEnable: e.PPU.WindowMainEnable,
-		WindowSubEnable: e.PPU.WindowSubEnable,
-		HDMAEnabled:     e.PPU.HDMAEnabled,
-		HDMATableBase:   e.PPU.HDMATableBase,
-		FrameCounter:    e.PPU.FrameCounter,
-		VBlankFlag:      e.PPU.VBlankFlag,
-		VRAMAddr:        e.PPU.VRAMAddr,
-		CGRAMAddr:       e.PPU.CGRAMAddr,
-		CGRAMWriteLatch: e.PPU.CGRAMWriteLatch,
-		CGRAMWriteValue: e.PPU.CGRAMWriteValue,
-		OAMAddr:         e.PPU.OAMAddr,
-		OAMByteIndex:    e.PPU.OAMByteIndex,
+		VRAM:              e.PPU.VRAM,
+		CGRAM:             e.PPU.CGRAM,
+		OAM:               e.PPU.OAM,
+		BG0:               e.PPU.BG0,
+		BG1:               e.PPU.BG1,
+		BG2:               e.PPU.BG2,
+		BG3:               e.PPU.BG3,
+		TransformChannels: e.PPU.TransformChannels,
+		Window0:           e.PPU.Window0,
+		Window1:           e.PPU.Window1,
+		WindowControl:     e.PPU.WindowControl,
+		WindowMainEnable:  e.PPU.WindowMainEnable,
+		WindowSubEnable:   e.PPU.WindowSubEnable,
+		HDMAEnabled:       e.PPU.HDMAEnabled,
+		HDMATableBase:     e.PPU.HDMATableBase,
+		FrameCounter:      e.PPU.FrameCounter,
+		VBlankFlag:        e.PPU.VBlankFlag,
+		VRAMAddr:          e.PPU.VRAMAddr,
+		CGRAMAddr:         e.PPU.CGRAMAddr,
+		CGRAMWriteLatch:   e.PPU.CGRAMWriteLatch,
+		CGRAMWriteValue:   e.PPU.CGRAMWriteValue,
+		OAMAddr:           e.PPU.OAMAddr,
+		OAMByteIndex:      e.PPU.OAMByteIndex,
 	}
 }
 
@@ -196,15 +186,7 @@ func (e *Emulator) loadPPUState(state PPUState) {
 	e.PPU.BG1 = state.BG1
 	e.PPU.BG2 = state.BG2
 	e.PPU.BG3 = state.BG3
-	e.PPU.MatrixEnabled = state.MatrixEnabled
-	e.PPU.MatrixA = state.MatrixA
-	e.PPU.MatrixB = state.MatrixB
-	e.PPU.MatrixC = state.MatrixC
-	e.PPU.MatrixD = state.MatrixD
-	e.PPU.MatrixCenterX = state.MatrixCenterX
-	e.PPU.MatrixCenterY = state.MatrixCenterY
-	e.PPU.MatrixMirrorH = state.MatrixMirrorH
-	e.PPU.MatrixMirrorV = state.MatrixMirrorV
+	e.PPU.TransformChannels = state.TransformChannels
 	e.PPU.Window0 = state.Window0
 	e.PPU.Window1 = state.Window1
 	e.PPU.WindowControl = state.WindowControl
@@ -220,13 +202,14 @@ func (e *Emulator) loadPPUState(state PPUState) {
 	e.PPU.CGRAMWriteValue = state.CGRAMWriteValue
 	e.PPU.OAMAddr = state.OAMAddr
 	e.PPU.OAMByteIndex = state.OAMByteIndex
+	e.PPU.SyncTransformBindingsForStateLoad()
 }
 
 // saveAPUState extracts APU state for saving
 func (e *Emulator) saveAPUState() APUState {
 	return APUState{
 		Channels:                e.APU.Channels,
-		MasterVolume:           e.APU.MasterVolume,
+		MasterVolume:            e.APU.MasterVolume,
 		ChannelCompletionStatus: e.APU.ChannelCompletionStatus,
 	}
 }

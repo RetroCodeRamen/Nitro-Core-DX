@@ -753,6 +753,266 @@ func TestGfxSetPaletteWritesExpectedCGRAM(t *testing.T) {
 	}
 }
 
+func TestBGStaticControlsDriveExpectedPPUState(t *testing.T) {
+	source := `function Start()
+    bg.enable(2)
+    bg.set_priority(2, 3)
+    bg.set_tilemap_base(2, 0x5A00)
+    bg.set_source_mode(2, 1)
+    bg.bind_transform(2, 1)
+    while true
+        wait_vblank()
+`
+
+	tmpDir := t.TempDir()
+	sourcePath := filepath.Join(tmpDir, "bg_static_controls.corelx")
+	outputPath := filepath.Join(tmpDir, "bg_static_controls.rom")
+
+	if err := os.WriteFile(sourcePath, []byte(source), 0o644); err != nil {
+		t.Fatalf("Failed to write source file: %v", err)
+	}
+	if err := CompileFile(sourcePath, outputPath); err != nil {
+		t.Fatalf("Compilation failed: %v", err)
+	}
+
+	romData, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("Failed to read ROM: %v", err)
+	}
+	emu := emulator.NewEmulator()
+	emu.SetFrameLimit(false)
+	if err := emu.LoadROM(romData); err != nil {
+		t.Fatalf("Failed to load ROM: %v", err)
+	}
+	emu.Start()
+
+	for i := 0; i < 2; i++ {
+		if err := emu.RunFrame(); err != nil {
+			t.Fatalf("RunFrame failed: %v", err)
+		}
+	}
+
+	if !emu.PPU.BG2.Enabled {
+		t.Fatal("expected bg.enable(2) to enable BG2")
+	}
+	if emu.PPU.BG2.Priority != 3 {
+		t.Fatalf("BG2.Priority = %d, want 3", emu.PPU.BG2.Priority)
+	}
+	if emu.PPU.BG2.TilemapBase != 0x5A00 {
+		t.Fatalf("BG2.TilemapBase = 0x%04X, want 0x5A00", emu.PPU.BG2.TilemapBase)
+	}
+	if emu.PPU.BG2.SourceMode != 1 {
+		t.Fatalf("BG2.SourceMode = %d, want 1", emu.PPU.BG2.SourceMode)
+	}
+	if emu.PPU.BG2.TransformChannel != 1 {
+		t.Fatalf("BG2.TransformChannel = %d, want 1", emu.PPU.BG2.TransformChannel)
+	}
+}
+
+func TestMatrixHelpersDriveBoundTransformChannelState(t *testing.T) {
+	source := `function Start()
+    matrix.bind(1, 3)
+    matrix.enable(1)
+    matrix.set_matrix(1, 0x0200, 0x0010, 0x0004, 0x0180)
+    matrix.set_center(1, 12, 34)
+    while true
+        wait_vblank()
+`
+
+	tmpDir := t.TempDir()
+	sourcePath := filepath.Join(tmpDir, "matrix_helpers.corelx")
+	outputPath := filepath.Join(tmpDir, "matrix_helpers.rom")
+
+	if err := os.WriteFile(sourcePath, []byte(source), 0o644); err != nil {
+		t.Fatalf("Failed to write source file: %v", err)
+	}
+	if err := CompileFile(sourcePath, outputPath); err != nil {
+		t.Fatalf("Compilation failed: %v", err)
+	}
+
+	romData, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("Failed to read ROM: %v", err)
+	}
+	emu := emulator.NewEmulator()
+	emu.SetFrameLimit(false)
+	if err := emu.LoadROM(romData); err != nil {
+		t.Fatalf("Failed to load ROM: %v", err)
+	}
+	emu.Start()
+
+	for i := 0; i < 2; i++ {
+		if err := emu.RunFrame(); err != nil {
+			t.Fatalf("RunFrame failed: %v", err)
+		}
+	}
+
+	if emu.PPU.BG1.TransformChannel != 3 {
+		t.Fatalf("BG1.TransformChannel = %d, want 3", emu.PPU.BG1.TransformChannel)
+	}
+	ch := emu.PPU.TransformChannels[3]
+	if !ch.Enabled {
+		t.Fatal("expected matrix.enable(1) to enable bound transform channel 3")
+	}
+	if ch.A != 0x0200 || ch.B != 0x0010 || ch.C != 0x0004 || ch.D != 0x0180 {
+		t.Fatalf("channel 3 matrix = {%04X,%04X,%04X,%04X}, want {0200,0010,0004,0180}", uint16(ch.A), uint16(ch.B), uint16(ch.C), uint16(ch.D))
+	}
+	if ch.CenterX != 12 || ch.CenterY != 34 {
+		t.Fatalf("channel 3 center = (%d,%d), want (12,34)", ch.CenterX, ch.CenterY)
+	}
+}
+
+func TestMatrixIdentityAndDisableHelpers(t *testing.T) {
+	source := `function Start()
+    matrix.bind(0, 2)
+    matrix.enable(0)
+    matrix.set_matrix(0, 0x0200, 0x0040, 0x0040, 0x0200)
+    matrix.identity(0)
+    matrix.disable(0)
+    while true
+        wait_vblank()
+`
+
+	tmpDir := t.TempDir()
+	sourcePath := filepath.Join(tmpDir, "matrix_identity_disable.corelx")
+	outputPath := filepath.Join(tmpDir, "matrix_identity_disable.rom")
+
+	if err := os.WriteFile(sourcePath, []byte(source), 0o644); err != nil {
+		t.Fatalf("Failed to write source file: %v", err)
+	}
+	if err := CompileFile(sourcePath, outputPath); err != nil {
+		t.Fatalf("Compilation failed: %v", err)
+	}
+
+	romData, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("Failed to read ROM: %v", err)
+	}
+	emu := emulator.NewEmulator()
+	emu.SetFrameLimit(false)
+	if err := emu.LoadROM(romData); err != nil {
+		t.Fatalf("Failed to load ROM: %v", err)
+	}
+	emu.Start()
+
+	for i := 0; i < 2; i++ {
+		if err := emu.RunFrame(); err != nil {
+			t.Fatalf("RunFrame failed: %v", err)
+		}
+	}
+
+	ch := emu.PPU.TransformChannels[2]
+	if ch.Enabled {
+		t.Fatal("expected matrix.disable(0) to clear enabled bit on bound transform channel 2")
+	}
+	if ch.A != 0x0100 || ch.B != 0x0000 || ch.C != 0x0000 || ch.D != 0x0100 {
+		t.Fatalf("channel 2 matrix after identity = {%04X,%04X,%04X,%04X}, want {0100,0000,0000,0100}", uint16(ch.A), uint16(ch.B), uint16(ch.C), uint16(ch.D))
+	}
+}
+
+func TestBGDisableAndTileSizeHelpersDriveExpectedPPUState(t *testing.T) {
+	source := `function Start()
+    bg.enable(3)
+    bg.set_tile_size(3, 16)
+    bg.disable(3)
+    while true
+        wait_vblank()
+`
+
+	tmpDir := t.TempDir()
+	sourcePath := filepath.Join(tmpDir, "bg_disable_tilesize.corelx")
+	outputPath := filepath.Join(tmpDir, "bg_disable_tilesize.rom")
+
+	if err := os.WriteFile(sourcePath, []byte(source), 0o644); err != nil {
+		t.Fatalf("Failed to write source file: %v", err)
+	}
+	if err := CompileFile(sourcePath, outputPath); err != nil {
+		t.Fatalf("Compilation failed: %v", err)
+	}
+
+	romData, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("Failed to read ROM: %v", err)
+	}
+	emu := emulator.NewEmulator()
+	emu.SetFrameLimit(false)
+	if err := emu.LoadROM(romData); err != nil {
+		t.Fatalf("Failed to load ROM: %v", err)
+	}
+	emu.Start()
+
+	for i := 0; i < 2; i++ {
+		if err := emu.RunFrame(); err != nil {
+			t.Fatalf("RunFrame failed: %v", err)
+		}
+	}
+
+	if emu.PPU.BG3.Enabled {
+		t.Fatal("expected bg.disable(3) to leave BG3 disabled")
+	}
+	if !emu.PPU.BG3.TileSize {
+		t.Fatal("expected bg.set_tile_size(3, 16) to set BG3 tile size to 16x16")
+	}
+}
+
+func TestMatrixSetFlagsHelperDrivesBoundTransformFlags(t *testing.T) {
+	source := `function Start()
+    matrix.bind(2, 1)
+    matrix.enable(2)
+    matrix.set_flags(2, true, false, 2, true)
+    while true
+        wait_vblank()
+`
+
+	tmpDir := t.TempDir()
+	sourcePath := filepath.Join(tmpDir, "matrix_set_flags.corelx")
+	outputPath := filepath.Join(tmpDir, "matrix_set_flags.rom")
+
+	if err := os.WriteFile(sourcePath, []byte(source), 0o644); err != nil {
+		t.Fatalf("Failed to write source file: %v", err)
+	}
+	if err := CompileFile(sourcePath, outputPath); err != nil {
+		t.Fatalf("Compilation failed: %v", err)
+	}
+
+	romData, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("Failed to read ROM: %v", err)
+	}
+	emu := emulator.NewEmulator()
+	emu.SetFrameLimit(false)
+	if err := emu.LoadROM(romData); err != nil {
+		t.Fatalf("Failed to load ROM: %v", err)
+	}
+	emu.Start()
+
+	for i := 0; i < 2; i++ {
+		if err := emu.RunFrame(); err != nil {
+			t.Fatalf("RunFrame failed: %v", err)
+		}
+	}
+
+	if emu.PPU.BG2.TransformChannel != 1 {
+		t.Fatalf("BG2.TransformChannel = %d, want 1", emu.PPU.BG2.TransformChannel)
+	}
+	ch := emu.PPU.TransformChannels[1]
+	if !ch.Enabled {
+		t.Fatal("expected matrix.enable(2) to preserve enabled state")
+	}
+	if !ch.MirrorH {
+		t.Fatal("expected matrix.set_flags to set MirrorH")
+	}
+	if ch.MirrorV {
+		t.Fatal("expected matrix.set_flags to clear MirrorV")
+	}
+	if ch.OutsideMode != 2 {
+		t.Fatalf("channel 1 OutsideMode = %d, want 2", ch.OutsideMode)
+	}
+	if !ch.DirectColor {
+		t.Fatal("expected matrix.set_flags to set DirectColor")
+	}
+}
+
 // TestGfxLoadTilesRuntimeAssetIDDispatch verifies runtime asset-ID dispatch for
 // gfx.load_tiles by selecting between two declared assets via a variable.
 func TestGfxLoadTilesRuntimeAssetIDDispatch(t *testing.T) {

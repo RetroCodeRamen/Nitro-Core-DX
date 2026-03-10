@@ -51,10 +51,11 @@ const (
 
 // VariableInfo tracks where a variable is stored
 type VariableInfo struct {
-	Name      string
-	Location  VariableLocation
-	RegIndex  uint8  // If in register
-	StackAddr uint16 // If on stack
+	Name       string
+	Location   VariableLocation
+	RegIndex   uint8  // If in register
+	StackAddr  uint16 // If on stack
+	StructType string // "Sprite"/"Vec2" when variable stores pointer to a known struct
 }
 
 // VariableLocation indicates where variable is stored
@@ -65,6 +66,27 @@ const (
 	VarLocationStack
 	VarLocationMemory
 )
+
+type structMemberInfo struct {
+	Offset uint16
+	Width  uint8 // in bytes (1 or 2)
+}
+
+func structTypeNameFromTypeExpr(t TypeExpr) string {
+	switch tt := t.(type) {
+	case *NamedType:
+		if tt.Name == "Sprite" || tt.Name == "Vec2" {
+			return tt.Name
+		}
+	case *PointerType:
+		if base, ok := tt.Base.(*NamedType); ok {
+			if base.Name == "Sprite" || base.Name == "Vec2" {
+				return base.Name
+			}
+		}
+	}
+	return ""
+}
 
 // RegisterAllocator manages register allocation
 type RegisterAllocator struct {
@@ -203,9 +225,10 @@ func (cg *CodeGenerator) generateFunction(fn *FunctionDecl) error {
 		cg.builder.AddImmediate(stackAddr)
 		cg.builder.AddInstruction(rom.EncodeMOV(3, 7, uint8(i)))
 		cg.variables[param.Name] = &VariableInfo{
-			Name:      param.Name,
-			Location:  VarLocationStack,
-			StackAddr: stackAddr,
+			Name:       param.Name,
+			Location:   VarLocationStack,
+			StackAddr:  stackAddr,
+			StructType: structTypeNameFromTypeExpr(param.Type),
 		}
 	}
 
@@ -229,6 +252,125 @@ func (cg *CodeGenerator) generateFunction(fn *FunctionDecl) error {
 	}
 
 	return nil
+}
+
+func (cg *CodeGenerator) resolveStructMember(varInfo *VariableInfo, member string) (structMemberInfo, bool) {
+	spriteMembers := map[string]structMemberInfo{
+		"x_lo": {Offset: 0, Width: 1},
+		"x_hi": {Offset: 1, Width: 1},
+		"y":    {Offset: 2, Width: 1},
+		"tile": {Offset: 3, Width: 1},
+		"attr": {Offset: 4, Width: 1},
+		"ctrl": {Offset: 5, Width: 1},
+	}
+	vec2Members := map[string]structMemberInfo{
+		"x": {Offset: 0, Width: 2},
+		"y": {Offset: 2, Width: 2},
+	}
+
+	switch varInfo.StructType {
+	case "Sprite":
+		v, ok := spriteMembers[member]
+		return v, ok
+	case "Vec2":
+		v, ok := vec2Members[member]
+		return v, ok
+	}
+
+	// Legacy fallback when struct type is unknown in codegen state.
+	if v, ok := spriteMembers[member]; ok {
+		return v, true
+	}
+	if v, ok := vec2Members[member]; ok {
+		return v, true
+	}
+	return structMemberInfo{}, false
+}
+
+func (cg *CodeGenerator) emitStructMemberStore(varInfo *VariableInfo, member structMemberInfo, valueReg uint8) bool {
+	if varInfo.Location == VarLocationRegister {
+		// R7 = struct base address.
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 7, varInfo.RegIndex))
+		if member.Width == 2 {
+			// 16-bit store to [R7+offset]
+			cg.builder.AddInstruction(rom.EncodeMOV(10, 7, valueReg))
+			cg.builder.AddImmediate(member.Offset)
+			return true
+		}
+
+		// 8-bit store path
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+		cg.builder.AddImmediate(member.Offset)
+		cg.builder.AddInstruction(rom.EncodeADD(0, 7, 6))
+		cg.builder.AddInstruction(rom.EncodeMOV(7, 7, valueReg))
+		return true
+	}
+
+	if varInfo.Location == VarLocationStack {
+		// R6 = struct base address loaded from stack slot.
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
+		cg.builder.AddImmediate(varInfo.StackAddr)
+		cg.builder.AddInstruction(rom.EncodeMOV(2, 6, 7))
+
+		if member.Width == 2 {
+			// 16-bit store to [R6+offset]
+			cg.builder.AddInstruction(rom.EncodeMOV(10, 6, valueReg))
+			cg.builder.AddImmediate(member.Offset)
+			return true
+		}
+
+		// 8-bit store path
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
+		cg.builder.AddImmediate(member.Offset)
+		cg.builder.AddInstruction(rom.EncodeADD(0, 6, 7))
+		cg.builder.AddInstruction(rom.EncodeMOV(7, 6, valueReg))
+		return true
+	}
+
+	return false
+}
+
+func (cg *CodeGenerator) emitStructMemberLoad(varInfo *VariableInfo, member structMemberInfo, destReg uint8) bool {
+	if varInfo.Location == VarLocationRegister {
+		// R7 = struct base address.
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 7, varInfo.RegIndex))
+		if member.Width == 2 {
+			// 16-bit load from [R7+offset]
+			cg.builder.AddInstruction(rom.EncodeMOV(9, destReg, 7))
+			cg.builder.AddImmediate(member.Offset)
+			return true
+		}
+
+		// 8-bit load path
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+		cg.builder.AddImmediate(member.Offset)
+		cg.builder.AddInstruction(rom.EncodeADD(0, 7, 6))
+		cg.builder.AddInstruction(rom.EncodeMOV(6, destReg, 7))
+		return true
+	}
+
+	if varInfo.Location == VarLocationStack {
+		// R6 = struct base address loaded from stack slot.
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
+		cg.builder.AddImmediate(varInfo.StackAddr)
+		cg.builder.AddInstruction(rom.EncodeMOV(2, 6, 7))
+
+		if member.Width == 2 {
+			// 16-bit load from [R6+offset]
+			cg.builder.AddInstruction(rom.EncodeMOV(9, destReg, 6))
+			cg.builder.AddImmediate(member.Offset)
+			return true
+		}
+
+		// 8-bit load path
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
+		cg.builder.AddImmediate(member.Offset)
+		cg.builder.AddInstruction(rom.EncodeADD(0, 6, 7))
+		cg.builder.AddInstruction(rom.EncodeMOV(6, destReg, 6))
+		return true
+	}
+
+	return false
 }
 
 func (cg *CodeGenerator) generateStmt(stmt Stmt) error {
@@ -288,9 +430,10 @@ func (cg *CodeGenerator) generateVarDecl(stmt *VarDeclStmt) error {
 				cg.builder.AddImmediate(stackAddr)
 				cg.builder.AddInstruction(rom.EncodeMOV(3, 7, 0)) // MOV [R7], R0
 				cg.variables[stmt.Name] = &VariableInfo{
-					Name:      stmt.Name,
-					Location:  VarLocationStack,
-					StackAddr: stackAddr,
+					Name:       stmt.Name,
+					Location:   VarLocationStack,
+					StackAddr:  stackAddr,
+					StructType: ident.Name,
 				}
 				return nil
 			}
@@ -313,9 +456,10 @@ func (cg *CodeGenerator) generateVarDecl(stmt *VarDeclStmt) error {
 	cg.builder.AddImmediate(stackAddr)
 	cg.builder.AddInstruction(rom.EncodeMOV(3, 7, 0)) // MOV [R7], R0
 	cg.variables[stmt.Name] = &VariableInfo{
-		Name:      stmt.Name,
-		Location:  VarLocationStack,
-		StackAddr: stackAddr,
+		Name:       stmt.Name,
+		Location:   VarLocationStack,
+		StackAddr:  stackAddr,
+		StructType: structTypeNameFromTypeExpr(stmt.Type),
 	}
 	return nil
 }
@@ -331,47 +475,9 @@ func (cg *CodeGenerator) generateAssign(stmt *AssignStmt) error {
 		// Struct member assignment like hero.tile = base
 		if ident, ok := member.Object.(*IdentExpr); ok {
 			if varInfo, exists := cg.variables[ident.Name]; exists {
-				// Calculate field offset for Sprite struct
-				spriteOffsets := map[string]uint16{
-					"x_lo": 0, "x_hi": 1, "y": 2, "tile": 3, "attr": 4, "ctrl": 5,
-				}
-				vec2Offsets := map[string]uint16{
-					"x": 0, "y": 2,
-				}
-				var offset uint16
-				var found bool
-				if off, ok := spriteOffsets[member.Member]; ok {
-					offset = off
-					found = true
-				} else if off, ok := vec2Offsets[member.Member]; ok {
-					offset = off
-					found = true
-				}
-				if found {
-					// Store value to struct member
-					// Variable holds the struct address (either in register or on stack)
-					// R0 has the value to store
-					if varInfo.Location == VarLocationRegister {
-						// Variable is in register, holding the struct address
-						// Load struct address from register, add offset, then store member
-						cg.builder.AddInstruction(rom.EncodeMOV(0, 7, varInfo.RegIndex)) // MOV R7, R{reg} (struct address)
-						cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))                // MOV R6, #offset
-						cg.builder.AddImmediate(offset)
-						cg.builder.AddInstruction(rom.EncodeADD(0, 7, 6)) // ADD R7, R6 (member address)
-						cg.builder.AddInstruction(rom.EncodeMOV(7, 7, 0)) // MOV [R7], R0 (8-bit store)
-						return nil
-					} else if varInfo.Location == VarLocationStack {
-						// Variable is on stack, holding the struct address (16-bit)
-						// Load struct address from stack, add offset, then store member
-						cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0)) // MOV R7, #stackAddr
-						cg.builder.AddImmediate(varInfo.StackAddr)
-						cg.builder.AddInstruction(rom.EncodeMOV(2, 6, 7)) // MOV R6, [R7] (load struct address, 16-bit)
-						cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0)) // MOV R7, #offset
-						cg.builder.AddImmediate(offset)
-						cg.builder.AddInstruction(rom.EncodeADD(0, 6, 7)) // ADD R6, R7 (member address)
-						cg.builder.AddInstruction(rom.EncodeMOV(7, 6, 0)) // MOV [R6], R0 (8-bit store)
-						return nil
-					}
+				memberInfo, found := cg.resolveStructMember(varInfo, member.Member)
+				if found && cg.emitStructMemberStore(varInfo, memberInfo, 0) {
+					return nil
 				}
 			}
 		}
@@ -980,47 +1086,9 @@ func (cg *CodeGenerator) generateExpr(expr Expr, destReg uint8) error {
 		if ident, ok := e.Object.(*IdentExpr); ok {
 			// Check if variable exists first (prioritize variable over namespace)
 			if varInfo, exists := cg.variables[ident.Name]; exists {
-				// It's a struct member access like hero.tile or sprite.tile
-				// Calculate field offset
-				spriteOffsets := map[string]uint16{
-					"x_lo": 0, "x_hi": 1, "y": 2, "tile": 3, "attr": 4, "ctrl": 5,
-				}
-				vec2Offsets := map[string]uint16{
-					"x": 0, "y": 2,
-				}
-				var offset uint16
-				var found bool
-				if off, ok := spriteOffsets[e.Member]; ok {
-					offset = off
-					found = true
-				} else if off, ok := vec2Offsets[e.Member]; ok {
-					offset = off
-					found = true
-				}
-				if found {
-					// Load member from struct
-					// Variable holds the struct address (either in register or on stack)
-					if varInfo.Location == VarLocationRegister {
-						// Variable is in register, holding the struct address
-						// Load struct address from register, add offset, then load member
-						cg.builder.AddInstruction(rom.EncodeMOV(0, 7, varInfo.RegIndex)) // MOV R7, R{reg} (struct address)
-						cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))                // MOV R6, #offset
-						cg.builder.AddImmediate(offset)
-						cg.builder.AddInstruction(rom.EncodeADD(0, 7, 6))       // ADD R7, R6 (member address)
-						cg.builder.AddInstruction(rom.EncodeMOV(6, destReg, 7)) // MOV R{destReg}, [R7] (8-bit load)
-						return nil
-					} else if varInfo.Location == VarLocationStack {
-						// Variable is on stack, holding the struct address (16-bit)
-						// Load struct address from stack, add offset, then load member
-						cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0)) // MOV R7, #stackAddr
-						cg.builder.AddImmediate(varInfo.StackAddr)
-						cg.builder.AddInstruction(rom.EncodeMOV(2, 6, 7)) // MOV R6, [R7] (load struct address, 16-bit)
-						cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0)) // MOV R7, #offset
-						cg.builder.AddImmediate(offset)
-						cg.builder.AddInstruction(rom.EncodeADD(0, 6, 7))       // ADD R6, R7 (member address)
-						cg.builder.AddInstruction(rom.EncodeMOV(6, destReg, 6)) // MOV R{destReg}, [R6] (8-bit load)
-						return nil
-					}
+				memberInfo, found := cg.resolveStructMember(varInfo, e.Member)
+				if found && cg.emitStructMemberLoad(varInfo, memberInfo, destReg) {
+					return nil
 				}
 				// Variable exists but member not found - return 0
 				cg.builder.AddInstruction(rom.EncodeMOV(1, destReg, 0))
@@ -1116,13 +1184,15 @@ func (cg *CodeGenerator) generateCall(call *CallExpr, destReg uint8) error {
 		}
 
 		// Initialize struct to zero
-		// Zero out struct bytes
+		// Zero out struct memory in 16-bit chunks (current built-ins are even-sized).
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0)) // MOV R7, #stackAddr
 		cg.builder.AddImmediate(stackAddr)
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0)) // MOV R6, #0
 		cg.builder.AddImmediate(0)
-		// Zero out struct bytes (simplified - just zero first byte, rest will be zero-initialized)
-		cg.builder.AddInstruction(rom.EncodeMOV(7, 7, 6)) // MOV [R7], R6 (8-bit store, mode 7)
+		for off := uint16(0); off < structSize; off += 2 {
+			cg.builder.AddInstruction(rom.EncodeMOV(10, 7, 6)) // MOV [R7+off], R6 (16-bit store)
+			cg.builder.AddImmediate(off)
+		}
 
 		// Return struct address in destReg
 		cg.builder.AddInstruction(rom.EncodeMOV(1, destReg, 0))
@@ -2025,6 +2095,584 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		for _, jp := range jumpToEnd2 {
 			jpPC := uint16(jp * 2)
 			cg.builder.SetImmediateAt(jp, uint16(rom.CalculateBranchOffset(jpPC, endPC2)))
+		}
+		return nil
+
+	case "bg.disable":
+		// bg.disable(layer: u8)
+		// Args: R0 = layer (0-3)
+		// BG control registers: BG0=0x8008, BG1=0x8009, BG2=0x8021, BG3=0x8026
+		// Clear bit 0 to disable while preserving other control bits.
+		if len(args) != 1 {
+			return fmt.Errorf("bg.disable requires 1 argument (layer)")
+		}
+		bgCtrlAddrs := []uint16{0x8008, 0x8009, 0x8021, 0x8026}
+		jumpToEnd2 := make([]int, 0, 4)
+		for i, addr := range bgCtrlAddrs {
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+			cg.builder.AddImmediate(uint16(i))
+			cg.builder.AddInstruction(rom.EncodeCMP(0, 0, 6))
+			cg.builder.AddInstruction(rom.EncodeBNE())
+			skipPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(0)
+
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0))
+			cg.builder.AddImmediate(addr)
+			cg.builder.AddInstruction(rom.EncodeMOV(2, 5, 4)) // read
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+			cg.builder.AddImmediate(0xFE)
+			cg.builder.AddInstruction(rom.EncodeAND(0, 5, 6))
+			cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5)) // write
+
+			cg.builder.AddInstruction(rom.EncodeJMP())
+			jumpPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(0)
+			jumpToEnd2 = append(jumpToEnd2, jumpPos)
+
+			nextPC := uint16(cg.builder.GetCodeLength() * 2)
+			skipPC := uint16(skipPos * 2)
+			cg.builder.SetImmediateAt(skipPos, uint16(rom.CalculateBranchOffset(skipPC, nextPC)))
+		}
+		endPC2 := uint16(cg.builder.GetCodeLength() * 2)
+		for _, jp := range jumpToEnd2 {
+			jpPC := uint16(jp * 2)
+			cg.builder.SetImmediateAt(jp, uint16(rom.CalculateBranchOffset(jpPC, endPC2)))
+		}
+		return nil
+
+	case "bg.set_tile_size":
+		// bg.set_tile_size(layer: u8, size: u16)
+		// Args: R0 = layer (0-3), R1 = size (8 or 16)
+		// Bit 1 in BG control selects 16x16 tiles when set.
+		if len(args) != 2 {
+			return fmt.Errorf("bg.set_tile_size requires 2 arguments (layer, size)")
+		}
+		bgCtrlAddrs := []uint16{0x8008, 0x8009, 0x8021, 0x8026}
+		jumpToEnd := make([]int, 0, 4)
+		for i, addr := range bgCtrlAddrs {
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+			cg.builder.AddImmediate(uint16(i))
+			cg.builder.AddInstruction(rom.EncodeCMP(0, 0, 6))
+			cg.builder.AddInstruction(rom.EncodeBNE())
+			skipPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(0)
+
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0))
+			cg.builder.AddImmediate(addr)
+			cg.builder.AddInstruction(rom.EncodeMOV(2, 5, 4)) // current control
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+			cg.builder.AddImmediate(0xFD)                     // clear tile-size bit
+			cg.builder.AddInstruction(rom.EncodeAND(0, 5, 6)) // R5 &= 0xFD
+
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+			cg.builder.AddImmediate(16)
+			cg.builder.AddInstruction(rom.EncodeCMP(0, 1, 6))
+			cg.builder.AddInstruction(rom.EncodeBNE())
+			noTileSetPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(0)
+
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+			cg.builder.AddImmediate(0x02)
+			cg.builder.AddInstruction(rom.EncodeOR(0, 5, 6))
+
+			noTileSetPC := uint16(cg.builder.GetCodeLength() * 2)
+			noTileSetBranchPC := uint16(noTileSetPos * 2)
+			cg.builder.SetImmediateAt(noTileSetPos, uint16(rom.CalculateBranchOffset(noTileSetBranchPC, noTileSetPC)))
+
+			cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5))
+
+			cg.builder.AddInstruction(rom.EncodeJMP())
+			jumpPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(0)
+			jumpToEnd = append(jumpToEnd, jumpPos)
+
+			nextPC := uint16(cg.builder.GetCodeLength() * 2)
+			skipPC := uint16(skipPos * 2)
+			cg.builder.SetImmediateAt(skipPos, uint16(rom.CalculateBranchOffset(skipPC, nextPC)))
+		}
+		endPC := uint16(cg.builder.GetCodeLength() * 2)
+		for _, jp := range jumpToEnd {
+			jpPC := uint16(jp * 2)
+			cg.builder.SetImmediateAt(jp, uint16(rom.CalculateBranchOffset(jpPC, endPC)))
+		}
+		return nil
+
+	case "bg.set_priority":
+		// bg.set_priority(layer: u8, priority: u8)
+		// Args: R0 = layer, R1 = priority (0-3)
+		// BG control registers: BG0=0x8008, BG1=0x8009, BG2=0x8021, BG3=0x8026
+		// Bits [3:2] carry explicit layer priority.
+		if len(args) != 2 {
+			return fmt.Errorf("bg.set_priority requires 2 arguments (layer, priority)")
+		}
+		bgCtrlAddrs := []uint16{0x8008, 0x8009, 0x8021, 0x8026}
+		jumpToEnd := make([]int, 0, 4)
+		for i, addr := range bgCtrlAddrs {
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+			cg.builder.AddImmediate(uint16(i))
+			cg.builder.AddInstruction(rom.EncodeCMP(0, 0, 6))
+			cg.builder.AddInstruction(rom.EncodeBNE())
+			skipPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(0)
+
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0))
+			cg.builder.AddImmediate(addr)
+			cg.builder.AddInstruction(rom.EncodeMOV(2, 5, 4)) // R5 = current control
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+			cg.builder.AddImmediate(0xF3)                     // clear bits [3:2]
+			cg.builder.AddInstruction(rom.EncodeAND(0, 5, 6)) // R5 = current & 0xF3
+
+			cg.builder.AddInstruction(rom.EncodeMOV(0, 7, 1)) // R7 = priority
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+			cg.builder.AddImmediate(0x03)
+			cg.builder.AddInstruction(rom.EncodeAND(0, 7, 6)) // R7 &= 0x03
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+			cg.builder.AddImmediate(2)
+			cg.builder.AddInstruction(rom.EncodeSHL(0, 7, 6)) // R7 <<= 2
+			cg.builder.AddInstruction(rom.EncodeOR(0, 5, 7))
+			cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5))
+
+			cg.builder.AddInstruction(rom.EncodeJMP())
+			jumpPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(0)
+			jumpToEnd = append(jumpToEnd, jumpPos)
+
+			nextPC := uint16(cg.builder.GetCodeLength() * 2)
+			skipPC := uint16(skipPos * 2)
+			cg.builder.SetImmediateAt(skipPos, uint16(rom.CalculateBranchOffset(skipPC, nextPC)))
+		}
+		endPC := uint16(cg.builder.GetCodeLength() * 2)
+		for _, jp := range jumpToEnd {
+			jpPC := uint16(jp * 2)
+			cg.builder.SetImmediateAt(jp, uint16(rom.CalculateBranchOffset(jpPC, endPC)))
+		}
+		return nil
+
+	case "bg.set_tilemap_base":
+		// bg.set_tilemap_base(layer: u8, base: u16)
+		// Args: R0 = layer, R1 = tilemap base
+		// Register pairs: BG0=0x8077/78, BG1=0x8079/7A, BG2=0x807B/7C, BG3=0x807D/7E
+		if len(args) != 2 {
+			return fmt.Errorf("bg.set_tilemap_base requires 2 arguments (layer, base)")
+		}
+		bgTilemapAddrs := []uint16{0x8077, 0x8079, 0x807B, 0x807D}
+		jumpToEnd := make([]int, 0, 4)
+		for i, addr := range bgTilemapAddrs {
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+			cg.builder.AddImmediate(uint16(i))
+			cg.builder.AddInstruction(rom.EncodeCMP(0, 0, 6))
+			cg.builder.AddInstruction(rom.EncodeBNE())
+			skipPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(0)
+
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0))
+			cg.builder.AddImmediate(addr)
+			cg.builder.AddInstruction(rom.EncodeMOV(0, 5, 1))
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+			cg.builder.AddImmediate(0xFF)
+			cg.builder.AddInstruction(rom.EncodeAND(0, 5, 6))
+			cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5))
+
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0))
+			cg.builder.AddImmediate(addr + 1)
+			cg.builder.AddInstruction(rom.EncodeMOV(0, 5, 1))
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+			cg.builder.AddImmediate(8)
+			cg.builder.AddInstruction(rom.EncodeSHR(0, 5, 6))
+			cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5))
+
+			cg.builder.AddInstruction(rom.EncodeJMP())
+			jumpPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(0)
+			jumpToEnd = append(jumpToEnd, jumpPos)
+
+			nextPC := uint16(cg.builder.GetCodeLength() * 2)
+			skipPC := uint16(skipPos * 2)
+			cg.builder.SetImmediateAt(skipPos, uint16(rom.CalculateBranchOffset(skipPC, nextPC)))
+		}
+		endPC := uint16(cg.builder.GetCodeLength() * 2)
+		for _, jp := range jumpToEnd {
+			jpPC := uint16(jp * 2)
+			cg.builder.SetImmediateAt(jp, uint16(rom.CalculateBranchOffset(jpPC, endPC)))
+		}
+		return nil
+
+	case "bg.set_source_mode":
+		// bg.set_source_mode(layer: u8, mode: u8)
+		// Args: R0 = layer, R1 = source mode (0=tilemap, 1=bitmap)
+		if len(args) != 2 {
+			return fmt.Errorf("bg.set_source_mode requires 2 arguments (layer, mode)")
+		}
+		bgSourceModeAddrs := []uint16{0x8068, 0x8069, 0x806A, 0x806B}
+		jumpToEnd := make([]int, 0, 4)
+		for i, addr := range bgSourceModeAddrs {
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+			cg.builder.AddImmediate(uint16(i))
+			cg.builder.AddInstruction(rom.EncodeCMP(0, 0, 6))
+			cg.builder.AddInstruction(rom.EncodeBNE())
+			skipPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(0)
+
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0))
+			cg.builder.AddImmediate(addr)
+			cg.builder.AddInstruction(rom.EncodeMOV(0, 5, 1))
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+			cg.builder.AddImmediate(0x01)
+			cg.builder.AddInstruction(rom.EncodeAND(0, 5, 6))
+			cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5))
+
+			cg.builder.AddInstruction(rom.EncodeJMP())
+			jumpPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(0)
+			jumpToEnd = append(jumpToEnd, jumpPos)
+
+			nextPC := uint16(cg.builder.GetCodeLength() * 2)
+			skipPC := uint16(skipPos * 2)
+			cg.builder.SetImmediateAt(skipPos, uint16(rom.CalculateBranchOffset(skipPC, nextPC)))
+		}
+		endPC := uint16(cg.builder.GetCodeLength() * 2)
+		for _, jp := range jumpToEnd {
+			jpPC := uint16(jp * 2)
+			cg.builder.SetImmediateAt(jp, uint16(rom.CalculateBranchOffset(jpPC, endPC)))
+		}
+		return nil
+
+	case "bg.bind_transform", "matrix.bind":
+		// bg.bind_transform(layer: u8, channel: u8)
+		// matrix.bind(layer: u8, channel: u8)
+		// Args: R0 = layer, R1 = transform channel (0-3)
+		if len(args) != 2 {
+			return fmt.Errorf("%s requires 2 arguments (layer, channel)", name)
+		}
+		bgTransformBindAddrs := []uint16{0x806C, 0x806D, 0x806E, 0x806F}
+		jumpToEnd := make([]int, 0, 4)
+		for i, addr := range bgTransformBindAddrs {
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+			cg.builder.AddImmediate(uint16(i))
+			cg.builder.AddInstruction(rom.EncodeCMP(0, 0, 6))
+			cg.builder.AddInstruction(rom.EncodeBNE())
+			skipPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(0)
+
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0))
+			cg.builder.AddImmediate(addr)
+			cg.builder.AddInstruction(rom.EncodeMOV(0, 5, 1))
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+			cg.builder.AddImmediate(0x03)
+			cg.builder.AddInstruction(rom.EncodeAND(0, 5, 6))
+			cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5))
+
+			cg.builder.AddInstruction(rom.EncodeJMP())
+			jumpPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(0)
+			jumpToEnd = append(jumpToEnd, jumpPos)
+
+			nextPC := uint16(cg.builder.GetCodeLength() * 2)
+			skipPC := uint16(skipPos * 2)
+			cg.builder.SetImmediateAt(skipPos, uint16(rom.CalculateBranchOffset(skipPC, nextPC)))
+		}
+		endPC := uint16(cg.builder.GetCodeLength() * 2)
+		for _, jp := range jumpToEnd {
+			jpPC := uint16(jp * 2)
+			cg.builder.SetImmediateAt(jp, uint16(rom.CalculateBranchOffset(jpPC, endPC)))
+		}
+		return nil
+
+	case "matrix.enable", "matrix.disable":
+		// matrix.enable(layer: u8)
+		// matrix.disable(layer: u8)
+		// Args: R0 = layer
+		if len(args) != 1 {
+			return fmt.Errorf("%s requires 1 argument (layer)", name)
+		}
+		matrixControlAddrs := []uint16{0x8018, 0x802B, 0x8038, 0x8045}
+		jumpToEnd := make([]int, 0, 4)
+		for i, addr := range matrixControlAddrs {
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+			cg.builder.AddImmediate(uint16(i))
+			cg.builder.AddInstruction(rom.EncodeCMP(0, 0, 6))
+			cg.builder.AddInstruction(rom.EncodeBNE())
+			skipPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(0)
+
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0))
+			cg.builder.AddImmediate(addr)
+			cg.builder.AddInstruction(rom.EncodeMOV(2, 5, 4)) // current control
+			if name == "matrix.enable" {
+				cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+				cg.builder.AddImmediate(0x01)
+				cg.builder.AddInstruction(rom.EncodeOR(0, 5, 6))
+			} else {
+				cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+				cg.builder.AddImmediate(0xFE)
+				cg.builder.AddInstruction(rom.EncodeAND(0, 5, 6))
+			}
+			cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5))
+
+			cg.builder.AddInstruction(rom.EncodeJMP())
+			jumpPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(0)
+			jumpToEnd = append(jumpToEnd, jumpPos)
+
+			nextPC := uint16(cg.builder.GetCodeLength() * 2)
+			skipPC := uint16(skipPos * 2)
+			cg.builder.SetImmediateAt(skipPos, uint16(rom.CalculateBranchOffset(skipPC, nextPC)))
+		}
+		endPC := uint16(cg.builder.GetCodeLength() * 2)
+		for _, jp := range jumpToEnd {
+			jpPC := uint16(jp * 2)
+			cg.builder.SetImmediateAt(jp, uint16(rom.CalculateBranchOffset(jpPC, endPC)))
+		}
+		return nil
+
+	case "matrix.set_matrix":
+		// matrix.set_matrix(layer: u8, a: i16, b: i16, c: i16, d: i16)
+		// Args: R0 = layer, R1 = A, R2 = B, R3 = C, R4 = D
+		if len(args) != 5 {
+			return fmt.Errorf("matrix.set_matrix requires 5 arguments (layer, a, b, c, d)")
+		}
+		matrixAAddrs := []uint16{0x8019, 0x802C, 0x8039, 0x8046}
+		jumpToEnd := make([]int, 0, 4)
+		for i, addr := range matrixAAddrs {
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+			cg.builder.AddImmediate(uint16(i))
+			cg.builder.AddInstruction(rom.EncodeCMP(0, 0, 6))
+			cg.builder.AddInstruction(rom.EncodeBNE())
+			skipPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(0)
+
+			matrixRegs := []struct {
+				base uint16
+				reg  uint8
+			}{
+				{addr, 1},
+				{addr + 2, 2},
+				{addr + 4, 3},
+				{addr + 6, 4},
+			}
+			for _, m := range matrixRegs {
+				cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0))
+				cg.builder.AddImmediate(m.base)
+				cg.builder.AddInstruction(rom.EncodeMOV(0, 6, m.reg))
+				cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
+				cg.builder.AddImmediate(0x00FF)
+				cg.builder.AddInstruction(rom.EncodeAND(0, 6, 7))
+				cg.builder.AddInstruction(rom.EncodeMOV(3, 5, 6))
+
+				cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0))
+				cg.builder.AddImmediate(m.base + 1)
+				cg.builder.AddInstruction(rom.EncodeMOV(0, 6, m.reg))
+				cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
+				cg.builder.AddImmediate(8)
+				cg.builder.AddInstruction(rom.EncodeSHR(0, 6, 7))
+				cg.builder.AddInstruction(rom.EncodeMOV(3, 5, 6))
+			}
+
+			cg.builder.AddInstruction(rom.EncodeJMP())
+			jumpPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(0)
+			jumpToEnd = append(jumpToEnd, jumpPos)
+
+			nextPC := uint16(cg.builder.GetCodeLength() * 2)
+			skipPC := uint16(skipPos * 2)
+			cg.builder.SetImmediateAt(skipPos, uint16(rom.CalculateBranchOffset(skipPC, nextPC)))
+		}
+		endPC := uint16(cg.builder.GetCodeLength() * 2)
+		for _, jp := range jumpToEnd {
+			jpPC := uint16(jp * 2)
+			cg.builder.SetImmediateAt(jp, uint16(rom.CalculateBranchOffset(jpPC, endPC)))
+		}
+		return nil
+
+	case "matrix.set_center":
+		// matrix.set_center(layer: u8, x: i16, y: i16)
+		// Args: R0 = layer, R1 = centerX, R2 = centerY
+		if len(args) != 3 {
+			return fmt.Errorf("matrix.set_center requires 3 arguments (layer, x, y)")
+		}
+		centerAddrs := []uint16{0x8027, 0x8034, 0x8041, 0x804E}
+		jumpToEnd := make([]int, 0, 4)
+		for i, addr := range centerAddrs {
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+			cg.builder.AddImmediate(uint16(i))
+			cg.builder.AddInstruction(rom.EncodeCMP(0, 0, 6))
+			cg.builder.AddInstruction(rom.EncodeBNE())
+			skipPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(0)
+
+			centerRegs := []struct {
+				base uint16
+				reg  uint8
+			}{
+				{addr, 1},
+				{addr + 2, 2},
+			}
+			for _, c := range centerRegs {
+				cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0))
+				cg.builder.AddImmediate(c.base)
+				cg.builder.AddInstruction(rom.EncodeMOV(0, 5, c.reg))
+				cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+				cg.builder.AddImmediate(0x00FF)
+				cg.builder.AddInstruction(rom.EncodeAND(0, 5, 6))
+				cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5))
+
+				cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0))
+				cg.builder.AddImmediate(c.base + 1)
+				cg.builder.AddInstruction(rom.EncodeMOV(0, 5, c.reg))
+				cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+				cg.builder.AddImmediate(8)
+				cg.builder.AddInstruction(rom.EncodeSHR(0, 5, 6))
+				cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5))
+			}
+
+			cg.builder.AddInstruction(rom.EncodeJMP())
+			jumpPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(0)
+			jumpToEnd = append(jumpToEnd, jumpPos)
+
+			nextPC := uint16(cg.builder.GetCodeLength() * 2)
+			skipPC := uint16(skipPos * 2)
+			cg.builder.SetImmediateAt(skipPos, uint16(rom.CalculateBranchOffset(skipPC, nextPC)))
+		}
+		endPC := uint16(cg.builder.GetCodeLength() * 2)
+		for _, jp := range jumpToEnd {
+			jpPC := uint16(jp * 2)
+			cg.builder.SetImmediateAt(jp, uint16(rom.CalculateBranchOffset(jpPC, endPC)))
+		}
+		return nil
+
+	case "matrix.identity":
+		// matrix.identity(layer: u8)
+		// Args: R0 = layer
+		if len(args) != 1 {
+			return fmt.Errorf("matrix.identity requires 1 argument (layer)")
+		}
+		matrixAAddrs := []uint16{0x8019, 0x802C, 0x8039, 0x8046}
+		jumpToEnd := make([]int, 0, 4)
+		for i, addr := range matrixAAddrs {
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+			cg.builder.AddImmediate(uint16(i))
+			cg.builder.AddInstruction(rom.EncodeCMP(0, 0, 6))
+			cg.builder.AddInstruction(rom.EncodeBNE())
+			skipPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(0)
+
+			values := []struct {
+				base  uint16
+				value uint16
+			}{
+				{addr, 0x0100},     // A
+				{addr + 2, 0x0000}, // B
+				{addr + 4, 0x0000}, // C
+				{addr + 6, 0x0100}, // D
+			}
+			for _, v := range values {
+				cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0))
+				cg.builder.AddImmediate(v.base)
+				cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0))
+				cg.builder.AddImmediate(v.value & 0x00FF)
+				cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5))
+
+				cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0))
+				cg.builder.AddImmediate(v.base + 1)
+				cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0))
+				cg.builder.AddImmediate(v.value >> 8)
+				cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5))
+			}
+
+			cg.builder.AddInstruction(rom.EncodeJMP())
+			jumpPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(0)
+			jumpToEnd = append(jumpToEnd, jumpPos)
+
+			nextPC := uint16(cg.builder.GetCodeLength() * 2)
+			skipPC := uint16(skipPos * 2)
+			cg.builder.SetImmediateAt(skipPos, uint16(rom.CalculateBranchOffset(skipPC, nextPC)))
+		}
+		endPC := uint16(cg.builder.GetCodeLength() * 2)
+		for _, jp := range jumpToEnd {
+			jpPC := uint16(jp * 2)
+			cg.builder.SetImmediateAt(jp, uint16(rom.CalculateBranchOffset(jpPC, endPC)))
+		}
+		return nil
+
+	case "matrix.set_flags":
+		// matrix.set_flags(layer: u8, mirror_h: bool, mirror_v: bool, outside_mode: u8, direct_color: bool)
+		// Args: R0 = layer, R1 = mirror_h, R2 = mirror_v, R3 = outside_mode, R4 = direct_color
+		// Preserves the enable bit while rewriting control bits [5:1].
+		if len(args) != 5 {
+			return fmt.Errorf("matrix.set_flags requires 5 arguments (layer, mirror_h, mirror_v, outside_mode, direct_color)")
+		}
+		matrixControlAddrs := []uint16{0x8018, 0x802B, 0x8038, 0x8045}
+		jumpToEnd := make([]int, 0, 4)
+		for i, addr := range matrixControlAddrs {
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+			cg.builder.AddImmediate(uint16(i))
+			cg.builder.AddInstruction(rom.EncodeCMP(0, 0, 6))
+			cg.builder.AddInstruction(rom.EncodeBNE())
+			skipPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(0)
+
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0))
+			cg.builder.AddImmediate(addr)
+			cg.builder.AddInstruction(rom.EncodeMOV(2, 6, 5)) // R6 = current control
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
+			cg.builder.AddImmediate(0x01)
+			cg.builder.AddInstruction(rom.EncodeAND(0, 6, 7)) // R6 = enabled bit only
+
+			cg.builder.AddInstruction(rom.EncodeMOV(0, 7, 1)) // mirror_h
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0))
+			cg.builder.AddImmediate(0x01)
+			cg.builder.AddInstruction(rom.EncodeAND(0, 7, 5))
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0))
+			cg.builder.AddImmediate(1)
+			cg.builder.AddInstruction(rom.EncodeSHL(0, 7, 5))
+			cg.builder.AddInstruction(rom.EncodeOR(0, 6, 7))
+
+			cg.builder.AddInstruction(rom.EncodeMOV(0, 7, 2)) // mirror_v
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0))
+			cg.builder.AddImmediate(0x01)
+			cg.builder.AddInstruction(rom.EncodeAND(0, 7, 5))
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0))
+			cg.builder.AddImmediate(2)
+			cg.builder.AddInstruction(rom.EncodeSHL(0, 7, 5))
+			cg.builder.AddInstruction(rom.EncodeOR(0, 6, 7))
+
+			cg.builder.AddInstruction(rom.EncodeMOV(0, 7, 3)) // outside_mode
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0))
+			cg.builder.AddImmediate(0x03)
+			cg.builder.AddInstruction(rom.EncodeAND(0, 7, 5))
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0))
+			cg.builder.AddImmediate(3)
+			cg.builder.AddInstruction(rom.EncodeSHL(0, 7, 5))
+			cg.builder.AddInstruction(rom.EncodeOR(0, 6, 7))
+
+			cg.builder.AddInstruction(rom.EncodeMOV(0, 7, 4)) // direct_color
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0))
+			cg.builder.AddImmediate(0x01)
+			cg.builder.AddInstruction(rom.EncodeAND(0, 7, 5))
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0))
+			cg.builder.AddImmediate(5)
+			cg.builder.AddInstruction(rom.EncodeSHL(0, 7, 5))
+			cg.builder.AddInstruction(rom.EncodeOR(0, 6, 7))
+
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0))
+			cg.builder.AddImmediate(addr)
+			cg.builder.AddInstruction(rom.EncodeMOV(3, 5, 6))
+
+			cg.builder.AddInstruction(rom.EncodeJMP())
+			jumpPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(0)
+			jumpToEnd = append(jumpToEnd, jumpPos)
+
+			nextPC := uint16(cg.builder.GetCodeLength() * 2)
+			skipPC := uint16(skipPos * 2)
+			cg.builder.SetImmediateAt(skipPos, uint16(rom.CalculateBranchOffset(skipPC, nextPC)))
+		}
+		endPC := uint16(cg.builder.GetCodeLength() * 2)
+		for _, jp := range jumpToEnd {
+			jpPC := uint16(jp * 2)
+			cg.builder.SetImmediateAt(jp, uint16(rom.CalculateBranchOffset(jpPC, endPC)))
 		}
 		return nil
 

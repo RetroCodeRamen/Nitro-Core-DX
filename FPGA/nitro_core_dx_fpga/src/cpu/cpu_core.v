@@ -60,9 +60,11 @@ localparam STATE_EXECUTE = 3'd2;
 localparam STATE_MEMORY  = 3'd3;
 localparam STATE_WRITEBACK = 3'd4;
 localparam STATE_INTERRUPT = 3'd5;
+localparam STATE_FETCH_IMM = 3'd6;
 
 // Instruction register
 reg [15:0] ir;
+reg [15:0] imm_word;
 
 // Effective address
 reg [23:0] effective_addr;
@@ -71,12 +73,16 @@ reg [23:0] effective_addr;
 reg [15:0] alu_result;
 reg        alu_carry;
 reg        alu_overflow;
+reg [3:0]  shift_count_tmp;
+reg [16:0] shift_ext_tmp;
+integer    shift_i;
 
 // Interrupt handling
 reg        irq_pending;
 reg        nmi_pending;
 reg [7:0]  interrupt_vector_bank;
 reg [15:0] interrupt_vector_offset;
+reg        branch_taken;
 
 //============================================================================
 // Flag Access
@@ -92,8 +98,15 @@ wire flag_i = flags[4];
 // Instruction Decoding
 //============================================================================
 
-// Instruction format: [15:12] = opcode, [11:0] = operands
+// Emulator ISA format: [15:12]=opcode, [11:8]=mode, [7:4]=reg1, [3:0]=reg2
 wire [3:0] opcode = ir[15:12];
+wire [3:0] mode   = ir[11:8];
+wire [3:0] reg1   = ir[7:4];
+wire [3:0] reg2   = ir[3:0];
+wire [2:0] reg1_idx = reg1[2:0];
+wire [2:0] reg2_idx = reg2[2:0];
+
+// Legacy decode fields retained for currently-unported execution paths.
 wire [2:0] rd     = ir[11:9];   // Destination register
 wire [2:0] rs     = ir[8:6];    // Source register
 wire [2:0] rt     = ir[5:3];    // Third register
@@ -132,6 +145,15 @@ localparam OP_SPECIAL = 4'hF;
 wire [15:0] reg_rs = regs[rs];
 wire [15:0] reg_rt = regs[rt];
 wire [15:0] reg_rd = regs[rd];
+wire [15:0] reg1_val = regs[reg1_idx];
+wire [15:0] reg2_val = regs[reg2_idx];
+
+wire uses_imm_word = ((opcode == OP_MOV) && (mode == 4'h1)) ||
+                     ((opcode == OP_ADD || opcode == OP_SUB) && (mode == 4'h1 || mode == 4'h3)) ||
+                     ((opcode == OP_SHIFT || opcode == OP_JUMP) && (mode == 4'h1 || mode == 4'h3));
+
+// Transitional parity path: opcode 0xB currently overlaps legacy jump and emulator SHR family.
+wire shift_opcode_selected = (opcode == OP_SHIFT) || ((opcode == OP_JUMP) && (mode <= 4'h5));
 
 always @(*) begin
     alu_result = 16'd0;
@@ -140,13 +162,57 @@ always @(*) begin
     
     case (opcode)
         OP_ADD: begin
-            {alu_carry, alu_result} = reg_rs + reg_rt;
-            alu_overflow = (reg_rs[15] == reg_rt[15]) && (alu_result[15] != reg_rs[15]);
+            case (mode)
+                4'h0: begin
+                    {alu_carry, alu_result} = reg1_val + reg2_val;
+                    alu_overflow = (reg1_val[15] == reg2_val[15]) && (alu_result[15] != reg1_val[15]);
+                end
+                4'h1: begin
+                    {alu_carry, alu_result} = reg1_val + imm_word;
+                    alu_overflow = (reg1_val[15] == imm_word[15]) && (alu_result[15] != reg1_val[15]);
+                end
+                4'h2: begin
+                    {alu_carry, alu_result[7:0]} = reg1_val[7:0] + reg2_val[7:0];
+                    alu_result[15:8] = 8'h00;
+                    alu_overflow = (reg1_val[7] == reg2_val[7]) && (alu_result[7] != reg1_val[7]);
+                end
+                4'h3: begin
+                    {alu_carry, alu_result[7:0]} = reg1_val[7:0] + imm_word[7:0];
+                    alu_result[15:8] = 8'h00;
+                    alu_overflow = (reg1_val[7] == imm_word[7]) && (alu_result[7] != reg1_val[7]);
+                end
+                default: begin
+                    {alu_carry, alu_result} = reg1_val + reg2_val;
+                    alu_overflow = (reg1_val[15] == reg2_val[15]) && (alu_result[15] != reg1_val[15]);
+                end
+            endcase
         end
         
         OP_SUB: begin
-            {alu_carry, alu_result} = reg_rs - reg_rt;
-            alu_overflow = (reg_rs[15] != reg_rt[15]) && (alu_result[15] != reg_rs[15]);
+            case (mode)
+                4'h0: begin
+                    {alu_carry, alu_result} = reg1_val - reg2_val;
+                    alu_overflow = (reg1_val[15] != reg2_val[15]) && (alu_result[15] != reg1_val[15]);
+                end
+                4'h1: begin
+                    {alu_carry, alu_result} = reg1_val - imm_word;
+                    alu_overflow = (reg1_val[15] != imm_word[15]) && (alu_result[15] != reg1_val[15]);
+                end
+                4'h2: begin
+                    {alu_carry, alu_result[7:0]} = reg1_val[7:0] - reg2_val[7:0];
+                    alu_result[15:8] = 8'h00;
+                    alu_overflow = (reg1_val[7] != reg2_val[7]) && (alu_result[7] != reg1_val[7]);
+                end
+                4'h3: begin
+                    {alu_carry, alu_result[7:0]} = reg1_val[7:0] - imm_word[7:0];
+                    alu_result[15:8] = 8'h00;
+                    alu_overflow = (reg1_val[7] != imm_word[7]) && (alu_result[7] != reg1_val[7]);
+                end
+                default: begin
+                    {alu_carry, alu_result} = reg1_val - reg2_val;
+                    alu_overflow = (reg1_val[15] != reg2_val[15]) && (alu_result[15] != reg1_val[15]);
+                end
+            endcase
         end
         
         OP_AND: begin
@@ -165,13 +231,55 @@ always @(*) begin
             {alu_carry, alu_result} = reg_rs - reg_rt;
         end
         
-        OP_SHIFT: begin
-            case (ir[5:4])
-                2'b00: alu_result = reg_rs << imm6[3:0];  // SHL
-                2'b01: alu_result = reg_rs >> imm6[3:0];  // SHR
-                2'b10: alu_result = $signed(reg_rs) >>> imm6[3:0]; // SAR
-                2'b11: {alu_result, alu_carry} = {flag_c, reg_rs}; // ROL/ROR
-            endcase
+        OP_SHIFT, OP_JUMP: begin
+            if (shift_opcode_selected) begin
+                shift_count_tmp = (mode == 4'h1 || mode == 4'h3) ? imm_word[3:0] : reg2_val[3:0];
+
+                case (mode)
+                    4'h0, 4'h1: begin // SHR
+                        if (shift_count_tmp != 0) begin
+                            alu_carry = reg1_val[shift_count_tmp - 1];
+                            alu_result = reg1_val >> shift_count_tmp;
+                        end else begin
+                            alu_result = reg1_val;
+                            alu_carry = flag_c;
+                        end
+                    end
+                    4'h2, 4'h3: begin // SAR
+                        if (shift_count_tmp != 0) begin
+                            alu_carry = reg1_val[shift_count_tmp - 1];
+                            alu_result = $signed(reg1_val) >>> shift_count_tmp;
+                        end else begin
+                            alu_result = reg1_val;
+                            alu_carry = flag_c;
+                        end
+                    end
+                    4'h4: begin // ROL through carry
+                        shift_ext_tmp = {flag_c, reg1_val};
+                        if (shift_count_tmp != 0) begin
+                            for (shift_i = 0; shift_i < shift_count_tmp; shift_i = shift_i + 1) begin
+                                shift_ext_tmp = {shift_ext_tmp[15:0], shift_ext_tmp[16]};
+                            end
+                        end
+                        alu_result = shift_ext_tmp[15:0];
+                        alu_carry = shift_ext_tmp[16];
+                    end
+                    4'h5: begin // ROR through carry
+                        shift_ext_tmp = {flag_c, reg1_val};
+                        if (shift_count_tmp != 0) begin
+                            for (shift_i = 0; shift_i < shift_count_tmp; shift_i = shift_i + 1) begin
+                                shift_ext_tmp = {shift_ext_tmp[0], shift_ext_tmp[16:1]};
+                            end
+                        end
+                        alu_result = shift_ext_tmp[15:0];
+                        alu_carry = shift_ext_tmp[16];
+                    end
+                    default: begin
+                        alu_result = reg1_val;
+                        alu_carry = flag_c;
+                    end
+                endcase
+            end
         end
         
         OP_MUL: begin
@@ -208,6 +316,18 @@ task update_flags;
             flags[2] <= carry;               // C
             flags[3] <= overflow;            // V
         end
+    end
+endtask
+
+task update_flags8;
+    input [7:0] result;
+    input       carry;
+    input       overflow;
+    begin
+        flags[0] <= (result == 8'd0); // Z
+        flags[1] <= result[7];        // N (bit 7 for byte ops)
+        flags[2] <= carry;            // C
+        flags[3] <= overflow;         // V
     end
 endtask
 
@@ -262,31 +382,49 @@ always @(posedge clk or negedge reset_n) begin
             
             STATE_DECODE: begin
                 // Decode instruction and calculate effective address if needed
-                case (opcode)
-                    OP_LOAD, OP_STORE: begin
+                if (uses_imm_word) begin
+                    state <= STATE_FETCH_IMM;
+                end else begin
+                    case (opcode)
+                        OP_LOAD, OP_STORE: begin
                         // Memory access instructions
                         // Address = [DBR : (Rs + offset)]
                         effective_addr <= {db_bank, reg_rs + imm9_se};
                         state <= STATE_MEMORY;
-                    end
+                        end
                     
-                    OP_JUMP: begin
+                        OP_JUMP: begin
                         // Jump instructions
                         state <= STATE_EXECUTE;
-                    end
+                        end
                     
-                    OP_BRANCH: begin
+                        OP_BRANCH: begin
                         // Branch instructions - check condition
                         state <= STATE_EXECUTE;
-                    end
+                        end
                     
-                    default: begin
+                        default: begin
                         // Register operations
                         state <= STATE_EXECUTE;
-                    end
-                endcase
+                        end
+                    endcase
+                end
             end
-            
+
+            STATE_FETCH_IMM: begin
+                // Fetch immediate word extension for current instruction
+                addr <= {pc_bank, pc_offset};
+                re <= 1'b1;
+                we <= 1'b0;
+
+                if (ready) begin
+                    imm_word <= rdata;
+                    re <= 1'b0;
+                    pc_offset <= pc_offset + 2;
+                    state <= STATE_EXECUTE;
+                end
+            end
+
             STATE_MEMORY: begin
                 // Memory read/write
                 addr <= effective_addr;
@@ -315,37 +453,44 @@ always @(posedge clk or negedge reset_n) begin
                     end
                     
                     OP_MOV: begin
-                        case (ir[11:9])
-                            3'b000: begin  // MOV Rd, Rs
-                                regs[rd] <= reg_rs;
-                                update_flags(reg_rs, 1'b0, 1'b0, 1'b1, 1'b0);
+                        case (mode)
+                            4'h0: begin  // MOV R1, R2
+                                regs[reg1_idx] <= reg2_val;
+                                update_flags(reg2_val, 1'b0, 1'b0, 1'b1, 1'b0);
                             end
-                            3'b001: begin  // MOV Rd, #imm
-                                regs[rd] <= imm9_se;
-                                update_flags(imm9_se, 1'b0, 1'b0, 1'b1, 1'b0);
+                            4'h1: begin  // MOV R1, #imm16 (extension word)
+                                regs[reg1_idx] <= imm_word;
+                                update_flags(imm_word, 1'b0, 1'b0, 1'b1, 1'b0);
                             end
-                            3'b010: begin  // MOV DBR, Rs
-                                db_bank <= reg_rs[7:0];
+                            // Legacy compatibility for DBR transfer paths.
+                            4'h2: begin
+                                db_bank <= reg2_val[7:0];
                             end
-                            3'b011: begin  // MOV Rs, DBR
-                                regs[rd] <= {8'd0, db_bank};
+                            4'h3: begin
+                                regs[reg1_idx] <= {8'd0, db_bank};
                             end
                             default: begin
-                                regs[rd] <= reg_rs;
+                                regs[reg1_idx] <= reg2_val;
                             end
                         endcase
                         state <= STATE_FETCH;
                     end
                     
                     OP_ADD: begin
-                        regs[rd] <= alu_result;
-                        update_flags(alu_result, alu_carry, alu_overflow, 1'b1, 1'b1);
+                        regs[reg1_idx] <= alu_result;
+                        if (mode == 4'h2 || mode == 4'h3)
+                            update_flags8(alu_result[7:0], alu_carry, alu_overflow);
+                        else
+                            update_flags(alu_result, alu_carry, alu_overflow, 1'b1, 1'b1);
                         state <= STATE_FETCH;
                     end
                     
                     OP_SUB: begin
-                        regs[rd] <= alu_result;
-                        update_flags(alu_result, alu_carry, alu_overflow, 1'b1, 1'b1);
+                        regs[reg1_idx] <= alu_result;
+                        if (mode == 4'h2 || mode == 4'h3)
+                            update_flags8(alu_result[7:0], alu_carry, alu_overflow);
+                        else
+                            update_flags(alu_result, alu_carry, alu_overflow, 1'b1, 1'b1);
                         state <= STATE_FETCH;
                     end
                     
@@ -374,7 +519,7 @@ always @(posedge clk or negedge reset_n) begin
                     end
                     
                     OP_SHIFT: begin
-                        regs[rd] <= alu_result;
+                        regs[reg1_idx] <= alu_result;
                         update_flags(alu_result, alu_carry, 1'b0, 1'b1, 1'b1);
                         state <= STATE_FETCH;
                     end
@@ -392,40 +537,46 @@ always @(posedge clk or negedge reset_n) begin
                     end
                     
                     OP_JUMP: begin
-                        case (ir[11:9])
-                            3'b000: begin  // JMP addr
-                                pc_offset <= imm9_se;
-                            end
-                            3'b001: begin  // JMP Rs
-                                pc_offset <= reg_rs;
-                            end
-                            3'b010: begin  // JSR addr (Jump to Subroutine)
-                                // Push return address to stack
-                                sp <= sp - 2;
-                                addr <= {8'h00, sp - 2};
-                                wdata <= pc_offset;
-                                we <= 1'b1;
-                            end
-                            3'b011: begin  // RTS (Return from Subroutine)
-                                // Pop return address from stack
-                                addr <= {8'h00, sp};
-                                re <= 1'b1;
-                                sp <= sp + 2;
-                            end
-                            3'b100: begin  // JMP far (bank switch)
-                                pc_bank <= reg_rs[7:0];
-                                pc_offset <= reg_rt;
-                            end
-                            default: begin
-                                pc_offset <= imm9_se;
-                            end
-                        endcase
-                        state <= STATE_FETCH;
+                        if (shift_opcode_selected) begin
+                            regs[reg1_idx] <= alu_result;
+                            update_flags(alu_result, alu_carry, 1'b0, 1'b1, 1'b1);
+                            state <= STATE_FETCH;
+                        end else begin
+                            case (ir[11:9])
+                                3'b000: begin  // JMP addr
+                                    pc_offset <= imm9_se;
+                                end
+                                3'b001: begin  // JMP Rs
+                                    pc_offset <= reg_rs;
+                                end
+                                3'b010: begin  // JSR addr (Jump to Subroutine)
+                                    // Push return address to stack
+                                    sp <= sp - 2;
+                                    addr <= {8'h00, (sp - 16'd2)};
+                                    wdata <= pc_offset;
+                                    we <= 1'b1;
+                                end
+                                3'b011: begin  // RTS (Return from Subroutine)
+                                    // Pop return address from stack
+                                    addr <= {8'h00, sp};
+                                    re <= 1'b1;
+                                    sp <= sp + 2;
+                                end
+                                3'b100: begin  // JMP far (bank switch)
+                                    pc_bank <= reg_rs[7:0];
+                                    pc_offset <= reg_rt;
+                                end
+                                default: begin
+                                    pc_offset <= imm9_se;
+                                end
+                            endcase
+                            state <= STATE_FETCH;
+                        end
                     end
                     
                     OP_BRANCH: begin
                         // Branch conditions
-                        reg branch_taken;
+                        branch_taken = 1'b0;
                         case (ir[11:9])
                             3'b000: branch_taken = flag_z;           // BEQ
                             3'b001: branch_taken = !flag_z;          // BNE
@@ -447,7 +598,7 @@ always @(posedge clk or negedge reset_n) begin
                         case (ir[11:9])
                             3'b000: begin  // PUSH Rs
                                 sp <= sp - 2;
-                                addr <= {8'h00, sp - 2};
+                                addr <= {8'h00, (sp - 16'd2)};
                                 wdata <= reg_rs;
                                 we <= 1'b1;
                             end

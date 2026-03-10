@@ -137,10 +137,13 @@ func TestSpriteLabCoreLXSnippetShape(t *testing.T) {
 		t.Fatalf("unexpected header: %q", snippet)
 	}
 	lines := strings.Split(snippet, "\n")
-	if len(lines) != 10 {
-		t.Fatalf("expected 10 lines (comment + header + 8 rows), got %d", len(lines))
+	if len(lines) != 11 {
+		t.Fatalf("expected 11 lines (2 comments + header + 8 rows), got %d", len(lines))
 	}
-	for i := 2; i < len(lines); i++ {
+	if !strings.Contains(lines[1], "Packed byte format") {
+		t.Fatalf("expected packed format comment, got %q", lines[1])
+	}
+	for i := 3; i < len(lines); i++ {
 		fields := strings.Fields(lines[i])
 		if len(fields) != 4 {
 			t.Fatalf("line %d expected 4 hex bytes, got %d (%q)", i, len(fields), lines[i])
@@ -150,6 +153,21 @@ func TestSpriteLabCoreLXSnippetShape(t *testing.T) {
 				t.Fatalf("expected FF bytes, got %q", f)
 			}
 		}
+	}
+}
+
+func TestRefreshSpriteLabIndexPreview(t *testing.T) {
+	w, h := 4, 2
+	pixels := []uint8{
+		0, 4, 9, 14,
+		1, 2, 3, 15,
+	}
+	entry := newReadOnlyTextArea()
+	refreshSpriteLabIndexPreview(entry, pixels, w, h)
+	got := entry.Text
+	want := "00 04 09 0E\n01 02 03 0F"
+	if got != want {
+		t.Fatalf("index preview mismatch:\n got: %q\nwant: %q", got, want)
 	}
 }
 
@@ -174,19 +192,29 @@ func TestSpriteLabAssetHexData(t *testing.T) {
 
 func TestSpriteLabPaletteInitSnippetShape(t *testing.T) {
 	palettes := defaultSpriteLabPaletteData()
-	snippet, err := spriteLabPaletteInitSnippet(2, palettes)
+	pixels := []uint8{
+		0, 2, 2, 15,
+		2, 0, 15, 15,
+	}
+	snippet, err := spriteLabPaletteInitSnippet(2, palettes, pixels)
 	if err != nil {
 		t.Fatalf("palette snippet: %v", err)
 	}
 	lines := strings.Split(snippet, "\n")
-	if len(lines) != 17 {
-		t.Fatalf("expected 17 lines (header + 16 writes), got %d", len(lines))
+	if len(lines) != 4 {
+		t.Fatalf("expected 4 lines (header + 3 used-index writes), got %d", len(lines))
 	}
 	if !strings.HasPrefix(lines[0], "-- Sprite Lab palette bank 2") {
 		t.Fatalf("unexpected header: %q", lines[0])
 	}
 	if !strings.HasPrefix(lines[1], "gfx.set_palette(2, 0, 0x") {
-		t.Fatalf("unexpected first write: %q", lines[1])
+		t.Fatalf("unexpected index 0 write: %q", lines[1])
+	}
+	if !strings.HasPrefix(lines[2], "gfx.set_palette(2, 2, 0x") {
+		t.Fatalf("unexpected index 2 write: %q", lines[2])
+	}
+	if !strings.HasPrefix(lines[3], "gfx.set_palette(2, 15, 0x") {
+		t.Fatalf("unexpected index 15 write: %q", lines[3])
 	}
 }
 

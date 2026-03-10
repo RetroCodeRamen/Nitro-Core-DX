@@ -2,6 +2,8 @@ package apu
 
 import (
 	"math"
+	"os"
+	"strings"
 
 	"nitro-core-dx/internal/debug"
 )
@@ -40,6 +42,12 @@ const (
 	fmDefaultHz      = 44100
 	fmSineTableSize  = 1024
 	fmSineTableShift = 32 - 10 // use top 10 bits for lookup
+)
+
+const (
+	fmBackendModeAuto   = "auto"
+	fmBackendModeYMFM   = "ymfm"
+	fmBackendModeLegacy = "legacy"
 )
 
 var fmSineTable = func() [fmSineTableSize]int16 {
@@ -83,7 +91,8 @@ type fmVoice struct {
 // Phase 1 intentionally implements the MMIO contract first so ROMs/tools can
 // target a stable interface before full FM synthesis is added.
 type FMOPM struct {
-	logger *debug.Logger
+	logger  *debug.Logger
+	backend fmRuntimeBackend
 
 	// Host-visible control/status
 	Addr    uint8
@@ -113,18 +122,77 @@ type FMOPM struct {
 	timerACounter uint64 // cycles until next expiry
 	timerBCounter uint64 // cycles until next expiry
 	busyCounter   uint64 // host-interface busy countdown in cycles
+
+	backendSampleRate uint32
 }
 
 func NewFMOPM(logger *debug.Logger) *FMOPM {
-	return &FMOPM{
+	fm := &FMOPM{
 		logger:     logger,
 		MixL:       0xFF,
 		MixR:       0xFF,
 		SampleRate: fmDefaultHz,
 	}
+
+	mode := strings.ToLower(strings.TrimSpace(os.Getenv("NCDX_YM_BACKEND")))
+	if mode == "" {
+		mode = fmBackendModeAuto
+	}
+	switch mode {
+	case fmBackendModeLegacy:
+		if logger != nil {
+			logger.LogAPUf(debug.LogLevelInfo, "FM backend selected: in-tree FMOPM (legacy)")
+		}
+	case fmBackendModeAuto, fmBackendModeYMFM:
+		if b := newFMRuntimeBackend(logger, fm.SampleRate); b != nil {
+			fm.backend = b
+			fm.backendSampleRate = fm.SampleRate
+			b.SetEnabledMuted(fm.Enabled, fm.Muted)
+			if logger != nil {
+				logger.LogAPUf(debug.LogLevelInfo, "FM backend selected: YMFM (OPNA)")
+			}
+		} else if logger != nil {
+			if mode == fmBackendModeYMFM {
+				logger.LogAPUf(debug.LogLevelWarning, "NCDX_YM_BACKEND=ymfm requested but YMFM backend unavailable; using in-tree FMOPM")
+			} else {
+				logger.LogAPUf(debug.LogLevelInfo, "FM backend auto-selected: in-tree FMOPM (YMFM unavailable)")
+			}
+		}
+	default:
+		if logger != nil {
+			logger.LogAPUf(debug.LogLevelWarning, "invalid NCDX_YM_BACKEND=%q; using auto selection", mode)
+		}
+		if b := newFMRuntimeBackend(logger, fm.SampleRate); b != nil {
+			fm.backend = b
+			fm.backendSampleRate = fm.SampleRate
+			b.SetEnabledMuted(fm.Enabled, fm.Muted)
+			if logger != nil {
+				logger.LogAPUf(debug.LogLevelInfo, "FM backend selected: YMFM (OPNA)")
+			}
+		}
+	}
+	return fm
 }
 
 func (f *FMOPM) Read8(offset uint16) uint8 {
+	if f.backend != nil {
+		switch offset {
+		case FMRegControl:
+			return f.Control
+		case FMRegAddr:
+			return f.Addr
+		case FMRegMixL:
+			return f.MixL
+		case FMRegMixR:
+			return f.MixR
+		case FMRegStatus:
+			f.Status = f.backend.Read8(offset)
+			return f.Status
+		default:
+			return f.backend.Read8(offset)
+		}
+	}
+
 	switch offset {
 	case FMRegAddr:
 		return f.Addr
@@ -144,6 +212,29 @@ func (f *FMOPM) Read8(offset uint16) uint8 {
 }
 
 func (f *FMOPM) Write8(offset uint16, value uint8) {
+	if f.backend != nil {
+		switch offset {
+		case FMRegAddr:
+			f.Addr = value
+			f.backend.Write8(offset, value)
+		case FMRegData:
+			f.backend.Write8(offset, value)
+		case FMRegControl:
+			f.writeControl(value)
+		case FMRegMixL:
+			f.MixL = value
+			f.backend.Write8(offset, value)
+		case FMRegMixR:
+			f.MixR = value
+			f.backend.Write8(offset, value)
+		case FMRegStatus:
+			// Read-only.
+		default:
+			f.backend.Write8(offset, value)
+		}
+		return
+	}
+
 	switch offset {
 	case FMRegAddr:
 		f.Addr = value
@@ -181,6 +272,9 @@ func (f *FMOPM) writeControl(value uint8) {
 	f.Control = value &^ 0x80
 	f.Enabled = (f.Control & 0x01) != 0
 	f.Muted = (f.Control & 0x02) != 0
+	if f.backend != nil {
+		f.backend.SetEnabledMuted(f.Enabled, f.Muted)
+	}
 
 	if resetRequested {
 		f.reset()
@@ -205,6 +299,10 @@ func (f *FMOPM) reset() {
 	for i := range f.Voices {
 		f.Voices[i] = fmVoice{}
 	}
+	if f.backend != nil {
+		f.backend.Reset()
+		f.backend.SetEnabledMuted(f.Enabled, f.Muted)
+	}
 }
 
 // GenerateSampleFloat returns the FM extension contribution for the current sample.
@@ -218,6 +316,13 @@ func (f *FMOPM) GenerateSampleFloat() float32 {
 func (f *FMOPM) GenerateSampleFixed() int16 {
 	if !f.Enabled || f.Muted {
 		return 0
+	}
+	if f.backend != nil {
+		if f.SampleRate != 0 && f.SampleRate != f.backendSampleRate {
+			f.backend.SetSampleRate(f.SampleRate)
+			f.backendSampleRate = f.SampleRate
+		}
+		return f.backend.GenerateSampleFixed()
 	}
 
 	var sample int32
@@ -303,6 +408,11 @@ func (f *FMOPM) Step(cycles uint64) {
 	if cycles == 0 || !f.Enabled {
 		return
 	}
+	if f.backend != nil {
+		f.backend.Step(cycles)
+		f.Status = f.backend.Read8(FMRegStatus)
+		return
+	}
 	f.stepBusy(cycles)
 	f.stepTimerA(cycles)
 	f.stepTimerB(cycles)
@@ -310,6 +420,9 @@ func (f *FMOPM) Step(cycles uint64) {
 }
 
 func (f *FMOPM) IRQPending() bool {
+	if f.backend != nil {
+		return f.backend.IRQPending()
+	}
 	return (f.Status & FMStatusIRQ) != 0
 }
 

@@ -8,6 +8,8 @@
 
 ## Executive Summary
 
+> **Parity Note (2026-03-10):** This document describes the recommended FPGA architecture direction and resource strategy. It should not be read as proof that the current in-tree RTL already meets that architecture in full.
+
 **Recommendation: Single FPGA Solution**
 
 For cost-effective production, use **one medium-sized FPGA** (similar to MiSTer's approach but smaller). This provides the best balance of cost, complexity, and performance.

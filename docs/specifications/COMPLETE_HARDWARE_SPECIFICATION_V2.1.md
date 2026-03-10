@@ -119,7 +119,6 @@
 
 **Files:**
 - `internal/memory/bus.go` - Memory bus routing
-- `internal/memory/memory.go` - Memory system (legacy, not used in emulator)
 - `internal/memory/cartridge.go` - ROM cartridge handling
 
 **Key Structs:**
@@ -169,7 +168,8 @@
 ### APU Subsystem
 
 **Files:**
-- `internal/apu/apu.go` - APU channels, waveform generation
+- `internal/apu/apu.go` - APU MMIO/register model and compatibility sample path
+- `internal/apu/fixed_point.go` - Fixed-point runtime sample generation path
 
 **Key Structs:**
 - `APU` - APU state (channels, master volume, completion status)
@@ -177,7 +177,8 @@
 
 **Key Functions:**
 - `Read8()`, `Write8()` - Register access
-- `GenerateSample()` - Audio sample generation
+- `GenerateSampleFixed()` - Canonical fixed-point runtime audio sample generation
+- `GenerateSample()` - Compatibility/legacy sample path retained for older callers/tests
 - `UpdateFrame()` - Frame-based duration countdown
 
 **Register Layout (Evidence):**
@@ -186,7 +187,7 @@
 - Master Volume: 0x9020 (`apu.go:331`)
 - Completion Status: 0x9021 (`apu.go:108`)
 
-**Evidence Confidence: High** - Complete APU implementation with all waveforms.
+**Evidence Confidence: High** - Complete APU implementation with all waveforms; fixed-point generation is the authoritative emulator runtime path.
 
 ### Input Subsystem
 
@@ -438,7 +439,7 @@ All instructions are 16-bit words:
 
 - **4 Independent Layers**: BG0, BG1, BG2, BG3
 - **Tile Sizes**: 8×8 or 16×16 pixels (configurable per layer via BG_CONTROL bit 1)
-- **Priority**: BG3=3, BG2=2, BG1=1, BG0=0 (higher number = higher priority) (`scanline.go:232-260`)
+- **Priority**: Explicit per-layer priority field (0-3, higher number = higher priority)
 - **Scroll**: Per-layer X/Y scroll registers (16-bit signed)
 - **Tilemap Base**: Configurable per layer (default 0x4000) (`ppu.go:580-583`)
 - **Tilemap Size**: 32×32 tiles (`ppu.go:844-846`)
@@ -458,7 +459,7 @@ All instructions are 16-bit words:
 
 **Evidence:** `internal/ppu/ppu.go:127-135, 647-827`
 
-- **Mode 7-style Effects**: Per-layer affine transformations
+- **Mode 7-style Effects**: Layer-bound use of dedicated runtime transform channels
 - **Transformations**: Rotation, scaling, perspective
 - **Matrix Format**: 8.8 fixed point (int16, 1.0 = 0x0100)
 - **Matrix Parameters**: A, B, C, D (transformation matrix), CenterX, CenterY
@@ -471,7 +472,7 @@ All instructions are 16-bit words:
 **Evidence:** `internal/ppu/scanline.go:214-322`
 
 1. **Priority Sorting**: Collect backgrounds and sprites, sort by priority
-2. **Background Rendering**: BG0 → BG1 → BG2 → BG3 (lower priority first)
+2. **Background Rendering**: Backgrounds sorted by explicit layer priority (lower priority first)
 3. **Sprite Rendering**: Sorted by priority, then by index
 4. **Blending**: Alpha blending, additive, subtractive modes
 5. **Output**: 320×200 pixel frame buffer
@@ -480,10 +481,16 @@ All instructions are 16-bit words:
 
 **Evidence:** `internal/ppu/ppu.go:38-42, 955-1047`
 
-- **Per-scanline Updates**: Scroll and matrix parameters updated per scanline
-- **HDMA Table**: Stored in VRAM, 64 bytes per scanline (max 4 layers × 16 bytes)
-- **Table Format**: Per layer, 16 bytes (scroll + matrix if enabled)
-- **Control**: HDMA_CONTROL (0x805D) - bit 0=enable, bits 1-4=layer enable
+- **Per-scanline Updates**: Scroll, matrix, transform binding, priority, tilemap base, and source mode can be updated at scanline boundaries
+- **HDMA Table**: Stored in VRAM, base payload is 64 bytes per scanline (4 layers × 16 bytes)
+- **Optional Extensions**:
+  - Rebind table: 4 bytes
+  - Priority table: 4 bytes
+  - Tilemap-base table: 8 bytes
+  - Source-mode table: 4 bytes
+- **Control**:
+  - HDMA_CONTROL (0x805D) - bit 0=enable, bits 1-4=layer enable, bit 5=rebind table, bit 6=priority table, bit 7=tilemap-base table
+  - HDMA_EXTENSION_CONTROL (0x807F) - bit 0=source-mode table present
 
 ---
 
@@ -572,6 +579,10 @@ All instructions are 16-bit words:
 | 0x803F | FRAME_COUNTER_LOW | 8-bit | Frame counter low byte | `ppu.go:230-231` |
 | 0x8040 | FRAME_COUNTER_HIGH | 8-bit | Frame counter high byte | `ppu.go:232-233` |
 
+**Read vs Write Note (0x803E-0x8040):**
+- Reads return `VBLANK_FLAG` / `FRAME_COUNTER_LOW` / `FRAME_COUNTER_HIGH`.
+- Writes at these offsets are handled by the PPU matrix register path (BG2 matrix A/B low bytes), matching the implementation decode in `ppu.go`.
+
 **VBLANK_FLAG Behavior (Evidence: `ppu.go:191-229`):**
 - Set at end of scanline 199 (before scanline 200 starts) (`scanline.go:96-102`)
 - Cleared when read (one-shot latch)
@@ -606,10 +617,18 @@ All instructions are 16-bit words:
 
 | Address | Name | Size | Description | Evidence |
 |---------|------|------|-------------|----------|
-| 0x8008 | BG0_CONTROL | 8-bit | Bit 0=enable, bit 1=tile size | `ppu.go:273-275` |
-| 0x8009 | BG1_CONTROL | 8-bit | Bit 0=enable, bit 1=tile size | `ppu.go:276-278` |
-| 0x8021 | BG2_CONTROL | 8-bit | Bit 0=enable, bit 1=tile size | `ppu.go:443-445` |
-| 0x8026 | BG3_CONTROL | 8-bit | Bit 0=enable, bit 1=tile size | `ppu.go:454-456` |
+| 0x8008 | BG0_CONTROL | 8-bit | Bit 0=enable, bit 1=tile size, bits [3:2]=priority | `ppu.go` |
+| 0x8009 | BG1_CONTROL | 8-bit | Bit 0=enable, bit 1=tile size, bits [3:2]=priority | `ppu.go` |
+| 0x8021 | BG2_CONTROL | 8-bit | Bit 0=enable, bit 1=tile size, bits [3:2]=priority | `ppu.go` |
+| 0x8026 | BG3_CONTROL | 8-bit | Bit 0=enable, bit 1=tile size, bits [3:2]=priority | `ppu.go` |
+| 0x8068 | BG0_SOURCE_MODE | 8-bit | Bit 0=source mode (0=tilemap, 1=bitmap reserved) | `ppu.go` |
+| 0x8069 | BG1_SOURCE_MODE | 8-bit | Bit 0=source mode (0=tilemap, 1=bitmap reserved) | `ppu.go` |
+| 0x806A | BG2_SOURCE_MODE | 8-bit | Bit 0=source mode (0=tilemap, 1=bitmap reserved) | `ppu.go` |
+| 0x806B | BG3_SOURCE_MODE | 8-bit | Bit 0=source mode (0=tilemap, 1=bitmap reserved) | `ppu.go` |
+| 0x806C | BG0_TRANSFORM_BIND | 8-bit | Bits [1:0]=bound transform channel | `ppu.go` |
+| 0x806D | BG1_TRANSFORM_BIND | 8-bit | Bits [1:0]=bound transform channel | `ppu.go` |
+| 0x806E | BG2_TRANSFORM_BIND | 8-bit | Bits [1:0]=bound transform channel | `ppu.go` |
+| 0x806F | BG3_TRANSFORM_BIND | 8-bit | Bits [1:0]=bound transform channel | `ppu.go` |
 
 #### VRAM Access Registers
 
@@ -682,9 +701,18 @@ All instructions are 16-bit words:
 
 | Address | Name | Size | Description | Evidence |
 |---------|------|------|-------------|----------|
-| 0x805D | HDMA_CONTROL | 8-bit | Bit 0=enable, bits 1-4=layer enable | `ppu.go:593-598` |
+| 0x805D | HDMA_CONTROL | 8-bit | Bit 0=enable, bits 1-4=layer enable, bit 5=rebind table, bit 6=priority table, bit 7=tilemap-base table | `ppu.go` |
 | 0x805E | HDMA_TABLE_BASE_L | 8-bit | HDMA table base low byte | `ppu.go:599-600` |
 | 0x805F | HDMA_TABLE_BASE_H | 8-bit | HDMA table base high byte | `ppu.go:601-602` |
+| 0x8077 | BG0_TILEMAP_BASE_L | 8-bit | BG0 tilemap base low byte | `ppu.go` |
+| 0x8078 | BG0_TILEMAP_BASE_H | 8-bit | BG0 tilemap base high byte | `ppu.go` |
+| 0x8079 | BG1_TILEMAP_BASE_L | 8-bit | BG1 tilemap base low byte | `ppu.go` |
+| 0x807A | BG1_TILEMAP_BASE_H | 8-bit | BG1 tilemap base high byte | `ppu.go` |
+| 0x807B | BG2_TILEMAP_BASE_L | 8-bit | BG2 tilemap base low byte | `ppu.go` |
+| 0x807C | BG2_TILEMAP_BASE_H | 8-bit | BG2 tilemap base high byte | `ppu.go` |
+| 0x807D | BG3_TILEMAP_BASE_L | 8-bit | BG3 tilemap base low byte | `ppu.go` |
+| 0x807E | BG3_TILEMAP_BASE_H | 8-bit | BG3 tilemap base high byte | `ppu.go` |
+| 0x807F | HDMA_EXTENSION_CONTROL | 8-bit | Bit 0=source-mode table present | `ppu.go` |
 
 #### DMA Registers
 
@@ -741,14 +769,14 @@ All instructions are 16-bit words:
 
 **Note:** Spec v2.0 incorrectly listed MASTER_VOLUME at 0x9040. Actual address is 0x9020.
 
-#### FM Extension Host Interface (0x9100-0x91FF, Experimental/In Progress)
+#### FM Extension Host Interface (0x9100-0x91FF, Active Runtime Path)
 
 The FM extension is implemented as an APU sub-block. The memory bus already routes `0x9000-0x9FFF` to the APU; addresses `0x9100-0x91FF` are handled by the APU as an FM host interface window.
 
 | Address | Name | Size | Description |
 |---------|------|------|-------------|
-| 0x9100 | FM_ADDR | 8-bit | OPM/YM2151-style register address select |
-| 0x9101 | FM_DATA | 8-bit | OPM register data port (read/write shadowed register values) |
+| 0x9100 | FM_ADDR | 8-bit | FM register address select (YM2608-capable backend path) |
+| 0x9101 | FM_DATA | 8-bit | FM register data port (read/write shadowed register values) |
 | 0x9102 | FM_STATUS | 8-bit | Busy/timer/IRQ flags |
 | 0x9103 | FM_CONTROL | 8-bit | Bit0=enable, bit1=mute, bit7=write-one reset |
 | 0x9104 | FM_MIX_L | 8-bit | FM mix gain (left; currently used in mono fold-down) |
@@ -763,8 +791,9 @@ The FM extension is implemented as an APU sub-block. The memory bus already rout
 Current implementation status:
 - ✅ MMIO host interface (`FM_ADDR/FM_DATA/FM_STATUS/FM_CONTROL/FM_MIX_L/R`)
 - ✅ Timer/status behavior and IRQ bridge (deterministic placeholder timer timing)
-- ✅ Audible OPM-lite FM synthesis subset (software-first, hardware-oriented)
-- ❌ Full YM2151/OPM accuracy (ongoing)
+- ✅ YM2608-capable runtime backend path operational (YMFM when available)
+- ✅ Runtime backend selection/fallback control (`NCDX_YM_BACKEND=auto|ymfm|legacy`)
+- 🚧 Conformance/polish remains in progress (timbre/pitch parity and broader subsystem coverage)
 
 ### Input Registers (0xA000-0xAFFF)
 

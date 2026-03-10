@@ -1,6 +1,7 @@
 package emulator
 
 import (
+	"math"
 	"testing"
 
 	"nitro-core-dx/internal/apu"
@@ -63,6 +64,7 @@ func TestResetReloadsEntryPoint(t *testing.T) {
 }
 
 func TestFMTimerIRQWiresToCPUInterrupt(t *testing.T) {
+	t.Setenv("NCDX_YM_BACKEND", "legacy")
 	emu := NewEmulator()
 
 	// Enable FM extension and program Timer A to a short phase-1 period.
@@ -82,5 +84,60 @@ func TestFMTimerIRQWiresToCPUInterrupt(t *testing.T) {
 
 	if emu.CPU.State.InterruptPending != cpu.INT_TIMER {
 		t.Fatalf("expected CPU INT_TIMER pending, got %d", emu.CPU.State.InterruptPending)
+	}
+}
+
+func TestRunFrameUsesFixedPointAPUPath(t *testing.T) {
+	emu := NewEmulator()
+
+	romData := make([]uint8, 64)
+	romData[0] = 0x52
+	romData[1] = 0x4D
+	romData[2] = 0x43
+	romData[3] = 0x46
+	romData[4] = 0x01
+	romData[6] = 0x20
+	romData[10] = 0x01
+	romData[12] = 0x00
+	romData[13] = 0x80
+	romData[32] = 0x00 // NOP low
+	romData[33] = 0x00 // NOP high
+	romData[34] = 0xD0 // JMP opcode
+	romData[35] = 0x00
+	romData[36] = 0xFD // relative offset low
+	romData[37] = 0xFF // relative offset high
+
+	if err := emu.LoadROM(romData); err != nil {
+		t.Fatalf("Failed to load ROM: %v", err)
+	}
+	emu.Start()
+	emu.Clock.CPUStep = func(cycles uint64) error {
+		emu.CPU.State.Cycles += uint32(cycles)
+		return nil
+	}
+
+	emu.APU.Write8(0x00, 0xB8) // freq low
+	emu.APU.Write8(0x01, 0x01) // freq high => 440 Hz
+	emu.APU.Write8(0x02, 0xFF) // volume
+	emu.APU.Write8(0x03, 0x03) // enable + square wave
+
+	// Corrupt the deprecated float-phase state. RunFrame should still use the
+	// fixed-point path and generate audio samples from PhaseFixed/PhaseIncrementFixed.
+	emu.APU.Channels[0].Phase = math.NaN()
+	emu.APU.Channels[0].PhaseIncrement = 0
+
+	if err := emu.RunFrame(); err != nil {
+		t.Fatalf("RunFrame failed: %v", err)
+	}
+
+	nonZero := false
+	for _, sample := range emu.AudioSampleBuffer {
+		if sample != 0 {
+			nonZero = true
+			break
+		}
+	}
+	if !nonZero {
+		t.Fatal("expected non-zero audio from fixed-point APU path during RunFrame")
 	}
 }

@@ -1,21 +1,23 @@
-# Nitro-Core-DX APU FM (OPM/YM2151-Compatible) Extension Specification
+# Nitro-Core-DX APU FM Extension Specification (Transitional Reference)
 
-**Version 0.2 (Draft, Updated to Current Emulator State)**  
-**Date:** February 24, 2026  
-**Purpose:** Add a hardware-implementable FM synthesis extension (YM2151/OPM-compatible model) without breaking the current APU
+**Version 0.3 (Draft, Transitional)**  
+**Date:** March 9, 2026  
+**Purpose:** Document FM host-interface evolution and compatibility constraints during YM2608 migration.
 
-> **Design Direction:** Keep the existing APU as the default developer-friendly audio path, and add an optional FM extension block for richer audio and future FPGA implementation.
+> **Design Direction:** Preserve stable legacy behavior while driving runtime FM through a YM2608-capable backend path with explicit fallback controls.
 
-> **Planning Update (2026-03-06):**
-> - This document remains the current runtime/transitional FM reference.
-> - The V1 release audio target has moved to **YM2608**.
+> **Planning Update (2026-03-09):**
+> - V1 release audio target is **YM2608**.
+> - Runtime backend mode is selected via `NCDX_YM_BACKEND=auto|ymfm|legacy` (`auto` default).
+> - YMFM is used when available; in-tree legacy path remains fallback/compatibility mode.
 > - Use `docs/planning/V1_CHARTER.md` and `docs/planning/V1_ACCEPTANCE.md` for release-target scope and gates.
 
-> **Implementation Snapshot (2026-02-24):**
+> **Implementation Snapshot (2026-03-09):**
 > - FM host MMIO interface at `0x9100-0x91FF` is implemented in the emulator/APU.
 > - `FM_STATUS` timer/busy/IRQ flags and FM timer IRQ bridge are implemented (deterministic placeholder timing model).
-> - An audible OPM-lite software synthesis path is implemented (8 voices, simplified 2-operator behavior), mixed with the legacy APU.
-> - This is not yet full YM2151/OPM accuracy.
+> - YM2608-capable runtime playback path is operational through YMFM backend builds.
+> - Legacy in-tree path is retained as controlled fallback and compatibility mode.
+> - The active emulator runtime uses fixed-point sample generation; legacy floating-point phase/sample helpers remain compatibility-only and are not the primary clock-driven path.
 
 ---
 
@@ -142,6 +144,7 @@ Integrate with:
 
 Note:
 - No additional `internal/memory/bus.go` range routing was required because the bus already forwards `0x9000-0x9FFF` to the APU. The FM extension lives inside the APU offset space (`0x0100-0x01FF` => CPU `0x9100-0x91FF`).
+- In the current emulator runtime, fixed-point generation is the authoritative audio path. Legacy `GenerateSample()` behavior and float phase state are retained only for compatibility and controlled fallback scenarios.
 
 ### Implementation Model Requirements
 
@@ -307,13 +310,13 @@ Using an FPGA OPM-compatible approach (AURA-style direction) supports:
 - ✅ Status/busy/timer smoke tests
 - ✅ Mixer integration hooks
 
-### Phase 2: Software OPM Behavior 🚧 (In Progress)
+### Phase 2: YM2608 Runtime Bring-Up 🚧 (In Progress)
 
 - ✅ Timer/status behavior (deterministic placeholder timing model)
 - ✅ FM timer IRQ bridge to CPU interrupt system
-- ✅ Audible OPM-lite subset (software-first, hardware-oriented)
+- ✅ YM2608-capable runtime backend path operational (YMFM when available)
 - ✅ Test ROM coverage for FM MMIO/timer and audible demos
-- ❌ Full YM2151 register/operator behavior accuracy
+- ❌ Full conformance parity across expanded YM2608 reference vectors
 - ❌ Final envelope/timbre model and polish
 
 ### Phase 3: CoreLX Support

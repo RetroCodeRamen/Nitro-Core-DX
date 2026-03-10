@@ -1,7 +1,7 @@
 # Nitro-Core-DX System Manual
 
 **Version 1.0 (Under Revision)**  
-**Last Updated: January 6, 2026**
+**Last Updated: March 10, 2026**
 
 > **⚠️ Under Revision / Historical Snapshot:** This manual contains useful architectural context but includes stale values/status claims (for example CPU timing and audio/FM status). Verify against `README.md`, `docs/specifications/COMPLETE_HARDWARE_SPECIFICATION_V2.1.md`, and `docs/specifications/APU_FM_OPM_EXTENSION_SPEC.md` before using as current source-of-truth.
 
@@ -32,12 +32,12 @@
 | **Tile Size** | 8×8 or 16×16 pixels (configurable per layer) |
 | **Max Sprites** | 128 sprites |
 | **Background Layers** | 4 independent layers (BG0, BG1, BG2, BG3) |
-| **Matrix Mode** | Mode 7-style effects with large world support, vertical sprites |
-| **Audio Channels** | 4 channels (sine, square, saw, noise waveforms) |
+| **Matrix Mode** | Mode 7-style per-layer transforms; vertical sprites remain future work |
+| **Audio Channels** | 4 legacy channels plus FM extension host/backend path |
 | **Audio Sample Rate** | 44,100 Hz |
-| **CPU Speed** | 10 MHz (166,667 cycles per frame at 60 FPS) |
+| **CPU Speed** | ~7.67 MHz (127,820 cycles per frame at 60 FPS) |
 | **Memory** | 64KB per bank, 256 banks (16MB total address space) |
-| **ROM Size** | Up to 7.8MB (125 banks × 64KB) |
+| **ROM Size** | Up to 7.8MB (125 banks × 32KB LoROM windows) |
 | **Frame Rate** | 60 FPS target |
 
 ### System Architecture
@@ -46,7 +46,7 @@
 ┌─────────────────────────────────────────────────────────┐
 │                    Nitro-Core-DX                        │
 ├─────────────────────────────────────────────────────────┤
-│  CPU (10 MHz)                                           │
+│  CPU (~7.67 MHz)                                        │
 │  ├─ 8 General Purpose Registers (R0-R7)                │
 │  ├─ 24-bit Banked Addressing                            │
 │  └─ Custom Instruction Set                              │
@@ -59,14 +59,15 @@
 │  PPU (Picture Processing Unit)                         │
 │  ├─ 4 Background Layers (BG0-BG3)                     │
 │  ├─ 128 Sprites                                        │
-│  ├─ Matrix Mode (Mode 7-style)                         │
+│  ├─ Matrix Mode (Mode 7-style, per-layer)              │
 │  ├─ Windowing System                                   │
-│  └─ HDMA (per-scanline scroll)                         │
+│  └─ HDMA (per-scanline scroll/transform/control)       │
 ├─────────────────────────────────────────────────────────┤
 │  APU (Audio Processing Unit)                           │
-│  ├─ 4 Audio Channels                                   │
-│  ├─ Waveforms: Sine, Square, Saw, Noise               │
-│  └─ Master Volume Control                              │
+│  ├─ 4 Legacy Audio Channels                            │
+│  ├─ Waveforms: Sine, Square, Saw, Noise                │
+│  ├─ FM Extension Host Interface                         │
+│  └─ Master Volume Control                               │
 ├─────────────────────────────────────────────────────────┤
 │  Input System                                          │
 │  ├─ Controller 1 & 2                                  │
@@ -293,7 +294,7 @@ end
 ### Recommended FPGA Architecture
 
 #### Clock Domains
-- **CPU Clock**: 10 MHz (main system clock)
+- **CPU Clock**: ~7.67 MHz (main system clock in current emulator timing model)
 - **Audio Clock**: 44.1 kHz (audio sample generation)
 - **Video Clock**: 60 Hz (frame timing, VBlank)
 
@@ -322,7 +323,7 @@ When migrating to FPGA:
 - ✅ **CPU Core**: Complete instruction set implementation
 - ✅ **Memory System**: Complete banked memory architecture
 - ✅ **PPU (Graphics)**: Basic rendering pipeline, sprite system, background layers
-- ✅ **APU (Audio)**: Complete audio synthesis with 4 channels
+- ✅ **APU (Audio)**: Complete legacy 4-channel synthesis plus operational FM extension backend path
 - ✅ **Input System**: Complete input handling with dual controllers
 - ✅ **ROM Loader**: Complete ROM loading with header parsing
 
@@ -337,7 +338,7 @@ When migrating to FPGA:
 #### PPU Rendering
 - 🚧 **Background Layer Rendering**: Basic structure, needs full tilemap implementation
 - 🚧 **Sprite Rendering**: Structure in place, needs full implementation
-- 🚧 **Matrix Mode**: Structure in place, needs transformation matrix implementation
+- ✅ **Matrix Mode**: Implemented (transform-channel-backed per-layer matrix rendering, center/mirror/outside mode, scanline command updates)
 - 🚧 **Tile Rendering**: Placeholder implementation, needs full 4bpp tile decoding
 
 ### ❌ Not Yet Implemented
@@ -359,10 +360,8 @@ When migrating to FPGA:
 #### Advanced Features
 - ❌ Full tilemap rendering with scrolling
 - ❌ Complete sprite rendering with priorities and blending
-- ❌ Matrix Mode transformation calculations
-- ❌ Large world tilemap support
-- ❌ Vertical sprite rendering for Matrix Mode
-- ❌ HDMA per-scanline scroll updates
+- 🚧 Large world tilemap support
+- 🚧 Vertical sprite rendering for Matrix Mode
 
 ---
 
@@ -385,7 +384,7 @@ Nitro-Core-DX is more than just an emulator—it's a **passion project**, a **lo
 - Arcade-friendly performance characteristics
 
 **The Result:**
-A fantasy console that delivers **SNES-quality graphics** with **Genesis-level performance**, enabling smooth 60 FPS gameplay with complex graphics, advanced parallax scrolling, and stunning Matrix Mode effects for 3D landscapes and racing games.
+A fantasy console that delivers **SNES-quality graphics** with **Genesis-level performance**, enabling smooth 60 FPS gameplay with complex graphics, advanced parallax scrolling, and Matrix Mode effects across multiple layers.
 
 ### Development Principles
 
@@ -418,9 +417,9 @@ A fantasy console that delivers **SNES-quality graphics** with **Genesis-level p
 
 - **4 Background Layers**: BG0-BG3 with independent scrolling
 - **128 Sprites**: 8×8 or 16×16 pixels, priorities, blending modes
-- **Matrix Mode**: Mode 7-style effects with large world support
+- **Matrix Mode**: Mode 7-style effects with per-layer transforms; large-world workflows remain future work
 - **Windowing System**: 2 windows with OR/AND/XOR/XNOR logic
-- **HDMA**: Per-scanline scroll updates for parallax effects
+- **HDMA**: Per-scanline scroll, transform, rebind, priority, tilemap-base, and source-mode updates
 
 ### APU (Audio System)
 

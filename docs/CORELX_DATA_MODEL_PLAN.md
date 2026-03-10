@@ -110,7 +110,7 @@ Legacy APU:
 FM extension (new APU extension):
 
 - Host interface mapped at CPU-visible `0x9100..0x91FF`
-- OPM-lite software implementation exists (subset, deterministic, FPGA-oriented)
+- YM2608-capable runtime backend path exists (YMFM preferred in `auto` mode, legacy fallback available)
 - Timer/status/IRQ path exists
 - Not yet integrated into CoreLX language asset model or high-level APIs
 
@@ -576,7 +576,7 @@ Goal: make audio predictable for developers while preserving flexibility and fut
 ### 11.1 Current hardware/software reality
 
 - Legacy APU has 4 channels (`CH0..CH3`) with a noise-capable path
-- FM extension provides additional FM voices (OPM-lite now, richer later)
+- FM extension provides additional FM voices (YM2608-targeted runtime path; CoreLX integration still pending)
 - CoreLX high-level audio layer does not exist yet (procedural APU calls only)
 
 ### 11.2 Recommended default channel convention (DX SDK v1)

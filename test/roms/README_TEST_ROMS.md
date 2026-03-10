@@ -83,6 +83,67 @@ go run -tags testrom_tools ./test/roms/build_fm_opmlite_showcase.go ./roms/fm_op
 go run -tags no_sdl_ttf ./cmd/emulator -rom ./roms/fm_opmlite_showcase.rom
 ```
 
+### `build_ym2608_demo_song.go`
+**Purpose**: Build a YM2608 MMIO replay ROM from `Resources/Demo.vgz` for quick A/B diagnostics.
+
+**Notes**:
+- This generator emits a banked replay stream (YM writes + waits), so full-song playback is supported.
+- IRQ-safe trampoline is installed at bank `01:8000`; normal song entry starts at `01:8002`.
+- `-max-frames` remains available for short diagnostic clips.
+
+**Usage**:
+```bash
+# Build ROM from Demo.vgz
+go run -tags testrom_tools ./test/roms/build_ym2608_demo_song.go \
+  -in Resources/Demo.vgz \
+  -out roms/ym2608_demo_song.rom \
+  -frames-per-bank 70
+
+# Run ROM using YMFM backend
+go run -tags ymfm_cgo,no_sdl_ttf ./cmd/emulator \
+  -rom roms/ym2608_demo_song.rom \
+  -audio-backend ymfm
+
+# Optional: headless capture + compare against Resources/Demo.wav
+go run -tags ymfm_cgo ./cmd/rom_audio_capture \
+  -rom roms/ym2608_demo_song.rom \
+  -out /tmp/ym2608_demo_song_capture.wav \
+  -frames 4500 \
+  -audio-backend ymfm
+go run ./cmd/wav_compare \
+  -ref Resources/Demo.wav \
+  -got /tmp/ym2608_demo_song_capture.wav \
+  -seconds 30
+```
+
+### `build_pong_ym2608.go`
+**Purpose**: Build a simple Pong clone with YM2608 background music replayed from `Resources/Demo.vgz`.
+
+**Gameplay**:
+- Left paddle: `Up` / `Down` (or mapped equivalents)
+- Press `START` to begin the match (and start music)
+- Right paddle: simple AI
+- First to 3 points wins
+- Music starts when the match begins and continues during the match
+
+**Notes**:
+- This ROM inlines per-frame game logic plus per-frame YM writes, so full-song playback can exceed bank budget.
+- Default settings target a stable playable build: about `25s` of BGM (`1500` VGM frames).
+- The BGM segment loops continuously during gameplay.
+
+**Usage**:
+```bash
+# Build Pong + YM2608 BGM ROM
+go run -tags testrom_tools ./test/roms/build_pong_ym2608.go \
+  -in Resources/Demo.vgz \
+  -out roms/pong_ym2608_demo.rom
+
+# Run with YMFM backend
+go run -tags ymfm_cgo,no_sdl_ttf ./cmd/emulator \
+  -rom roms/pong_ym2608_demo.rom \
+  -audio-backend ymfm
+```
+
 ## Test ROMs
 
 ### `corelx_comprehensive_test.corelx`

@@ -338,7 +338,7 @@ For setup order, tile indices, palettes, and multiple sprites, see **docs/guides
 
 ## Audio (APU)
 
-Note: CoreLX currently exposes the legacy 4-channel APU built-ins documented below. The in-progress FM extension exists in the emulator/APU (`0x9100-0x91FF`) but does not yet have stable CoreLX language-level APIs. Current runtime FM behavior is OPM-lite; the V1 release target has moved to YM2608.
+Note: CoreLX currently exposes the legacy 4-channel APU built-ins documented below. The FM extension exists in the emulator/APU (`0x9100-0x91FF`) but does not yet have stable CoreLX language-level APIs. Runtime FM backend selection is controlled by `NCDX_YM_BACKEND` (`auto|ymfm|legacy`), with `auto` preferring YMFM when available. The V1 release target is YM2608.
 
 ### Enabling APU
 
@@ -378,6 +378,44 @@ apu.note_off(0)
 
 - `ppu.enable_display()` - Enable PPU display
 - `gfx.load_tiles(asset, base) -> u16` - Load tile asset into VRAM at tile index `base`; returns `base`. Stride is 32 for 8×8, 128 for 16×16/128-byte tileset. Use non-zero `base` for sprites to avoid BG tile 0.
+- `bg.enable(layer)` - Enable a background layer
+- `bg.disable(layer)` - Disable a background layer
+- `bg.set_scroll(layer, x, y)` - Set per-layer scroll offsets
+- `bg.set_priority(layer, priority)` - Set explicit layer priority (0-3)
+- `bg.set_tile_size(layer, size)` - Set tile size (`8` or `16`)
+- `bg.set_tilemap_base(layer, base)` - Set the layer tilemap base address
+- `bg.set_source_mode(layer, mode)` - Select source mode (`0=tilemap`, `1=bitmap/reserved`)
+- `bg.bind_transform(layer, channel)` - Bind a layer to transform channel `0-3`
+
+### Matrix Mode
+
+- `matrix.bind(layer, channel)` - Bind a layer to a transform channel
+- `matrix.enable(layer)` - Enable the bound transform channel for that layer
+- `matrix.disable(layer)` - Disable the bound transform channel for that layer
+- `matrix.set_matrix(layer, a, b, c, d)` - Set the 2x2 affine matrix (8.8 fixed point)
+- `matrix.set_center(layer, x, y)` - Set transform center/origin
+- `matrix.identity(layer)` - Reset matrix to identity (`A=1.0`, `B=0`, `C=0`, `D=1.0`)
+- `matrix.set_flags(layer, mirror_h, mirror_v, outside_mode, direct_color)` - Set matrix control flags while preserving enable state
+
+Simple setup example:
+
+```corelx
+function Start()
+    ppu.enable_display()
+    bg.enable(0)
+    bg.bind_transform(0, 0)
+    bg.set_tilemap_base(0, 0x4000)
+    bg.set_priority(0, 2)
+
+    matrix.enable(0)
+    matrix.identity(0)
+    matrix.set_flags(0, false, false, 0, false)
+    matrix.set_center(0, 160, 100)
+    matrix.set_matrix(0, 0x0100, 0, 0, 0x0100)
+
+    while true
+        wait_vblank()
+```
 
 ### Sprites
 

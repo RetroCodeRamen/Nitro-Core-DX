@@ -15,7 +15,7 @@ This file is the primary navigation entry for docs cleanup and ongoing maintenan
 - `docs/specifications/COMPLETE_HARDWARE_SPECIFICATION_V2.1.md`
   - Current evidence-based hardware specification (base hardware)
 - `docs/specifications/APU_FM_OPM_EXTENSION_SPEC.md`
-  - Current FM extension design + implementation status (legacy APU + FM path)
+  - Current FM extension design + implementation status (YM2608-targeted FM path with backend fallback controls)
 - `docs/CORELX.md`
   - Current CoreLX language reference (implementation-aware)
 - `docs/CORELX_DATA_MODEL_PLAN.md`

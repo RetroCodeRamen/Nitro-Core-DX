@@ -27,6 +27,7 @@ var (
 	reSpriteTileAttr = regexp.MustCompile(`\b([A-Za-z_][A-Za-z0-9_]*)\.tile\s*=\s*([A-Za-z_][A-Za-z0-9_]*)`)
 	reSpritePalAttr  = regexp.MustCompile(`\b([A-Za-z_][A-Za-z0-9_]*)\.attr\s*=.*\bSPR_PAL\(\s*(\d+)\s*\)`)
 	reSetPalette     = regexp.MustCompile(`\bgfx\.set_palette\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(0x[0-9A-Fa-f]+|\d+)\s*\)`)
+	reSpriteLabBank  = regexp.MustCompile(`^\s*--\s*Sprite Lab palette bank\s+(\d+)\s*$`)
 	reFunctionDecl   = regexp.MustCompile(`\bfunction\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
 	reFunctionCall   = regexp.MustCompile(`\b([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
 	reVarAssign      = regexp.MustCompile(`\b([A-Za-z_][A-Za-z0-9_]*)\s*:=`)
@@ -76,6 +77,13 @@ func newCoreLXCodeEditor() *coreLXCodeEditor {
 func (e *coreLXCodeEditor) CreateRenderer() fyne.WidgetRenderer {
 	bg := canvas.NewRectangle(color.NRGBA{R: 12, G: 14, B: 18, A: 255})
 	return widget.NewSimpleRenderer(container.NewMax(bg, e.scroll))
+}
+
+// MinSize is intentionally clamped so large buffers/long lines in TextGrid do
+// not force oversized window minimum limits, which can disable native maximize
+// controls on some window managers.
+func (e *coreLXCodeEditor) MinSize() fyne.Size {
+	return fyne.NewSize(420, 260)
 }
 
 func (e *coreLXCodeEditor) FocusGained() { e.scheduleRefresh() }
@@ -756,6 +764,12 @@ func isLikelyTypeName(name string) bool {
 func (e *coreLXCodeEditor) applySpritePaletteHighlight(source string, lines []string) {
 	paletteColors, paletteSet := parsePaletteAssignments(source)
 	assetPalette := inferAssetPaletteBanks(source)
+	spriteLabHints := inferSpriteLabAssetPaletteHints(lines)
+	for asset, bank := range spriteLabHints {
+		if _, exists := assetPalette[asset]; !exists {
+			assetPalette[asset] = bank
+		}
+	}
 
 	currentAsset := ""
 	inHexBlock := false
@@ -885,6 +899,38 @@ func inferAssetPaletteBanks(source string) map[string]int {
 		}
 		assetToBank[assetName] = bank
 	}
+	return assetToBank
+}
+
+func inferSpriteLabAssetPaletteHints(lines []string) map[string]int {
+	assetToBank := make(map[string]int)
+	pendingSpriteLabAsset := ""
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "-- Sprite Lab asset") {
+			pendingSpriteLabAsset = ""
+			continue
+		}
+
+		if m := reAssetDecl.FindStringSubmatch(line); len(m) == 2 {
+			pendingSpriteLabAsset = m[1]
+			continue
+		}
+
+		if pendingSpriteLabAsset == "" {
+			continue
+		}
+
+		if m := reSpriteLabBank.FindStringSubmatch(line); len(m) == 2 {
+			bank, err := strconv.Atoi(m[1])
+			if err == nil && bank >= 0 && bank < spriteLabPaletteBanks {
+				assetToBank[pendingSpriteLabAsset] = bank
+			}
+			pendingSpriteLabAsset = ""
+		}
+	}
+
 	return assetToBank
 }
 
