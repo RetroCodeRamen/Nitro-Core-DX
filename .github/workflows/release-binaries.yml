@@ -198,6 +198,9 @@ jobs:
           New-Item -ItemType Directory -Force "$pkgDir\roms" | Out-Null
           Copy-Item dist\nitrocoredx.exe $pkgDir\
           Copy-Item dist\*SDL2*.dll $pkgDir\
+          Copy-Item dist\libgcc_s_seh-1.dll $pkgDir\
+          Copy-Item dist\libstdc++-6.dll $pkgDir\
+          Copy-Item dist\libwinpthread-1.dll $pkgDir\
           Copy-Item LICENSE, README.md $pkgDir\
           Copy-Item roms\pong_ym2608_demo.rom "$pkgDir\roms\"
           Copy-Item roms\matrix_floor_only_kart.rom "$pkgDir\roms\"
