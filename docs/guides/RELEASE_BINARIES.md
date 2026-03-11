@@ -8,7 +8,12 @@ This project now includes a release build workflow for the integrated **Nitro-Co
 - **Windows amd64** archive: `nitrocoredx-<version>-windows-amd64.zip`
 
 These are single downloadable package files (archives).  
-The Windows package includes `SDL2.dll`.
+The Windows package includes:
+
+- `SDL2.dll`
+- `libgcc_s_seh-1.dll`
+- `libstdc++-6.dll`
+- `libwinpthread-1.dll`
 
 Each package also includes two test ROMs in `roms/`:
 
@@ -49,7 +54,7 @@ Default version is derived from `git describe --tags --always --dirty`.
 
 - Builds use the `no_sdl_ttf` tag (SDL2_ttf is optional and not included).
 - **Linux** still requires SDL2 runtime libraries installed on the target machine.
-- **Windows** package includes `SDL2.dll`, but still depends on normal Windows graphics/runtime components.
+- **Windows** package includes `SDL2.dll` and the required MinGW runtime DLLs used by the CGO build, but still depends on normal Windows graphics/runtime components.
 - The packaged app is the integrated **Nitro-Core-DX** app; users can switch to **Emulator Focus** or **Code Only** view inside the app.
 - Test ROMs are included so users can validate:
   - YM2608-backed gameplay/audio with `pong_ym2608_demo.rom`

@@ -177,6 +177,18 @@ jobs:
           foreach ($dll in $sdlDlls) {
             Copy-Item $dll.FullName (Join-Path "dist" $dll.Name)
           }
+          $runtimeDllNames = @(
+            "libgcc_s_seh-1.dll",
+            "libstdc++-6.dll",
+            "libwinpthread-1.dll"
+          )
+          foreach ($dllName in $runtimeDllNames) {
+            $dllPath = Join-Path $prefix "bin\$dllName"
+            if (-not (Test-Path $dllPath)) {
+              throw "Required MinGW runtime DLL not found: $dllPath"
+            }
+            Copy-Item $dllPath (Join-Path "dist" $dllName)
+          }
 
       - name: Package windows archive
         shell: pwsh
@@ -197,6 +209,7 @@ jobs:
 
           Notes:
           - SDL2.dll is included in this package.
+          - Required MinGW runtime DLLs are included (`libgcc_s_seh-1.dll`, `libstdc++-6.dll`, `libwinpthread-1.dll`).
           - Built with no_sdl_ttf (SDL2_ttf.dll not required).
           - Use "Emulator Focus" view for a play/test-focused layout.
           - Bundled test ROMs are included in the `roms\` folder:
