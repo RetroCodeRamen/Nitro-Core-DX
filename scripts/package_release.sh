@@ -32,8 +32,15 @@ mkdir -p "${STAGE_DIR}"
 echo "Building ${APP_NAME} (${GOOS_TARGET}/${GOARCH_TARGET})..."
 (
   cd "${ROOT_DIR}"
+  mkdir -p roms
+  go run -tags testrom_tools ./test/roms/build_pong_ym2608.go \
+    -in Resources/Demo.vgz \
+    -out roms/pong_ym2608_demo.rom
+  go run -tags testrom_tools ./test/roms/build_matrix_floor_only.go \
+    -in Resources/kart.png \
+    -out roms/matrix_floor_only_kart.rom
   GOOS="${GOOS_TARGET}" GOARCH="${GOARCH_TARGET}" \
-    go build -tags no_sdl_ttf -o "${STAGE_DIR}/${APP_NAME}" ./cmd/corelx_devkit
+    go build -tags ymfm_cgo,no_sdl_ttf -o "${STAGE_DIR}/${APP_NAME}" ./cmd/corelx_devkit
 )
 
 cp "${ROOT_DIR}/LICENSE" "${STAGE_DIR}/LICENSE"

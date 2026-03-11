@@ -45,7 +45,14 @@ jobs:
       - name: Build integrated app
         run: |
           mkdir -p dist
-          go build -tags no_sdl_ttf -o dist/nitrocoredx ./cmd/corelx_devkit
+          mkdir -p roms
+          go run -tags testrom_tools ./test/roms/build_pong_ym2608.go \
+            -in Resources/Demo.vgz \
+            -out roms/pong_ym2608_demo.rom
+          go run -tags testrom_tools ./test/roms/build_matrix_floor_only.go \
+            -in Resources/kart.png \
+            -out roms/matrix_floor_only_kart.rom
+          go build -tags ymfm_cgo,no_sdl_ttf -o dist/nitrocoredx ./cmd/corelx_devkit
 
       - name: Package linux archive
         run: |
@@ -156,7 +163,10 @@ jobs:
           $env:CGO_CFLAGS = "-I$unixPrefix/include"
           $env:CGO_CPPFLAGS = "-I$unixPrefix/include"
           $env:CGO_LDFLAGS = "-L$unixPrefix/lib"
-          go build -tags no_sdl_ttf -o dist\nitrocoredx.exe ./cmd/corelx_devkit
+          New-Item -ItemType Directory -Force roms | Out-Null
+          go run -tags testrom_tools ./test/roms/build_pong_ym2608.go -in Resources/Demo.vgz -out roms/pong_ym2608_demo.rom
+          go run -tags testrom_tools ./test/roms/build_matrix_floor_only.go -in Resources/kart.png -out roms/matrix_floor_only_kart.rom
+          go build -tags ymfm_cgo,no_sdl_ttf -o dist\nitrocoredx.exe ./cmd/corelx_devkit
           $sdlDlls = @(
             Get-ChildItem (Join-Path $prefix "bin\SDL2*.dll") -ErrorAction SilentlyContinue
             Get-ChildItem (Join-Path $prefix "bin\libSDL2*.dll") -ErrorAction SilentlyContinue
