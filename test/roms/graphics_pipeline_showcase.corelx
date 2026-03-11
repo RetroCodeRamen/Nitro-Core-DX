@@ -1,0 +1,279 @@
+-- Graphics Pipeline Showcase
+-- This ROM is an automated visual smoke test for the current graphics stack.
+-- It is intentionally phase-based so each section of the pipeline is easy to
+-- identify when running in the emulator:
+--   1. Static BG scene
+--   2. Alternate BG scene + moving sprite
+--   3. Raster split using scanline tilemap-base changes
+--   4. Scanline scroll / affine-style warp
+
+-- Flat sky tile used for the upper background.
+asset SkyTile: tiles8
+    hex
+        11 11 11 11 11 11 11 11
+        11 11 11 11 11 11 11 11
+        11 11 11 11 11 11 11 11
+        11 11 11 11 11 11 11 11
+
+-- Flat ground tile used for the lower background.
+asset GroundTile: tiles8
+    hex
+        22 22 22 22 22 22 22 22
+        22 22 22 22 22 22 22 22
+        22 22 22 22 22 22 22 22
+        22 22 22 22 22 22 22 22
+
+-- Small round sun tile placed into the sky.
+asset SunTile: tiles8
+    hex
+        00 00 33 33 33 33 00 00
+        00 33 33 33 33 33 33 00
+        33 33 33 33 33 33 33 33
+        33 33 33 33 33 33 33 33
+
+-- Mountain / hill tile used to break up the flat scene.
+asset HillTile: tiles8
+    hex
+        00 00 00 44 44 00 00 00
+        00 00 44 44 44 44 00 00
+        00 44 44 44 44 44 44 00
+        44 44 44 44 44 44 44 44
+
+-- High-contrast warning stripe tile used in the alternate scene.
+asset WarningTile: tiles8
+    hex
+        55 00 55 00 55 00 55 00
+        00 55 00 55 00 55 00 55
+        55 00 55 00 55 00 55 00
+        00 55 00 55 00 55 00 55
+
+-- 16x16 demo sprite. This is the object that moves left/right in phase 2 and
+-- stays on screen during phases 3 and 4.
+asset DemoSprite: tiles16
+    hex
+        00 00 00 00 00 00 00 00
+        00 00 11 11 11 11 00 00
+        00 12 22 22 22 22 21 00
+        00 12 22 22 22 22 21 00
+        01 22 11 22 22 11 22 10
+        01 22 11 22 22 11 22 10
+        01 22 22 22 22 22 22 10
+        01 22 22 11 11 22 22 10
+        01 22 22 11 11 22 22 10
+        01 22 22 22 22 22 22 10
+        01 22 22 22 22 22 22 10
+        01 22 21 11 11 12 22 10
+        00 12 22 22 22 22 21 00
+        00 12 22 22 22 22 21 00
+        00 00 11 11 11 11 00 00
+        00 00 00 00 00 00 00 00
+
+function Start()
+    -- Palette bank 0 is used by the background scenes.
+    -- Color roles:
+    --   index 1 = sky blue
+    --   index 2 = ground green
+    --   index 3 = sun yellow
+    --   index 4 = hill gray
+    --   index 5 = warning red
+    gfx.set_palette(0, 0, 0x0000)
+    gfx.set_palette(0, 1, 0x421F)
+    gfx.set_palette(0, 2, 0x03E0)
+    gfx.set_palette(0, 3, 0x7FE0)
+    gfx.set_palette(0, 4, 0x4210)
+    gfx.set_palette(0, 5, 0x7C00)
+
+    -- Palette bank 1 is used by the sprite:
+    --   index 1 = blue body
+    --   index 2 = white highlight
+    gfx.set_palette(1, 1, 0x001F)
+    gfx.set_palette(1, 2, 0x7FFF)
+
+    -- Load background tiles into low indices.
+    -- Load the sprite at base 4. Because tiles16 uses 128-byte stride, later
+    -- tiles must not overlap that region.
+    gfx.load_tiles(ASSET_SkyTile, 0)
+    gfx.load_tiles(ASSET_GroundTile, 1)
+    gfx.load_tiles(ASSET_SunTile, 2)
+    gfx.load_tiles(ASSET_HillTile, 3)
+    sprite_base := gfx.load_tiles(ASSET_DemoSprite, 4)
+    gfx.load_tiles(ASSET_WarningTile, 8)
+
+    -- Scene A tilemap at 0x1000:
+    -- blue sky, green ground, one sun, one hill cluster.
+    bg.set_tilemap_base(0, 0x1000)
+    bg.clear(0, 0, 0)
+
+    row := 0
+    while row < 20
+        bg.fill_span(0, 0, row, 32, 0, 0)
+        row = row + 1
+
+    while row < 32
+        bg.fill_span(0, 0, row, 32, 1, 0)
+        row = row + 1
+
+    bg.fill_span(0, 6, 4, 4, 2, 0)
+    bg.fill_span(0, 10, 14, 2, 3, 0)
+    bg.fill_span(0, 9, 15, 4, 3, 0)
+    bg.fill_span(0, 8, 16, 6, 3, 0)
+    bg.fill_span(0, 7, 17, 8, 3, 0)
+
+    -- Scene B tilemap at 0x1800:
+    -- mostly warning stripes so the phase shift is visually obvious.
+    bg.set_tilemap_base(0, 0x1800)
+    bg.clear(0, 0, 0)
+
+    row = 0
+    while row < 12
+        bg.fill_span(0, 0, row, 32, 0, 0)
+        row = row + 1
+
+    while row < 32
+        bg.fill_span(0, 0, row, 32, 8, 0)
+        row = row + 1
+
+    bg.fill_span(0, 4, 5, 5, 2, 0)
+    bg.fill_span(0, 18, 6, 4, 2, 0)
+
+    -- Configure BG0 as the primary visible layer.
+    bg.set_tilemap_base(0, 0x1000)
+    bg.enable(0)
+    bg.set_priority(0, 0)
+    bg.set_tile_size(0, 0)
+    bg.set_source_mode(0, 0)
+    bg.bind_transform(0, 0)
+
+    matrix.enable(0)
+    matrix.identity(0)
+    matrix.set_flags(0, false, false, 0, false)
+    matrix.set_center(0, 0, 0)
+
+    -- Raster table A at 0x2000:
+    -- top scanlines use scene A, bottom scanlines use scene B.
+    -- This is used during phase 3 to prove scanline tilemap switching works.
+    raster.enable(0x2000, 0x01, false, false, true, false)
+    scan := 0
+    while scan < 90
+        raster.set_scanline_scroll(scan, 0, 0, 0)
+        raster.set_scanline_matrix(scan, 0, 0x0100, 0, 0, 0x0100)
+        raster.set_scanline_center(scan, 0, 0, 0)
+        raster.set_scanline_tilemap_base(scan, 0, 0x1000)
+        scan = scan + 1
+
+    while scan < 200
+        raster.set_scanline_scroll(scan, 0, 0, 0)
+        raster.set_scanline_matrix(scan, 0, 0x0100, 0, 0, 0x0100)
+        raster.set_scanline_center(scan, 0, 0, 0)
+        raster.set_scanline_tilemap_base(scan, 0, 0x1800)
+        scan = scan + 1
+
+    -- Raster table B at 0x6000:
+    -- top area is stable, bottom area increases scroll every scanline.
+    -- This is used during phase 4 to prove scanline modulation works.
+    raster.enable(0x6000, 0x01, false, false, false, false)
+    scan = 0
+    shift := 0
+    while scan < 80
+        raster.set_scanline_scroll(scan, 0, 0, 0)
+        raster.set_scanline_matrix(scan, 0, 0x0100, 0, 0, 0x0100)
+        raster.set_scanline_center(scan, 0, 0, 0)
+        scan = scan + 1
+
+    while scan < 200
+        raster.set_scanline_scroll(scan, 0, shift, 0)
+        raster.set_scanline_matrix(scan, 0, 0x0100, 0, 0, 0x0100)
+        raster.set_scanline_center(scan, 0, 0, 0)
+        shift = shift + 1
+        scan = scan + 1
+
+    -- Do not leave raster mode active while setup finishes.
+    raster.disable()
+    ppu.enable_display()
+
+    -- Clear sprite 0 once after display start so the first phase is definitely
+    -- background-only.
+    wait_vblank()
+    oam.clear_sprite(0)
+    oam.flush()
+
+    last_frame := frame_counter()
+    sprite_x := 24
+    sprite_dx := 2
+    sprite_attr := SPR_PAL(1) | SPR_PRI(0)
+    sprite_ctrl := SPR_ENABLE() | SPR_SIZE_16()
+
+    -- Phase 1: static scene A only.
+    -- Expected result:
+    --   sky + ground + hill scene, no sprite, no raster effects.
+    phase := 0
+    while phase < 180
+        while frame_counter() == last_frame
+            wait_vblank()
+        last_frame = frame_counter()
+
+        raster.disable()
+        bg.set_tilemap_base(0, 0x1000)
+        oam.clear_sprite(0)
+        oam.flush()
+        phase = phase + 1
+
+    -- Phase 2: scene B + moving demo sprite.
+    -- Expected result:
+    --   warning-stripe background with the demo sprite moving left/right.
+    phase = 0
+    while phase < 180
+        while frame_counter() == last_frame
+            wait_vblank()
+        last_frame = frame_counter()
+
+        raster.disable()
+        bg.set_tilemap_base(0, 0x1800)
+        oam.write_sprite_data(0, sprite_x, 88, sprite_base, sprite_attr, sprite_ctrl)
+        oam.flush()
+        sprite_x = sprite_x + sprite_dx
+        if sprite_x > 250
+            sprite_dx = -2
+        if sprite_x < 24
+            sprite_dx = 2
+        phase = phase + 1
+
+    -- Phase 3: raster split.
+    -- Expected result:
+    --   same frame shows scene A on top and scene B on the lower portion,
+    --   with the sprite parked near the center.
+    phase = 0
+    while phase < 180
+        while frame_counter() == last_frame
+            wait_vblank()
+        last_frame = frame_counter()
+
+        raster.enable(0x2000, 0x01, false, false, true, false)
+        bg.set_tilemap_base(0, 0x1000)
+        oam.write_sprite_data(0, sprite_x, 88, sprite_base, sprite_attr, sprite_ctrl)
+        oam.flush()
+        sprite_x = sprite_x + sprite_dx
+        if sprite_x > 220
+            sprite_dx = -2
+        if sprite_x < 40
+            sprite_dx = 2
+        phase = phase + 1
+
+    -- Phase 4: affine-style scanline modulation.
+    -- Expected result:
+    --   lower part of the frame appears to shear/scroll progressively, while
+    --   the sprite remains visible near the right side.
+    while true
+        while frame_counter() == last_frame
+            wait_vblank()
+        last_frame = frame_counter()
+
+        raster.enable(0x6000, 0x01, false, false, false, false)
+        bg.set_tilemap_base(0, 0x1000)
+        oam.write_sprite_data(0, sprite_x, 76, sprite_base, sprite_attr, sprite_ctrl)
+        oam.flush()
+        sprite_x = sprite_x + sprite_dx
+        if sprite_x > 240
+            sprite_dx = -2
+        if sprite_x < 80
+            sprite_dx = 2

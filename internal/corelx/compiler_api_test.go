@@ -226,6 +226,45 @@ function Start()
 	}
 }
 
+func TestCompileSourceNormalizesExpandedTiles16Asset(t *testing.T) {
+	src := `
+asset Sprite: tiles16 hex
+    00 11 22 33 44 55 66 77 88 99 AA BB CC DD EE FF
+    00 11 22 33 44 55 66 77 88 99 AA BB CC DD EE FF
+    00 11 22 33 44 55 66 77 88 99 AA BB CC DD EE FF
+    00 11 22 33 44 55 66 77 88 99 AA BB CC DD EE FF
+    00 11 22 33 44 55 66 77 88 99 AA BB CC DD EE FF
+    00 11 22 33 44 55 66 77 88 99 AA BB CC DD EE FF
+    00 11 22 33 44 55 66 77 88 99 AA BB CC DD EE FF
+    00 11 22 33 44 55 66 77 88 99 AA BB CC DD EE FF
+    00 11 22 33 44 55 66 77 88 99 AA BB CC DD EE FF
+    00 11 22 33 44 55 66 77 88 99 AA BB CC DD EE FF
+    00 11 22 33 44 55 66 77 88 99 AA BB CC DD EE FF
+    00 11 22 33 44 55 66 77 88 99 AA BB CC DD EE FF
+    00 11 22 33 44 55 66 77 88 99 AA BB CC DD EE FF
+    00 11 22 33 44 55 66 77 88 99 AA BB CC DD EE FF
+    00 11 22 33 44 55 66 77 88 99 AA BB CC DD EE FF
+    00 11 22 33 44 55 66 77 88 99 AA BB CC DD EE FF
+
+function Start()
+    apu.enable()
+`
+	res, err := CompileSource(src, "expanded_tiles16.corelx", nil)
+	if err != nil {
+		t.Fatalf("unexpected compile error: %v", err)
+	}
+	if len(res.NormalizedAssets) != 1 {
+		t.Fatalf("expected 1 normalized asset, got %d", len(res.NormalizedAssets))
+	}
+	got := res.NormalizedAssets[0].Data
+	if len(got) != 128 {
+		t.Fatalf("expected normalized tiles16 asset to be 128 bytes, got %d", len(got))
+	}
+	if got[0] != 0x01 || got[1] != 0x23 || got[2] != 0x45 || got[3] != 0x67 {
+		t.Fatalf("unexpected packed prefix: %02X %02X %02X %02X", got[0], got[1], got[2], got[3])
+	}
+}
+
 func TestCompileSourceManifestJSONOutput(t *testing.T) {
 	dir := t.TempDir()
 	manifestPath := filepath.Join(dir, "build_manifest.json")

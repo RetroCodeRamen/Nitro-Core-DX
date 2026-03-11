@@ -62,9 +62,10 @@ Word 0: [15:12] opcode, [11:8] mode, [7:4] reg1, [3:0] reg2
 Word 1: optional 16-bit immediate (for imm, displacement, or branch offset)
 ```
 
-- **MOV** already uses modes 0–7; modes 8–15 are reserved → use 9–12 for new addressing.
+- **MOV** already uses modes 0–7; mode 8 is now assigned to `DBR <- Rn`, modes 9–12 are used for extended addressing, and modes 13–15 remain reserved.
 - **JMP** and **CALL** currently ignore mode/reg; use **mode** to select relative (0) vs absolute (1).
 - **SHR** uses mode 0 (reg) and 1 (imm); use modes 2–5 for SAR/ROL/ROR.
+- **CMP** uses mode 0 for register compare, modes 1–6 for branches, and mode 7 for immediate compare.
 
 ---
 
@@ -98,6 +99,20 @@ You can add mode 13 = load 8-bit from [R2+imm], mode 14 = store 8-bit to [R1+imm
 **Encoding:**  
 - Mode 9: `0x19xy` (opcode 1, mode 9, reg1=x, reg2=y); then one immediate word.  
 - Mode 10: `0x1Axy`; then one immediate word.
+
+---
+
+### 3.1a Data Bank Select
+
+- **MOV mode 8 — Load DBR from register:**
+  `MOV DBR, R1`
+  - reg1 supplies the new data bank in its low byte.
+  - Used for ROM-backed data streaming and banked asset readers.
+  - No immediate word.
+  - Cycles: 1.
+
+**Encoding:**
+- Mode 8: `0x18x0` (opcode 1, mode 8, reg1=x).
 
 ---
 

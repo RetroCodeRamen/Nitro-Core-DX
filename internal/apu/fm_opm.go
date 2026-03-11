@@ -45,9 +45,7 @@ const (
 )
 
 const (
-	fmBackendModeAuto   = "auto"
-	fmBackendModeYMFM   = "ymfm"
-	fmBackendModeLegacy = "legacy"
+	fmBackendModeYMFM = "ymfm"
 )
 
 var fmSineTable = func() [fmSineTableSize]int16 {
@@ -136,40 +134,20 @@ func NewFMOPM(logger *debug.Logger) *FMOPM {
 
 	mode := strings.ToLower(strings.TrimSpace(os.Getenv("NCDX_YM_BACKEND")))
 	if mode == "" {
-		mode = fmBackendModeAuto
+		mode = fmBackendModeYMFM
 	}
-	switch mode {
-	case fmBackendModeLegacy:
+	if mode != fmBackendModeYMFM {
+		panic("NCDX_YM_BACKEND must be ymfm")
+	}
+	if b := newFMRuntimeBackend(logger, fm.SampleRate); b != nil {
+		fm.backend = b
+		fm.backendSampleRate = fm.SampleRate
+		b.SetEnabledMuted(fm.Enabled, fm.Muted)
 		if logger != nil {
-			logger.LogAPUf(debug.LogLevelInfo, "FM backend selected: in-tree FMOPM (legacy)")
+			logger.LogAPUf(debug.LogLevelInfo, "FM backend selected: YMFM (OPNA)")
 		}
-	case fmBackendModeAuto, fmBackendModeYMFM:
-		if b := newFMRuntimeBackend(logger, fm.SampleRate); b != nil {
-			fm.backend = b
-			fm.backendSampleRate = fm.SampleRate
-			b.SetEnabledMuted(fm.Enabled, fm.Muted)
-			if logger != nil {
-				logger.LogAPUf(debug.LogLevelInfo, "FM backend selected: YMFM (OPNA)")
-			}
-		} else if logger != nil {
-			if mode == fmBackendModeYMFM {
-				logger.LogAPUf(debug.LogLevelWarning, "NCDX_YM_BACKEND=ymfm requested but YMFM backend unavailable; using in-tree FMOPM")
-			} else {
-				logger.LogAPUf(debug.LogLevelInfo, "FM backend auto-selected: in-tree FMOPM (YMFM unavailable)")
-			}
-		}
-	default:
-		if logger != nil {
-			logger.LogAPUf(debug.LogLevelWarning, "invalid NCDX_YM_BACKEND=%q; using auto selection", mode)
-		}
-		if b := newFMRuntimeBackend(logger, fm.SampleRate); b != nil {
-			fm.backend = b
-			fm.backendSampleRate = fm.SampleRate
-			b.SetEnabledMuted(fm.Enabled, fm.Muted)
-			if logger != nil {
-				logger.LogAPUf(debug.LogLevelInfo, "FM backend selected: YMFM (OPNA)")
-			}
-		}
+	} else {
+		panic("YMFM backend unavailable; rebuild with -tags ymfm_cgo")
 	}
 	return fm
 }

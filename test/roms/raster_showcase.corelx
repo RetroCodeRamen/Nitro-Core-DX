@@ -1,0 +1,50 @@
+asset PatternTile: tiles8
+    hex
+        11 11 11 11 11 11 11 11
+        11 11 11 11 11 11 11 11
+        11 11 11 11 11 11 11 11
+        11 11 11 11 11 11 11 11
+
+function Start()
+    gfx.set_palette(0, 0, 0x0000)
+    gfx.set_palette(0, 1, 0x7C00)
+    gfx.set_palette(1, 1, 0x03E0)
+
+    gfx.load_tiles(ASSET_PatternTile, 0)
+
+    bg.set_tilemap_base(0, 0x1000)
+    bg.clear(0, 0, 0)
+
+    bg.set_tilemap_base(0, 0x1800)
+    bg.clear(0, 0, 1)
+
+    raster.enable(0x3000, 0x01, false, false, true, false)
+
+    scan := 0
+    while scan < 100
+        raster.set_scanline_scroll(scan, 0, 0, 0)
+        raster.set_scanline_matrix(scan, 0, 0x0100, 0, 0, 0x0100)
+        raster.set_scanline_center(scan, 0, 0, 0)
+        raster.set_scanline_tilemap_base(scan, 0, 0x1000)
+        scan = scan + 1
+
+    while scan < 200
+        raster.set_scanline_scroll(scan, 0, 0, 0)
+        raster.set_scanline_matrix(scan, 0, 0x0100, 0, 0, 0x0100)
+        raster.set_scanline_center(scan, 0, 0, 0)
+        raster.set_scanline_tilemap_base(scan, 0, 0x1800)
+        scan = scan + 1
+
+    bg.set_tilemap_base(0, 0x1000)
+    bg.enable(0)
+    bg.set_priority(0, 0)
+    bg.bind_transform(0, 0)
+
+    matrix.enable(0)
+    matrix.identity(0)
+    matrix.set_center(0, 0, 0)
+
+    ppu.enable_display()
+
+    while true
+        wait_vblank()

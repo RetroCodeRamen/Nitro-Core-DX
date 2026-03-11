@@ -2,6 +2,7 @@ package memory
 
 import (
 	"fmt"
+	"nitro-core-dx/internal/apu"
 	"nitro-core-dx/internal/debug"
 )
 
@@ -28,6 +29,11 @@ type Bus struct {
 
 	// Logger for debug logging
 	logger *debug.Logger
+
+	// YM burst streamer staging registers.
+	ymBurstCount uint16
+	ymBurstBank  uint8
+	ymBurstOff   uint16
 }
 
 // IOHandler defines the interface for I/O register handlers
@@ -208,6 +214,26 @@ func (b *Bus) writeIO8(offset uint16, value uint8) {
 
 	// APU registers: 0x9000-0x9FFF
 	if offset >= 0x9000 && offset < 0xA000 {
+		// 0x9110-0x9115: bus-side YM burst streamer.
+		if offset >= 0x9110 && offset <= 0x9115 {
+			switch offset {
+			case 0x9110:
+				b.ymBurstCount = (b.ymBurstCount & 0xFF00) | uint16(value)
+			case 0x9111:
+				b.ymBurstCount = (b.ymBurstCount & 0x00FF) | (uint16(value) << 8)
+			case 0x9112:
+				b.ymBurstBank = value
+			case 0x9113:
+				b.ymBurstOff = (b.ymBurstOff & 0xFF00) | uint16(value)
+			case 0x9114:
+				b.ymBurstOff = (b.ymBurstOff & 0x00FF) | (uint16(value) << 8)
+			case 0x9115:
+				if value&0x01 != 0 {
+					b.executeYMBurst()
+				}
+			}
+			return
+		}
 		if b.APUHandler != nil {
 			b.APUHandler.Write8(offset-0x9000, value)
 		}
@@ -225,5 +251,41 @@ func (b *Bus) writeIO8(offset uint16, value uint8) {
 			}
 		}
 		return
+	}
+}
+
+func (b *Bus) executeYMBurst() {
+	if b.APUHandler == nil || b.Cartridge == nil || b.ymBurstCount == 0 {
+		return
+	}
+	bank := b.ymBurstBank
+	off := b.ymBurstOff
+	for i := uint16(0); i < b.ymBurstCount; i++ {
+		port := b.Cartridge.Read8(bank, off)
+		off++
+		if off == 0 {
+			off = 0x8000
+			bank++
+		}
+		addr := b.Cartridge.Read8(bank, off)
+		off++
+		if off == 0 {
+			off = 0x8000
+			bank++
+		}
+		data := b.Cartridge.Read8(bank, off)
+		off++
+		if off == 0 {
+			off = 0x8000
+			bank++
+		}
+
+		if port == 0 {
+			b.APUHandler.Write8(apu.FMExtensionOffsetBase+apu.FMRegAddr, addr)
+			b.APUHandler.Write8(apu.FMExtensionOffsetBase+apu.FMRegData, data)
+		} else {
+			b.APUHandler.Write8(apu.FMExtensionOffsetBase+apu.FMRegMixL, addr)
+			b.APUHandler.Write8(apu.FMExtensionOffsetBase+apu.FMRegMixR, data)
+		}
 	}
 }

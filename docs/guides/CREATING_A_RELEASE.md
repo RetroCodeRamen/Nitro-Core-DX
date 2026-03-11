@@ -30,6 +30,8 @@ git push origin v0.1.0
 5. Open GitHub -> **Releases** and verify:
    - Linux archive attached (`.tar.gz`)
    - Windows archive attached (`.zip`)
+   - Both archives include `roms/pong_ym2608_demo.rom`
+   - Both archives include `roms/matrix_floor_only_kart.rom`
    - Release notes look reasonable
 
 ## Manual (No Tag) Test

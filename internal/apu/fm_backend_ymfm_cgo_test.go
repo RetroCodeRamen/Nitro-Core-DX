@@ -4,11 +4,11 @@ package apu
 
 import "testing"
 
-func TestYMFMBackendAutoDefault(t *testing.T) {
+func TestYMFMBackendDefault(t *testing.T) {
 	t.Setenv("NCDX_YM_BACKEND", "")
 	fm := NewFMOPM(nil)
 	if fm.backend == nil {
-		t.Fatalf("expected YMFM backend when using default auto mode under ymfm_cgo build")
+		t.Fatalf("expected YMFM backend when using default YMFM mode under ymfm_cgo build")
 	}
 }
 
@@ -44,10 +44,12 @@ func TestYMFMBackendUpperPortViaMixRegisters(t *testing.T) {
 	}
 }
 
-func TestYMFMBackendLegacyOverride(t *testing.T) {
+func TestYMFMBackendRejectsNonYMFMMode(t *testing.T) {
 	t.Setenv("NCDX_YM_BACKEND", "legacy")
-	fm := NewFMOPM(nil)
-	if fm.backend != nil {
-		t.Fatalf("expected legacy in-tree backend when NCDX_YM_BACKEND=legacy")
-	}
+	defer func() {
+		if recover() == nil {
+			t.Fatalf("expected panic when NCDX_YM_BACKEND is not ymfm")
+		}
+	}()
+	_ = NewFMOPM(nil)
 }

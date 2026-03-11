@@ -1,0 +1,51 @@
+asset PlaneDark: tiles8 hex
+    11 11 11 11 11 11 11 11
+    11 11 11 11 11 11 11 11
+    11 11 11 11 11 11 11 11
+    11 11 11 11 11 11 11 11
+
+asset PlaneLight: tiles8 hex
+    22 22 22 22 22 22 22 22
+    22 22 22 22 22 22 22 22
+    22 22 22 22 22 22 22 22
+    22 22 22 22 22 22 22 22
+
+asset PlaneMarker: tiles8 hex
+    33 33 33 33 33 33 33 33
+    33 00 00 00 00 00 00 33
+    33 00 33 33 33 33 00 33
+    33 33 33 33 33 33 33 33
+
+asset PlaneSplit: tilemap hex
+    00 00 00 00 00 00 00 00
+    00 00 00 00 00 00 00 00
+
+function Start()
+    gfx.init_default_palettes()
+
+    bg.enable(0)
+    bg.bind_transform(0, 0)
+    bg.set_priority(0, 2)
+
+    matrix.enable(0)
+    matrix.identity(0)
+    matrix.set_flags(0, false, false, 0, false)
+    matrix.set_center(0, 160, 100)
+    matrix.set_matrix(0, 0x00F0, 0x0018, 0xFFE8, 0x00F0)
+
+    matrix_plane.enable(0, 32)
+    matrix_plane.load_tiles(ASSET_PlaneDark, 0, 0)
+    matrix_plane.load_tiles(ASSET_PlaneLight, 0, 1)
+    matrix_plane.load_tiles(ASSET_PlaneMarker, 0, 2)
+    matrix_plane.load_tilemap(ASSET_PlaneSplit, 0)
+    matrix_plane.clear(0, 0, 0)
+    matrix_plane.fill_rect(0, 16, 0, 16, 32, 1, 0)
+    matrix_plane.set_tile(0, 14, 14, 2, 0)
+    matrix_plane.set_tile(0, 15, 14, 2, 0)
+    matrix_plane.set_tile(0, 14, 15, 2, 0)
+    matrix_plane.set_tile(0, 15, 15, 2, 0)
+
+    ppu.enable_display()
+
+    while true
+        wait_vblank()

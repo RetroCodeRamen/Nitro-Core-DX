@@ -384,8 +384,21 @@ apu.note_off(0)
 - `bg.set_priority(layer, priority)` - Set explicit layer priority (0-3)
 - `bg.set_tile_size(layer, size)` - Set tile size (`8` or `16`)
 - `bg.set_tilemap_base(layer, base)` - Set the layer tilemap base address
+- `bg.load_tilemap(asset, layer) -> u16` - Load a packed tilemap asset into the layer's configured tilemap base; returns the base used
 - `bg.set_source_mode(layer, mode)` - Select source mode (`0=tilemap`, `1=bitmap/reserved`)
 - `bg.bind_transform(layer, channel)` - Bind a layer to transform channel `0-3`
+- `bg.set_tile(layer, x, y, tile, attr)` - Write one tilemap entry at tile coordinates `x, y`
+- `bg.fill_span(layer, x, y, count, tile, attr)` - Fill `count` tilemap entries on one row
+- `bg.clear(layer, tile, attr)` - Clear the full 32×32 tilemap with one tile/attribute pair
+- `raster.enable(table_base, layer_mask, rebind, priority, tilemap_base, source_mode)` - Enable scanline-command mode and program the active table/control registers
+- `raster.disable()` - Disable scanline-command mode
+- `raster.set_scanline_scroll(scanline, layer, x, y)` - Write one scanline scroll payload entry for a layer
+- `raster.set_scanline_matrix(scanline, layer, a, b, c, d)` - Write one scanline affine matrix payload entry for a layer
+- `raster.set_scanline_center(scanline, layer, x, y)` - Write one scanline transform center/origin entry for a layer
+- `raster.set_scanline_rebind(scanline, layer, channel)` - Write one scanline transform-channel rebinding entry when rebind tables are enabled
+- `raster.set_scanline_priority(scanline, layer, priority)` - Write one scanline layer-priority entry when priority tables are enabled
+- `raster.set_scanline_tilemap_base(scanline, layer, base)` - Write one scanline tilemap-base override when tilemap-base tables are enabled
+- `raster.set_scanline_source_mode(scanline, layer, mode)` - Write one scanline source-mode entry when source-mode tables are enabled
 
 ### Matrix Mode
 
@@ -396,6 +409,18 @@ apu.note_off(0)
 - `matrix.set_center(layer, x, y)` - Set transform center/origin
 - `matrix.identity(layer)` - Reset matrix to identity (`A=1.0`, `B=0`, `C=0`, `D=1.0`)
 - `matrix.set_flags(layer, mirror_h, mirror_v, outside_mode, direct_color)` - Set matrix control flags while preserving enable state
+
+### Matrix Planes
+
+- `matrix_plane.enable(channel, size)` - Enable dedicated matrix plane `0-3` with size `32`, `64`, or `128` tiles per side
+- `matrix_plane.disable(channel)` - Disable the dedicated matrix plane while preserving its programmed size bits
+- `matrix_plane.load_tiles(asset, channel, base) -> u16` - Load a `tiles8`/`tiles16`/`sprite`/`tileset` asset into the dedicated pattern memory of matrix plane `channel` at tile index `base`; returns `base`
+- `matrix_plane.load_tilemap(asset, channel) -> u16` - Load a packed tilemap asset into the dedicated matrix plane tilemap memory for `channel`; returns `channel`
+- `matrix_plane.set_tile(channel, x, y, tile, attr)` - Write one tilemap entry into the dedicated matrix plane tilemap
+- `matrix_plane.fill_rect(channel, x, y, w, h, tile, attr)` - Fill a rectangle in the dedicated matrix plane tilemap
+- `matrix_plane.clear(channel, tile, attr)` - Clear the full dedicated matrix plane tilemap using one tile/attribute pair
+
+Matrix planes are separate from ordinary BG VRAM tilemaps. To render one, bind a visible layer to the same transform channel with `bg.bind_transform(...)`, enable Matrix Mode on that layer with `matrix.enable(...)`, and then populate the plane's dedicated tilemap/pattern memory through `matrix_plane.*`.
 
 Simple setup example:
 
@@ -416,6 +441,81 @@ function Start()
     while true
         wait_vblank()
 ```
+
+Simple tilemap-asset workflow:
+
+```corelx
+asset MapA: tilemap hex
+    00 00 01 00
+
+function Start()
+    ppu.enable_display()
+    bg.enable(0)
+    bg.set_tilemap_base(0, 0x4000)
+    bg.load_tilemap(ASSET_MapA, 0)
+
+    while true
+        wait_vblank()
+```
+
+Minimal raster workflow:
+
+```corelx
+function Start()
+    ppu.enable_display()
+    bg.enable(0)
+    bg.bind_transform(0, 0)
+    matrix.enable(0)
+    matrix.identity(0)
+
+    raster.enable(0x3000, 0x01, false, false, true, false)
+
+    scan := 0
+    while scan < 100
+        raster.set_scanline_scroll(scan, 0, 0, 0)
+        raster.set_scanline_matrix(scan, 0, 0x0100, 0, 0, 0x0100)
+        raster.set_scanline_center(scan, 0, 0, 0)
+        raster.set_scanline_tilemap_base(scan, 0, 0x1000)
+        scan = scan + 1
+
+    while true
+        wait_vblank()
+```
+
+Minimal dedicated matrix-plane workflow:
+
+```corelx
+asset Floor: tiles8 hex
+    11 11 11 11 11 11 11 11
+    11 11 11 11 11 11 11 11
+    11 11 11 11 11 11 11 11
+    11 11 11 11 11 11 11 11
+
+function Start()
+    gfx.init_default_palettes()
+    bg.enable(0)
+    bg.bind_transform(0, 0)
+
+    matrix.enable(0)
+    matrix.identity(0)
+    matrix.set_center(0, 160, 100)
+
+    matrix_plane.enable(0, 128)
+    matrix_plane.load_tiles(ASSET_Floor, 0, 0)
+    matrix_plane.clear(0, 0, 0)
+    matrix_plane.fill_rect(0, 32, 0, 32, 128, 0, 0)
+
+    ppu.enable_display()
+    while true
+        wait_vblank()
+```
+
+Reference demo ROM:
+
+- [`test/roms/raster_showcase.corelx`](/home/aj/Documents/Development/Nitro-Core-DX/test/roms/raster_showcase.corelx)
+- [`test/roms/graphics_image_demo.corelx`](/home/aj/Documents/Development/Nitro-Core-DX/test/roms/graphics_image_demo.corelx)
+- [`test/roms/matrix_plane_showcase.corelx`](/home/aj/Documents/Development/Nitro-Core-DX/test/roms/matrix_plane_showcase.corelx)
+- [`test/roms/matrix_plane_pipeline_showcase.corelx`](/home/aj/Documents/Development/Nitro-Core-DX/test/roms/matrix_plane_pipeline_showcase.corelx)
 
 ### Sprites
 

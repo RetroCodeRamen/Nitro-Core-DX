@@ -38,6 +38,9 @@ echo "Building ${APP_NAME} (${GOOS_TARGET}/${GOARCH_TARGET})..."
 
 cp "${ROOT_DIR}/LICENSE" "${STAGE_DIR}/LICENSE"
 cp "${ROOT_DIR}/README.md" "${STAGE_DIR}/README.md"
+mkdir -p "${STAGE_DIR}/roms"
+cp "${ROOT_DIR}/roms/pong_ym2608_demo.rom" "${STAGE_DIR}/roms/"
+cp "${ROOT_DIR}/roms/matrix_floor_only_kart.rom" "${STAGE_DIR}/roms/"
 
 cat > "${STAGE_DIR}/README_RELEASE.txt" <<'EOF'
 Nitro-Core-DX (Integrated App) Release Package
@@ -53,6 +56,9 @@ Notes (Linux):
 - SDL2_ttf is not required.
 - SDL2 runtime libraries are still required on the host system.
 - The app includes an "Emulator Only" view if you just want to run/test ROMs.
+- Bundled test ROMs are included in `roms/`:
+  - `pong_ym2608_demo.rom`
+  - `matrix_floor_only_kart.rom`
 
 If input seems unresponsive:
 - click the emulator pane

@@ -42,7 +42,7 @@ func (a *asm) addReg(dst, src uint8)       { a.inst(rom.EncodeADD(0, dst, src)) 
 func (a *asm) addImm(reg uint8, v uint16)  { a.inst(rom.EncodeADD(1, reg, 0)); a.imm(v) }
 func (a *asm) subImm(reg uint8, v uint16)  { a.inst(rom.EncodeSUB(1, reg, 0)); a.imm(v) }
 func (a *asm) andImm(reg uint8, v uint16)  { a.inst(rom.EncodeAND(1, reg, 0)); a.imm(v) }
-func (a *asm) cmpImm(reg uint8, v uint16)  { a.inst(rom.EncodeCMP(1, reg, 0)); a.imm(v) }
+func (a *asm) cmpImm(reg uint8, v uint16)  { a.inst(rom.EncodeCMP(7, reg, 0)); a.imm(v) }
 func (a *asm) cmpReg(r1, r2 uint8)         { a.inst(rom.EncodeCMP(0, r1, r2)) }
 func (a *asm) shrImm(reg uint8, v uint16)  { a.inst(rom.EncodeSHR(1, reg, 0)); a.imm(v) }
 

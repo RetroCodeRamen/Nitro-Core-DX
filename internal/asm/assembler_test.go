@@ -95,7 +95,7 @@ loop:
 	}
 }
 
-func TestCMPImmediateR0EncodesDisambiguated(t *testing.T) {
+func TestCMPImmediateR0UsesDedicatedMode7(t *testing.T) {
 	src := `CMP R0, #1`
 	res, err := AssembleSource(src, "cmp.asm", nil)
 	if err != nil {
@@ -108,7 +108,7 @@ func TestCMPImmediateR0EncodesDisambiguated(t *testing.T) {
 	mode := (inst >> 8) & 0xF
 	reg1 := (inst >> 4) & 0xF
 	reg2 := inst & 0xF
-	if mode != 1 || reg1 != 0 || reg2 == 0 {
-		t.Fatalf("CMP R0,#imm not disambiguated: inst=0x%04X mode=%d reg1=%d reg2=%d", inst, mode, reg1, reg2)
+	if mode != 7 || reg1 != 0 || reg2 != 0 {
+		t.Fatalf("CMP R0,#imm did not use mode 7 encoding: inst=0x%04X mode=%d reg1=%d reg2=%d", inst, mode, reg1, reg2)
 	}
 }

@@ -194,7 +194,7 @@ type devKitState struct {
 
 func main() {
 	openPath := flag.String("file", "", "CoreLX source file to open")
-	audioBackend := flag.String("audio-backend", "", "Audio backend override: auto|ymfm|legacy (default: auto with YMFM fallback)")
+	audioBackend := flag.String("audio-backend", "", "Audio backend override: ymfm (default: ymfm)")
 	flag.Parse()
 	if err := applyAudioBackendSetting(*audioBackend); err != nil {
 		fmt.Fprintf(os.Stderr, "invalid audio backend: %v\n", err)
@@ -311,16 +311,14 @@ func applyAudioBackendSetting(flagValue string) error {
 	mode := strings.ToLower(strings.TrimSpace(flagValue))
 	if mode == "" {
 		if strings.TrimSpace(os.Getenv("NCDX_YM_BACKEND")) == "" {
-			return os.Setenv("NCDX_YM_BACKEND", "auto")
+			return os.Setenv("NCDX_YM_BACKEND", "ymfm")
 		}
 		return nil
 	}
-	switch mode {
-	case "auto", "ymfm", "legacy":
-		return os.Setenv("NCDX_YM_BACKEND", mode)
-	default:
-		return fmt.Errorf("%q (expected auto|ymfm|legacy)", flagValue)
+	if mode != "ymfm" {
+		return fmt.Errorf("%q (expected ymfm)", flagValue)
 	}
+	return os.Setenv("NCDX_YM_BACKEND", mode)
 }
 
 func (s *devKitState) scheduleX11MaximizeHintRefresh() {
@@ -534,6 +532,7 @@ func (s *devKitState) buildToolbar() fyne.CanvasObject {
 
 	stepFrameBtn := widget.NewButton("Step F", func() { s.stepFrame() })
 	stepCPUBtn := widget.NewButton("Step C", func() { s.stepCPU() })
+	markFrameBtn := widget.NewButton("Mark Frame", func() { s.markCurrentFrame() })
 
 	s.splitViewBtn = widget.NewButton("Split View", func() { s.setViewMode(viewModeFull) })
 	s.emulatorFocusBtn = widget.NewButton("Emulator Focus", func() { s.setViewMode(viewModeEmulatorOnly) })
@@ -556,6 +555,7 @@ func (s *devKitState) buildToolbar() fyne.CanvasObject {
 		s.stopBtn,
 		stepFrameBtn,
 		stepCPUBtn,
+		markFrameBtn,
 		widget.NewSeparator(),
 		s.codeOnlyBtn,
 		s.splitViewBtn,
@@ -1139,13 +1139,46 @@ func (s *devKitState) startEmulatorLoop() {
 						if paused {
 							state = "paused"
 						}
-						s.emuLabel.SetText(fmt.Sprintf("Hardware: %s | FPS %.1f | CPU %d cycles/frame | Frame %d", state, fps, cycles, frameCount))
+						s.emuLabel.SetText(fmt.Sprintf(
+							"Hardware: %s | FPS %.1f | CPU %d cycles/frame | Frame %d | Time %s",
+							state,
+							fps,
+							cycles,
+							frameCount,
+							formatFrameClock(frameCount),
+						))
 						s.refreshDebuggerOutput()
 					})
 				}
 			}
 		}
 	}()
+}
+
+func formatFrameClock(frameCount uint64) string {
+	totalCentiseconds := (frameCount * 100) / 60
+	minutes := totalCentiseconds / 6000
+	seconds := (totalCentiseconds / 100) % 60
+	centiseconds := totalCentiseconds % 100
+	return fmt.Sprintf("%02d:%02d.%02d", minutes, seconds, centiseconds)
+}
+
+func formatFrameMark(snap devkit.EmulatorSnapshot) string {
+	state := "stopped"
+	if snap.Running {
+		state = "running"
+	}
+	if snap.Paused {
+		state = "paused"
+	}
+	return fmt.Sprintf(
+		"Frame mark: frame=%d time=%s fps=%.1f cpu=%d state=%s",
+		snap.FrameCount,
+		formatFrameClock(snap.FrameCount),
+		snap.FPS,
+		snap.CPUCyclesPerFrame,
+		state,
+	)
 }
 
 func (s *devKitState) stopEmulatorLoop() {
@@ -1735,6 +1768,17 @@ func (s *devKitState) stepCPU() {
 	}
 	s.refreshDebuggerOutput()
 	s.setStatus(fmt.Sprintf("Stepped %d CPU instruction(s)", steps))
+}
+
+func (s *devKitState) markCurrentFrame() {
+	snap := s.backend.Snapshot()
+	if !snap.Loaded {
+		s.setStatus("No active project build")
+		return
+	}
+	line := formatFrameMark(snap)
+	s.appendBuildOutput(line)
+	s.setStatus(line)
 }
 
 func (s *devKitState) toggleDiagnosticsPanel() {

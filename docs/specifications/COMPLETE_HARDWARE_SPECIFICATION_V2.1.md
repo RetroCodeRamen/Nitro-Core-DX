@@ -264,7 +264,7 @@ All instructions are 16-bit words:
 | 0x9000 | NOT | Bitwise NOT | 2 | `instructions.go:271-279` |
 | 0xA000 | SHL | Shift Left | 2-3 | `instructions.go:281-306` |
 | 0xB000 | SHR | Shift Right | 2-3 | `instructions.go:308-333` |
-| 0xC000 | CMP | Compare | 2-3 | `instructions.go:335-360` |
+| 0xC000 | CMP | Compare (register mode 0, immediate mode 7) | 2-3 | `instructions.go` |
 | 0xC100 | BEQ | Branch if Equal | 2-3 | `instructions.go:362-404` |
 | 0xC200 | BNE | Branch if Not Equal | 2-3 | `instructions.go:362-404` |
 | 0xC300 | BGT | Branch if Greater Than | 2-3 | `instructions.go:362-404` |
@@ -617,10 +617,10 @@ All instructions are 16-bit words:
 
 | Address | Name | Size | Description | Evidence |
 |---------|------|------|-------------|----------|
-| 0x8008 | BG0_CONTROL | 8-bit | Bit 0=enable, bit 1=tile size, bits [3:2]=priority | `ppu.go` |
-| 0x8009 | BG1_CONTROL | 8-bit | Bit 0=enable, bit 1=tile size, bits [3:2]=priority | `ppu.go` |
-| 0x8021 | BG2_CONTROL | 8-bit | Bit 0=enable, bit 1=tile size, bits [3:2]=priority | `ppu.go` |
-| 0x8026 | BG3_CONTROL | 8-bit | Bit 0=enable, bit 1=tile size, bits [3:2]=priority | `ppu.go` |
+| 0x8008 | BG0_CONTROL | 8-bit | Bit 0=enable, bit 1=tile size, bits [3:2]=priority, bits [5:4]=tilemap size (`00=32x32`, `01=64x64`, `10=128x128`) | `ppu.go` |
+| 0x8009 | BG1_CONTROL | 8-bit | Bit 0=enable, bit 1=tile size, bits [3:2]=priority, bits [5:4]=tilemap size | `ppu.go` |
+| 0x8021 | BG2_CONTROL | 8-bit | Bit 0=enable, bit 1=tile size, bits [3:2]=priority, bits [5:4]=tilemap size | `ppu.go` |
+| 0x8026 | BG3_CONTROL | 8-bit | Bit 0=enable, bit 1=tile size, bits [3:2]=priority, bits [5:4]=tilemap size | `ppu.go` |
 | 0x8068 | BG0_SOURCE_MODE | 8-bit | Bit 0=source mode (0=tilemap, 1=bitmap reserved) | `ppu.go` |
 | 0x8069 | BG1_SOURCE_MODE | 8-bit | Bit 0=source mode (0=tilemap, 1=bitmap reserved) | `ppu.go` |
 | 0x806A | BG2_SOURCE_MODE | 8-bit | Bit 0=source mode (0=tilemap, 1=bitmap reserved) | `ppu.go` |
@@ -656,7 +656,7 @@ All instructions are 16-bit words:
 
 | Address | Name | Size | Description | Evidence |
 |---------|------|------|-------------|----------|
-| 0x8018 | MATRIX_CONTROL | 8-bit | Bit 0=enable, bit 1=mirror H, bit 2=mirror V, bits [4:3]=outside mode, bit 5=direct color | `ppu.go:407-416` |
+| 0x8018 | MATRIX_CONTROL | 8-bit | Bit 0=enable, bit 1=mirror H, bit 2=mirror V, bits [4:3]=outside mode (`0=wrap`, `1=backdrop`, `2=tile0`, `3=clamp`), bit 5=direct color | `ppu.go` |
 | 0x8019 | MATRIX_A_L | 8-bit | Matrix A low byte | `ppu.go:417-419` |
 | 0x801A | MATRIX_A_H | 8-bit | Matrix A high byte | `ppu.go:420-422` |
 | 0x801B | MATRIX_B_L | 8-bit | Matrix B low byte | `ppu.go:423-425` |
@@ -713,6 +713,18 @@ All instructions are 16-bit words:
 | 0x807D | BG3_TILEMAP_BASE_L | 8-bit | BG3 tilemap base low byte | `ppu.go` |
 | 0x807E | BG3_TILEMAP_BASE_H | 8-bit | BG3 tilemap base high byte | `ppu.go` |
 | 0x807F | HDMA_EXTENSION_CONTROL | 8-bit | Bit 0=source-mode table present | `ppu.go` |
+| 0x8080 | MATRIX_PLANE_SELECT | 8-bit | Selected dedicated matrix plane (`0-3`) | `ppu.go` |
+| 0x8081 | MATRIX_PLANE_CONTROL | 8-bit | Bit 0=enable, bits [2:1]=matrix plane size (`0=32x32`, `1=64x64`, `2=128x128`), bit 3=source mode (`0=tilemap`, `1=bitmap`), bits [7:4]=bitmap palette bank | `ppu.go` |
+| 0x8082 | MATRIX_PLANE_ADDR_L | 8-bit | Dedicated matrix plane tilemap address low byte | `ppu.go` |
+| 0x8083 | MATRIX_PLANE_ADDR_H | 8-bit | Dedicated matrix plane tilemap address high byte | `ppu.go` |
+| 0x8084 | MATRIX_PLANE_DATA | 8-bit | Dedicated matrix plane tilemap data (auto-increments address) | `ppu.go` |
+| 0x8085 | MATRIX_PLANE_PATTERN_ADDR_L | 8-bit | Dedicated matrix plane pattern address low byte | `ppu.go` |
+| 0x8086 | MATRIX_PLANE_PATTERN_ADDR_H | 8-bit | Dedicated matrix plane pattern address high byte | `ppu.go` |
+| 0x8087 | MATRIX_PLANE_PATTERN_DATA | 8-bit | Dedicated matrix plane pattern data (auto-increments address) | `ppu.go` |
+| 0x8088 | MATRIX_PLANE_BITMAP_ADDR_L | 8-bit | Dedicated matrix plane bitmap address low byte | `ppu.go` |
+| 0x8089 | MATRIX_PLANE_BITMAP_ADDR_M | 8-bit | Dedicated matrix plane bitmap address middle byte | `ppu.go` |
+| 0x808A | MATRIX_PLANE_BITMAP_ADDR_H | 8-bit | Dedicated matrix plane bitmap address high bits (`0-7`) | `ppu.go` |
+| 0x808B | MATRIX_PLANE_BITMAP_DATA | 8-bit | Dedicated matrix plane bitmap data (auto-increments address) | `ppu.go` |
 
 #### DMA Registers
 

@@ -20,6 +20,10 @@ The main limitation is no longer transform ownership. The current runtime now us
 
 This document defines that target architecture so future emulator and FPGA work can converge on one contract.
 
+For the per-plane matrix source-size and dedicated-memory baseline, see:
+
+- [PPU_MATRIX_PLANE_MEMORY_SPEC.md](./PPU_MATRIX_PLANE_MEMORY_SPEC.md)
+
 ## Current Implementation Snapshot
 
 Current Go PPU behavior:
@@ -87,6 +91,31 @@ Stage 1 architectural contract supports two source classes:
 - `bitmap` (future-capable; not required in current runtime)
 
 Current implementation only uses tilemap-backed transformed layers. Bitmap source support is part of the target architecture and must be included in the register contract before implementation.
+
+### Tooling / Asset Pipeline Requirements
+
+The graphics toolchain must eventually support import from common image formats such as:
+- PNG
+- JPG/JPEG
+
+Expected pipeline behavior:
+- quantize or reduce fidelity into console-native indexed/tile formats
+- emit Sprite Lab / tile / tilemap friendly assets instead of raw image blobs
+- preserve a clear mapping between imported source art and runtime tile/sprite assets
+
+This is not only a Dev Kit feature request. It affects the long-term graphics contract because bitmap-source and transformed-source workflows need a stable authored asset path.
+
+### Large Transform Source Requirement
+
+For pseudo-3D use cases such as kart-racer floor planes, transformed source imagery may need to be materially larger than the currently visible map region.
+
+Implications:
+- transformed source size must not be assumed equal to current 32x32 tilemap visibility
+- future bitmap/tilemap source work needs explicit limits for:
+  - source width/height
+  - wrapping/clamping policy
+  - streaming/cache strategy
+- large-source support is an architecture concern, not just a content/tooling concern
 
 ## Raster-Time Update Model
 

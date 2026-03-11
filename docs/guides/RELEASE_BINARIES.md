@@ -10,6 +10,11 @@ This project now includes a release build workflow for the integrated **Nitro-Co
 These are single downloadable package files (archives).  
 The Windows package includes `SDL2.dll`.
 
+Each package also includes two test ROMs in `roms/`:
+
+- `pong_ym2608_demo.rom`
+- `matrix_floor_only_kart.rom`
+
 ## GitHub Actions Workflow
 
 Workflow file:
@@ -46,3 +51,6 @@ Default version is derived from `git describe --tags --always --dirty`.
 - **Linux** still requires SDL2 runtime libraries installed on the target machine.
 - **Windows** package includes `SDL2.dll`, but still depends on normal Windows graphics/runtime components.
 - The packaged app is the integrated **Nitro-Core-DX** app; users can switch to **Emulator Focus** or **Code Only** view inside the app.
+- Test ROMs are included so users can validate:
+  - YM2608-backed gameplay/audio with `pong_ym2608_demo.rom`
+  - dedicated matrix-floor rendering with `matrix_floor_only_kart.rom`

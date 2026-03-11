@@ -54,6 +54,67 @@ func TestMatrixRegistersDriveTransformChannelZero(t *testing.T) {
 	}
 }
 
+func TestMatrixPlaneRegisterRoundTrip(t *testing.T) {
+	logger := debug.NewLogger(1000)
+	ppu := NewPPU(logger)
+
+	ppu.Write8(0x80, 0x02) // select plane 2
+	ppu.Write8(0x81, 0x05) // enabled + 128x128 size
+	ppu.Write8(0x82, 0x34)
+	ppu.Write8(0x83, 0x12)
+	ppu.Write8(0x84, 0xAB)
+	ppu.Write8(0x84, 0xCD)
+	ppu.Write8(0x85, 0x78)
+	ppu.Write8(0x86, 0x56)
+	ppu.Write8(0x87, 0x9A)
+	ppu.Write8(0x87, 0xBC)
+
+	if ppu.MatrixPlaneSelect != 2 {
+		t.Fatalf("MatrixPlaneSelect = %d, want 2", ppu.MatrixPlaneSelect)
+	}
+	if !ppu.MatrixPlanes[2].Enabled || ppu.MatrixPlanes[2].Size != TilemapSize128x128 {
+		t.Fatalf("matrix plane control decode = (%v,%d), want (true,%d)", ppu.MatrixPlanes[2].Enabled, ppu.MatrixPlanes[2].Size, TilemapSize128x128)
+	}
+	if ppu.MatrixPlanes[2].Tilemap[0x1234] != 0xAB || ppu.MatrixPlanes[2].Tilemap[0x1235] != 0xCD {
+		t.Fatalf("matrix plane data writes did not land at expected addresses")
+	}
+	if got := ppu.MatrixPlanePatternAddr; got != 0x567A {
+		t.Fatalf("matrix plane pattern addr = 0x%04X, want 0x567A after two data writes", got)
+	}
+	if ppu.MatrixPlanes[2].Pattern[0x5678] != 0x9A || ppu.MatrixPlanes[2].Pattern[0x5679] != 0xBC {
+		t.Fatalf("matrix plane pattern writes did not land at expected addresses")
+	}
+
+	ppu.Write8(0x82, 0x34)
+	ppu.Write8(0x83, 0x12)
+	ppu.Write8(0x85, 0x78)
+	ppu.Write8(0x86, 0x56)
+	if got := ppu.Read8(0x80); got != 0x02 {
+		t.Fatalf("matrix plane select readback = 0x%02X, want 0x02", got)
+	}
+	if got := ppu.Read8(0x81); got != 0x05 {
+		t.Fatalf("matrix plane control readback = 0x%02X, want 0x05", got)
+	}
+	if got := ppu.Read8(0x84); got != 0xAB {
+		t.Fatalf("matrix plane first data readback = 0x%02X, want 0xAB", got)
+	}
+	if got := ppu.Read8(0x84); got != 0xCD {
+		t.Fatalf("matrix plane second data readback = 0x%02X, want 0xCD", got)
+	}
+	if got := ppu.Read8(0x85); got != 0x78 {
+		t.Fatalf("matrix plane pattern addr low readback = 0x%02X, want 0x78", got)
+	}
+	if got := ppu.Read8(0x86); got != 0x56 {
+		t.Fatalf("matrix plane pattern addr high readback = 0x%02X, want 0x56", got)
+	}
+	if got := ppu.Read8(0x87); got != 0x9A {
+		t.Fatalf("matrix plane first pattern data readback = 0x%02X, want 0x9A", got)
+	}
+	if got := ppu.Read8(0x87); got != 0xBC {
+		t.Fatalf("matrix plane second pattern data readback = 0x%02X, want 0xBC", got)
+	}
+}
+
 func TestDefaultTransformBindingsMirrorCanonicalLayerMatrixState(t *testing.T) {
 	logger := debug.NewLogger(1000)
 	ppu := NewPPU(logger)
@@ -265,26 +326,26 @@ func TestLayerControlRegisterRoundTrip(t *testing.T) {
 	logger := debug.NewLogger(1000)
 	ppu := NewPPU(logger)
 
-	ppu.Write8(0x08, 0x0F) // BG0: enabled, large tiles, priority 3
+	ppu.Write8(0x08, 0x2F) // BG0: enabled, large tiles, priority 3, 128x128 tilemap
 	ppu.Write8(0x09, 0x04) // BG1: disabled, small tiles, priority 1
 	ppu.Write8(0x21, 0x07) // BG2: enabled, large tiles, priority 1
 	ppu.Write8(0x26, 0x08) // BG3: disabled, small tiles, priority 2
 
-	if !ppu.BG0.Enabled || !ppu.BG0.TileSize || ppu.BG0.Priority != 3 {
+	if !ppu.BG0.Enabled || !ppu.BG0.TileSize || ppu.BG0.TilemapSize != TilemapSize128x128 || ppu.BG0.Priority != 3 {
 		t.Fatal("BG0 control decode did not update layer state correctly")
 	}
-	if ppu.BG1.Enabled || ppu.BG1.TileSize || ppu.BG1.Priority != 1 {
+	if ppu.BG1.Enabled || ppu.BG1.TileSize || ppu.BG1.TilemapSize != TilemapSize32x32 || ppu.BG1.Priority != 1 {
 		t.Fatal("BG1 control decode did not update layer state correctly")
 	}
-	if !ppu.BG2.Enabled || !ppu.BG2.TileSize || ppu.BG2.Priority != 1 {
+	if !ppu.BG2.Enabled || !ppu.BG2.TileSize || ppu.BG2.TilemapSize != TilemapSize32x32 || ppu.BG2.Priority != 1 {
 		t.Fatal("BG2 control decode did not update layer state correctly")
 	}
-	if ppu.BG3.Enabled || ppu.BG3.TileSize || ppu.BG3.Priority != 2 {
+	if ppu.BG3.Enabled || ppu.BG3.TileSize || ppu.BG3.TilemapSize != TilemapSize32x32 || ppu.BG3.Priority != 2 {
 		t.Fatal("BG3 control decode did not update layer state correctly")
 	}
 
-	if got := ppu.Read8(0x08); got != 0x0F {
-		t.Fatalf("BG0 control readback = 0x%02X, want 0x0F", got)
+	if got := ppu.Read8(0x08); got != 0x2F {
+		t.Fatalf("BG0 control readback = 0x%02X, want 0x2F", got)
 	}
 	if got := ppu.Read8(0x09); got != 0x04 {
 		t.Fatalf("BG1 control readback = 0x%02X, want 0x04", got)

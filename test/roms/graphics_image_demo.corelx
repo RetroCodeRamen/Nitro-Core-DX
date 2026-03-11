@@ -1,0 +1,83 @@
+asset SkyTile: tiles8
+    hex
+        11 11 11 11 11 11 11 11
+        11 11 11 11 11 11 11 11
+        11 11 11 11 11 11 11 11
+        11 11 11 11 11 11 11 11
+
+asset GroundTile: tiles8
+    hex
+        22 22 22 22 22 22 22 22
+        22 22 22 22 22 22 22 22
+        22 22 22 22 22 22 22 22
+        22 22 22 22 22 22 22 22
+
+asset SunTile: tiles8
+    hex
+        00 00 33 33 33 33 00 00
+        00 33 33 33 33 33 33 00
+        33 33 33 33 33 33 33 33
+        33 33 33 33 33 33 33 33
+
+asset MountainTile: tiles8
+    hex
+        00 00 00 44 44 00 00 00
+        00 00 44 44 44 44 00 00
+        00 44 44 44 44 44 44 00
+        44 44 44 44 44 44 44 44
+
+function Start()
+    gfx.set_palette(0, 0, 0x0000)
+    gfx.set_palette(0, 1, 0x421F)  -- sky blue
+    gfx.set_palette(0, 2, 0x03E0)  -- ground green
+    gfx.set_palette(0, 3, 0x7FE0)  -- sun yellow
+    gfx.set_palette(0, 4, 0x4210)  -- mountain gray
+
+    gfx.load_tiles(ASSET_SkyTile, 0)
+    gfx.load_tiles(ASSET_GroundTile, 1)
+    gfx.load_tiles(ASSET_SunTile, 2)
+    gfx.load_tiles(ASSET_MountainTile, 3)
+
+    bg.set_tilemap_base(0, 0x1000)
+    bg.clear(0, 0, 0)
+
+    row := 20
+    while row < 32
+        bg.fill_span(0, 0, row, 32, 1, 0)
+        row = row + 1
+
+    bg.fill_span(0, 8, 6, 4, 2, 0)
+
+    bg.fill_span(0, 10, 15, 2, 3, 0)
+    bg.fill_span(0, 9, 16, 4, 3, 0)
+    bg.fill_span(0, 8, 17, 6, 3, 0)
+    bg.fill_span(0, 7, 18, 8, 3, 0)
+
+    bg.enable(0)
+    bg.set_priority(0, 0)
+    bg.bind_transform(0, 0)
+    matrix.enable(0)
+    matrix.identity(0)
+    matrix.set_center(0, 0, 0)
+
+    raster.enable(0x3200, 0x01, false, false, false, false)
+
+    scan := 0
+    while scan < 100
+        raster.set_scanline_scroll(scan, 0, 0, 0)
+        raster.set_scanline_matrix(scan, 0, 0x0100, 0, 0, 0x0100)
+        raster.set_scanline_center(scan, 0, 0, 0)
+        scan = scan + 1
+
+    shift := 0
+    while scan < 200
+        raster.set_scanline_scroll(scan, 0, shift, 0)
+        raster.set_scanline_matrix(scan, 0, 0x0100, 0, 0, 0x0100)
+        raster.set_scanline_center(scan, 0, 0, 0)
+        shift = shift + 1
+        scan = scan + 1
+
+    ppu.enable_display()
+
+    while true
+        wait_vblank()

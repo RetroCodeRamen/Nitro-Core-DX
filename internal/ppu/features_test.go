@@ -235,6 +235,17 @@ func TestMatrixModeOutsideScreen(t *testing.T) {
 	if color == expectedBackdrop && expectedBackdrop != 0x000000 {
 		t.Logf("Repeat mode: Got backdrop color, but coordinates may have wrapped correctly")
 	}
+
+	// Test clamp mode - out-of-range coordinates should clamp to tile 0 instead of wrapping.
+	ppu.TransformChannels[0].OutsideMode = 3 // Clamp mode
+	ppu.BG0.ScrollX = -300
+	ppu.BG0.ScrollY = -300
+	ppu.renderDotMatrixMode(0, 0, 0)
+	color = ppu.OutputBuffer[0]
+	expectedTileColor := ppu.getColorFromCGRAM(0, 1)
+	if color != expectedTileColor {
+		t.Fatalf("Clamp mode: got color 0x%06X, want clamped tile color 0x%06X", color, expectedTileColor)
+	}
 }
 
 // TestMatrixModeDirectColor tests direct color mode
@@ -280,6 +291,363 @@ func TestMatrixModeDirectColor(t *testing.T) {
 	cgramColor := ppu.getColorFromCGRAM(0, 15)
 	if color == cgramColor {
 		t.Logf("Direct color mode: Color matches CGRAM, but direct color should bypass CGRAM")
+	}
+}
+
+func TestMatrixMode128x128TilemapExtendsWrapSpan(t *testing.T) {
+	logger := debug.NewLogger(1000)
+	ppu := NewPPU(logger)
+
+	ppu.BG0.Enabled = true
+	ppu.BG0.TilemapSize = TilemapSize128x128
+	ppu.TransformChannels[0].Enabled = true
+	ppu.TransformChannels[0].A = 0x0100
+	ppu.TransformChannels[0].D = 0x0100
+	ppu.TransformChannels[0].CenterX = 0
+	ppu.TransformChannels[0].CenterY = 0
+	ppu.BG0.TilemapBase = 0x4000
+	ppu.BG0.ScrollX = 400
+
+	// Tile 0 -> palette color 1, tile 1 -> palette color 2.
+	for i := 0; i < 32; i++ {
+		ppu.VRAM[i] = 0x11
+		ppu.VRAM[32+i] = 0x22
+	}
+	ppu.CGRAM[0x01*2] = 0x1F
+	ppu.CGRAM[0x01*2+1] = 0x00
+	ppu.CGRAM[0x02*2] = 0xE0
+	ppu.CGRAM[0x02*2+1] = 0x03
+
+	// At x=700 with identity matrix:
+	// - 64x64@8x8 source would wrap to tileX 23
+	// - 128x128@8x8 source should sample tileX 87 directly
+	ppu.VRAM[0x4000+(23*2)] = 0x00
+	ppu.VRAM[0x4000+(23*2)+1] = 0x00
+	ppu.VRAM[0x4000+(87*2)] = 0x01
+	ppu.VRAM[0x4000+(87*2)+1] = 0x00
+
+	ppu.renderDotMatrixMode(0, 300, 0)
+	color := ppu.OutputBuffer[300]
+	expected := ppu.getColorFromCGRAM(0, 2)
+	if color != expected {
+		t.Fatalf("matrix 128x128 sample color = 0x%06X, want 0x%06X from tileX 87", color, expected)
+	}
+}
+
+func TestMatrixModeDedicatedPlaneOverridesVRAMTilemap(t *testing.T) {
+	logger := debug.NewLogger(1000)
+	ppu := NewPPU(logger)
+
+	ppu.BG0.Enabled = true
+	ppu.BG0.TilemapSize = TilemapSize32x32
+	ppu.BG0.TilemapBase = 0x4000
+	ppu.TransformChannels[0].Enabled = true
+	ppu.TransformChannels[0].A = 0x0100
+	ppu.TransformChannels[0].D = 0x0100
+
+	for i := 0; i < 32; i++ {
+		ppu.VRAM[i] = 0x11
+		ppu.VRAM[32+i] = 0x22
+	}
+	ppu.CGRAM[0x01*2] = 0x1F
+	ppu.CGRAM[0x01*2+1] = 0x00
+	ppu.CGRAM[0x02*2] = 0xE0
+	ppu.CGRAM[0x02*2+1] = 0x03
+
+	// Ordinary BG tilemap points at tile 0.
+	ppu.VRAM[0x4000] = 0x00
+	ppu.VRAM[0x4001] = 0x00
+
+	// Dedicated matrix plane points at tile 1.
+	ppu.MatrixPlanes[0].Enabled = true
+	ppu.MatrixPlanes[0].Size = TilemapSize32x32
+	ppu.MatrixPlanes[0].Tilemap[0] = 0x01
+	ppu.MatrixPlanes[0].Tilemap[1] = 0x00
+	ppu.MatrixPlanes[0].Pattern[32] = 0x22
+
+	ppu.renderDotMatrixMode(0, 0, 0)
+	color := ppu.OutputBuffer[0]
+	expected := ppu.getColorFromCGRAM(0, 2)
+	if color != expected {
+		t.Fatalf("dedicated matrix plane color = 0x%06X, want 0x%06X from dedicated plane tile 1", color, expected)
+	}
+}
+
+func TestMatrixModeDedicatedPlanePatternBaseOverridesDefaultTileSource(t *testing.T) {
+	logger := debug.NewLogger(1000)
+	ppu := NewPPU(logger)
+
+	ppu.BG0.Enabled = true
+	ppu.BG0.TilemapSize = TilemapSize32x32
+	ppu.TransformChannels[0].Enabled = true
+	ppu.TransformChannels[0].A = 0x0100
+	ppu.TransformChannels[0].D = 0x0100
+
+	ppu.MatrixPlanes[0].Enabled = true
+	ppu.MatrixPlanes[0].Size = TilemapSize32x32
+	ppu.MatrixPlanes[0].Tilemap[0] = 0x01
+	ppu.MatrixPlanes[0].Tilemap[1] = 0x00
+
+	// Default VRAM tile source for tile 1 -> palette color 2.
+	ppu.VRAM[32] = 0x22
+	// Dedicated matrix-plane pattern memory for tile 1 -> palette color 1.
+	ppu.MatrixPlanes[0].Pattern[32] = 0x11
+	ppu.CGRAM[0x01*2] = 0x1F
+	ppu.CGRAM[0x01*2+1] = 0x00
+	ppu.CGRAM[0x02*2] = 0xE0
+	ppu.CGRAM[0x02*2+1] = 0x03
+
+	ppu.renderDotMatrixMode(0, 0, 0)
+
+	color := ppu.OutputBuffer[0]
+	expected := ppu.getColorFromCGRAM(0, 1)
+	if color != expected {
+		t.Fatalf("dedicated matrix plane pattern memory color = 0x%06X, want 0x%06X from dedicated pattern tile 1", color, expected)
+	}
+}
+
+func TestMatrixModeDedicatedPlaneBitmapUsesDedicatedBitmapMemory(t *testing.T) {
+	logger := debug.NewLogger(1000)
+	ppu := NewPPU(logger)
+
+	ppu.BG0.Enabled = true
+	ppu.BG0.TilemapSize = TilemapSize128x128
+	ppu.BG0.TransformChannel = 0
+	ppu.BG0.ScrollX = 0
+	ppu.BG0.ScrollY = 0
+	ppu.TransformChannels[0].Enabled = true
+	ppu.TransformChannels[0].A = 0x0100
+	ppu.TransformChannels[0].D = 0x0100
+	ppu.TransformChannels[0].CenterX = 0
+	ppu.TransformChannels[0].CenterY = 0
+
+	ppu.MatrixPlanes[0].Enabled = true
+	ppu.MatrixPlanes[0].Size = TilemapSize128x128
+	ppu.MatrixPlanes[0].SourceMode = MatrixPlaneSourceBitmap
+	ppu.MatrixPlanes[0].BitmapPalette = 1
+
+	// Bitmap pixel at world coordinate (300,0) -> palette color index 2.
+	pixelOffset := 300
+	byteOffset := pixelOffset / 2
+	ppu.MatrixPlanes[0].Bitmap[byteOffset] = 0x20
+
+	ppu.CGRAM[(1*16+2)*2] = 0x1F
+	ppu.CGRAM[(1*16+2)*2+1] = 0x00
+
+	ppu.renderDotMatrixMode(0, 300, 0)
+	color := ppu.OutputBuffer[300]
+	expected := ppu.getColorFromCGRAM(1, 2)
+	if color != expected {
+		t.Fatalf("dedicated matrix plane bitmap color = 0x%06X, want 0x%06X", color, expected)
+	}
+}
+
+func TestMatrixModeCenterActsAsSourceOrigin(t *testing.T) {
+	logger := debug.NewLogger(1000)
+	ppu := NewPPU(logger)
+
+	ppu.BG0.Enabled = true
+	ppu.BG0.TransformChannel = 0
+	ppu.TransformChannels[0].Enabled = true
+	ppu.TransformChannels[0].A = 0x0100
+	ppu.TransformChannels[0].D = 0x0100
+	ppu.TransformChannels[0].CenterX = 64
+	ppu.TransformChannels[0].CenterY = 64
+
+	ppu.MatrixPlanes[0].Enabled = true
+	ppu.MatrixPlanes[0].Size = TilemapSize128x128
+	ppu.MatrixPlanes[0].SourceMode = MatrixPlaneSourceBitmap
+	ppu.MatrixPlanes[0].BitmapPalette = 1
+
+	// Source pixel (0,0) = color 1, source pixel (64,64) = color 2.
+	ppu.MatrixPlanes[0].Bitmap[0] = 0x10
+	targetOffset := (64*1024 + 64) / 2
+	if (64*1024+64)%2 == 0 {
+		ppu.MatrixPlanes[0].Bitmap[targetOffset] = 0x20
+	} else {
+		ppu.MatrixPlanes[0].Bitmap[targetOffset] = 0x02
+	}
+
+	ppu.CGRAM[(1*16+1)*2] = 0x1F
+	ppu.CGRAM[(1*16+1)*2+1] = 0x00
+	ppu.CGRAM[(1*16+2)*2] = 0xE0
+	ppu.CGRAM[(1*16+2)*2+1] = 0x03
+
+	ppu.renderDotMatrixMode(0, 64, 64)
+	color := ppu.OutputBuffer[64*320+64]
+	expected := ppu.getColorFromCGRAM(1, 2)
+	if color != expected {
+		t.Fatalf("matrix center/origin sample color = 0x%06X, want 0x%06X from source pixel (64,64)", color, expected)
+	}
+}
+
+func TestMatrixModeDedicatedPlaneBitmapIndexZeroIsTransparentWhenEnabled(t *testing.T) {
+	logger := debug.NewLogger(1000)
+	ppu := NewPPU(logger)
+	ppu.BG1.Enabled = true
+	ppu.BG1.Priority = 1
+	ppu.BG1.ScrollX = 0
+	ppu.BG1.ScrollY = 0
+	ppu.BG1.TransformChannel = 1
+	ppu.TransformChannels[1].Enabled = true
+	ppu.TransformChannels[1].A = 0x0100
+	ppu.TransformChannels[1].D = 0x0100
+
+	ppu.VRAM[0] = 0x11
+	ppu.CGRAM[2] = 0x1F
+	ppu.CGRAM[3] = 0x00
+
+	ppu.MatrixPlanes[1].Enabled = true
+	ppu.MatrixPlanes[1].Size = TilemapSize128x128
+	ppu.MatrixPlanes[1].SourceMode = MatrixPlaneSourceBitmap
+	ppu.MatrixPlanes[1].BitmapPalette = 1
+	ppu.MatrixPlanes[1].Transparent0 = true
+	// Both nibbles zero => transparent.
+	ppu.MatrixPlanes[1].Bitmap[0] = 0x00
+
+	expected := uint32(0x112233)
+	ppu.OutputBuffer[0] = expected
+	ppu.renderDotMatrixMode(1, 0, 0)
+	if got := ppu.OutputBuffer[0]; got != expected {
+		t.Fatalf("transparent bitmap plane color = 0x%06X, want underlying BG color 0x%06X", got, expected)
+	}
+}
+
+func TestMatrixModeDedicatedPlaneBitmapIndexZeroOpaqueWhenTransparencyDisabled(t *testing.T) {
+	logger := debug.NewLogger(1000)
+	ppu := NewPPU(logger)
+	ppu.BG1.Enabled = true
+	ppu.BG1.Priority = 1
+	ppu.BG1.ScrollX = 0
+	ppu.BG1.ScrollY = 0
+	ppu.BG1.TransformChannel = 1
+	ppu.TransformChannels[1].Enabled = true
+	ppu.TransformChannels[1].A = 0x0100
+	ppu.TransformChannels[1].D = 0x0100
+
+	ppu.MatrixPlanes[1].Enabled = true
+	ppu.MatrixPlanes[1].Size = TilemapSize128x128
+	ppu.MatrixPlanes[1].SourceMode = MatrixPlaneSourceBitmap
+	ppu.MatrixPlanes[1].BitmapPalette = 1
+	ppu.MatrixPlanes[1].Transparent0 = false
+	ppu.MatrixPlanes[1].Bitmap[0] = 0x00
+
+	expected := ppu.getColorFromCGRAM(1, 0)
+	ppu.OutputBuffer[0] = 0x112233
+	ppu.renderDotMatrixMode(1, 0, 0)
+	if got := ppu.OutputBuffer[0]; got != expected {
+		t.Fatalf("opaque bitmap plane color = 0x%06X, want palette color 0x%06X", got, expected)
+	}
+}
+
+func TestDMATransferToDedicatedMatrixPlaneBitmap(t *testing.T) {
+	ppu := NewPPU(nil)
+	source := []uint8{0x12, 0x34, 0x56, 0x78}
+	ppu.MemoryReader = func(bank uint8, offset uint16) uint8 {
+		if bank != 1 {
+			return 0
+		}
+		if int(offset) >= len(source) {
+			return 0
+		}
+		return source[offset]
+	}
+
+	ppu.MatrixPlaneSelect = 0
+	ppu.MatrixPlaneBitmapAddr = 0
+	ppu.DMASourceBank = 1
+	ppu.DMASourceOffset = 0
+	ppu.DMADestType = 5
+	ppu.DMALength = uint16(len(source))
+	ppu.DMAEnabled = true
+
+	ppu.executeDMA()
+
+	if got := ppu.MatrixPlanes[0].Bitmap[:len(source)]; got[0] != 0x12 || got[1] != 0x34 || got[2] != 0x56 || got[3] != 0x78 {
+		t.Fatalf("matrix bitmap DMA upload mismatch: got=%v want=%v", got, source)
+	}
+}
+
+func TestMatrixPlaneLiveFloorRegisterRoundTrip(t *testing.T) {
+	logger := debug.NewLogger(1000)
+	ppu := NewPPU(logger)
+
+	ppu.Write8(0x80, 0x00)
+	ppu.Write8(0x8D, 0x01)
+	ppu.Write8(0x8E, 92)
+	ppu.Write8(0x8F, 0x34)
+	ppu.Write8(0x90, 0x12)
+	ppu.Write8(0x91, 0x78)
+	ppu.Write8(0x92, 0x56)
+	ppu.Write8(0x93, 0x00)
+	ppu.Write8(0x94, 0x01)
+	ppu.Write8(0x95, 0x00)
+	ppu.Write8(0x96, 0xFF)
+
+	plane := ppu.MatrixPlanes[0]
+	if !plane.LiveFloorEnabled {
+		t.Fatal("expected live floor to be enabled")
+	}
+	if plane.LiveFloorHorizon != 92 {
+		t.Fatalf("LiveFloorHorizon = %d, want 92", plane.LiveFloorHorizon)
+	}
+	if plane.LiveFloorCameraX != 0x1234 {
+		t.Fatalf("LiveFloorCameraX = 0x%04X, want 0x1234", uint16(plane.LiveFloorCameraX))
+	}
+	if plane.LiveFloorCameraY != 0x5678 {
+		t.Fatalf("LiveFloorCameraY = 0x%04X, want 0x5678", uint16(plane.LiveFloorCameraY))
+	}
+	if plane.LiveFloorHeadingX != 0x0100 {
+		t.Fatalf("LiveFloorHeadingX = 0x%04X, want 0x0100", uint16(plane.LiveFloorHeadingX))
+	}
+	if uint16(plane.LiveFloorHeadingY) != 0xFF00 {
+		t.Fatalf("LiveFloorHeadingY = 0x%04X, want 0xFF00", uint16(plane.LiveFloorHeadingY))
+	}
+
+	if got := ppu.Read8(0x8D); got != 0x01 {
+		t.Fatalf("readback live floor control = 0x%02X, want 0x01", got)
+	}
+	if got := ppu.Read8(0x8E); got != 92 {
+		t.Fatalf("readback live floor horizon = %d, want 92", got)
+	}
+}
+
+func TestBitmapMatrixPlaneLiveFloorRendersBelowHorizon(t *testing.T) {
+	logger := debug.NewLogger(1000)
+	ppu := NewPPU(logger)
+
+	ppu.CGRAM[0x11*2] = 0x1F
+	ppu.CGRAM[0x11*2+1] = 0x03 // green-ish
+
+	ppu.BG0.Enabled = true
+	ppu.BG0.TransformChannel = 0
+	ppu.TransformChannels[0].Enabled = true
+	ppu.TransformChannels[0].OutsideMode = 0
+
+	plane := &ppu.MatrixPlanes[0]
+	plane.Enabled = true
+	plane.Size = TilemapSize128x128
+	plane.SourceMode = MatrixPlaneSourceBitmap
+	plane.BitmapPalette = 1
+	plane.LiveFloorEnabled = true
+	plane.LiveFloorHorizon = 92
+	plane.LiveFloorCameraX = 512
+	plane.LiveFloorCameraY = 512
+	plane.LiveFloorHeadingX = 0
+	plane.LiveFloorHeadingY = -0x0100
+	for i := range plane.Bitmap {
+		plane.Bitmap[i] = 0x11
+	}
+
+	ppu.renderDotMatrixMode(0, 160, 80)
+	if got := ppu.OutputBuffer[80*320+160]; got != 0 {
+		t.Fatalf("pixel above horizon = 0x%06X, want 0x000000", got)
+	}
+
+	ppu.renderDotMatrixMode(0, 160, 150)
+	want := ppu.getColorFromCGRAM(1, 1)
+	if got := ppu.OutputBuffer[150*320+160]; got != want {
+		t.Fatalf("pixel below horizon = 0x%06X, want 0x%06X", got, want)
 	}
 }
 

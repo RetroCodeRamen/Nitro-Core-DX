@@ -25,7 +25,7 @@ const (
 	tilemapLabFormatV1     = "clxtilemap-v1"
 	tilemapLabDefaultSize  = 32
 	tilemapLabMinSize      = 8
-	tilemapLabMaxSize      = 64
+	tilemapLabMaxSize      = 32
 	tilemapLabSizeStep     = 8
 	tilemapLabHistoryLimit = 128
 	tilemapLabEditorMaxPx  = 512

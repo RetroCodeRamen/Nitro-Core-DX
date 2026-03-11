@@ -69,8 +69,40 @@ func normalizeAssetDecl(a *AssetDecl, sourcePath string) (AssetIR, *Diagnostic) 
 		d := assetDiagnostic(a, sourcePath, CategoryAssetFormatError, "E_ASSET_ENCODING_UNSUPPORTED", fmt.Sprintf("unsupported asset encoding: %s", a.Encoding))
 		return AssetIR{}, &d
 	}
+	ir.Data = normalizeLegacyTilePayload(a.Type, ir.Data)
 
 	return ir, nil
+}
+
+func normalizeLegacyTilePayload(assetType string, data []byte) []byte {
+	switch assetType {
+	case "tiles8":
+		// Accept historical "one byte per pixel index" authoring for 8x8 tiles
+		// and pack it into the runtime 4bpp format.
+		if len(data) == 64 {
+			return packExpanded4bppPixels(data)
+		}
+	case "tiles16":
+		// Accept historical "one byte per pixel index" authoring for 16x16 tiles
+		// and pack it into the runtime 4bpp format.
+		if len(data) == 256 {
+			return packExpanded4bppPixels(data)
+		}
+	}
+	return data
+}
+
+func packExpanded4bppPixels(data []byte) []byte {
+	if len(data)%2 != 0 {
+		return data
+	}
+	out := make([]byte, 0, len(data)/2)
+	for i := 0; i < len(data); i += 2 {
+		hi := data[i] & 0x0F
+		lo := data[i+1] & 0x0F
+		out = append(out, (hi<<4)|lo)
+	}
+	return out
 }
 
 func decodeHexAssetData(s string) ([]byte, error) {

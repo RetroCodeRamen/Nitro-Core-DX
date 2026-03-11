@@ -4,8 +4,7 @@ import (
 	"testing"
 )
 
-// TestCMPImmediate tests CMP with immediate value
-// ISSUE: CMP immediate decode may be unreachable (mode check issue)
+// TestCMPImmediate tests CMP with immediate value.
 func TestCMPImmediate(t *testing.T) {
 	mem := &testMemoryWithROM{
 		wram: make([]uint8, 32768),
@@ -17,22 +16,22 @@ func TestCMPImmediate(t *testing.T) {
 	cpu.SetEntryPoint(1, 0x8000)
 
 	// Set up CMP R1, #imm instruction
-	// Instruction format: 0xC[1-7][reg1][reg2] where mode=1 means immediate
+	// Instruction format: 0xC[mode][reg1][reg2] where mode=7 means CMP immediate.
 	// For CMP R1, #0x1234:
-	// - Opcode: 0xC (12)
-	// - Mode: 0x1 (immediate)
+	// - Opcode: 0xC
+	// - Mode: 0x7 (immediate)
 	// - Reg1: 0x1 (R1)
 	// - Reg2: 0x0 (unused)
-	// Instruction: 0xC100 = 0xC << 12 | 0x1 << 8 | 0x1 << 4 | 0x0
+	// Instruction word: 0xC710.
 
 	// Set R1 to 0x5678
 	cpu.SetRegister(1, 0x5678)
 
 	// Write instruction: CMP R1, #0x1234
-	// Instruction word: 0xC110 (CMP with mode 1 = immediate, reg1=1, reg2=0)
-	// Encoding: 0xC000 | (0x1 << 8) | (0x1 << 4) | 0x0 = 0xC110
+	// Instruction word: 0xC710 (CMP with mode 7 = immediate, reg1=1, reg2=0)
+	// Encoding: 0xC000 | (0x7 << 8) | (0x1 << 4) | 0x0 = 0xC710
 	mem.Write8(1, 0x8000, 0x10) // Low byte: reg1=1 (bits 7-4), reg2=0 (bits 3-0)
-	mem.Write8(1, 0x8001, 0xC1) // High byte: opcode=0xC, mode=0x1
+	mem.Write8(1, 0x8001, 0xC7) // High byte: opcode=0xC, mode=0x7
 	// Immediate value: 0x1234
 	mem.Write8(1, 0x8002, 0x34) // Low byte
 	mem.Write8(1, 0x8003, 0x12) // High byte
@@ -64,7 +63,7 @@ func TestCMPImmediate(t *testing.T) {
 	// Test with equal values
 	cpu.SetRegister(1, 0x1234)
 	mem.Write8(1, 0x8004, 0x10) // reg1=1
-	mem.Write8(1, 0x8005, 0xC1)
+	mem.Write8(1, 0x8005, 0xC7)
 	mem.Write8(1, 0x8006, 0x34)
 	mem.Write8(1, 0x8007, 0x12)
 	cpu.State.PCOffset = 0x8004
@@ -368,9 +367,8 @@ func TestInterruptEntryExit(t *testing.T) {
 	}
 }
 
-// TestMOVReservedModes tests MOV reserved modes (8-15)
-// ISSUE: Reserved modes should be treated as NOP, not error
-func TestMOVReservedModes(t *testing.T) {
+// TestMOVExtendedModes tests the still-reserved and newly-assigned MOV extension modes.
+func TestMOVExtendedModes(t *testing.T) {
 	mem := &testMemoryWithROM{
 		wram: make([]uint8, 32768),
 		rom:  make([]uint8, 65536),
@@ -380,37 +378,29 @@ func TestMOVReservedModes(t *testing.T) {
 	cpu := NewCPU(mem, logger)
 	cpu.SetEntryPoint(1, 0x8000)
 
-	// Test MOV mode 8 (reserved)
-	// Instruction: 0x1800 (MOV mode 8, R0, R0)
+	// Test MOV mode 8 (DBR <- R0 low byte)
+	// Instruction: 0x1800 (MOV mode 8, R0)
 	mem.Write8(1, 0x8000, 0x00)
 	mem.Write8(1, 0x8001, 0x18) // MOV mode 8
 
 	// Set initial state
 	cpu.SetRegister(0, 0x1234)
-	reg0Before := cpu.GetRegister(0)
-
-	// Execute - should either NOP or error
 	err := cpu.ExecuteInstruction()
 	if err != nil {
-		// Current implementation returns error - this is the issue
-		t.Logf("MOV mode 8 returned error (expected): %v", err)
-		// This test documents the current behavior - it should be changed to NOP
-	} else {
-		// If no error, verify it's a NOP (no state change)
-		reg0After := cpu.GetRegister(0)
-		if reg0Before != reg0After {
-			t.Errorf("MOV mode 8: Expected NOP (no state change), but R0 changed from 0x%04X to 0x%04X", reg0Before, reg0After)
-		}
+		t.Fatalf("MOV mode 8 failed: %v", err)
+	}
+	if cpu.State.DBR != 0x34 {
+		t.Fatalf("MOV mode 8: expected DBR=0x34, got 0x%02X", cpu.State.DBR)
 	}
 
-	// Test MOV mode 15 (reserved)
+	// Test MOV mode 15 (still reserved)
 	mem.Write8(1, 0x8002, 0x00)
 	mem.Write8(1, 0x8003, 0x1F) // MOV mode 15
 	cpu.State.PCOffset = 0x8002
 
 	err = cpu.ExecuteInstruction()
-	if err != nil {
-		t.Logf("MOV mode 15 returned error (expected): %v", err)
+	if err == nil {
+		t.Fatalf("MOV mode 15 should remain reserved")
 	}
 }
 

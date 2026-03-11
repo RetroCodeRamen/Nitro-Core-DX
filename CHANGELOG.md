@@ -13,6 +13,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Start 0.1.9 development cycle.
+- **Dedicated Matrix Plane Architecture (Emulator Baseline)**
+  - Added dedicated matrix-plane tilemap memory, dedicated matrix-plane pattern memory, bitmap-backed matrix planes, clamp outside mode, and matrix-plane upload MMIO/programming paths.
+  - Added matrix-plane builder/service APIs and CoreLX matrix-plane helpers (`enable`, `load_tiles`, `load_tilemap`, `set_tile`, `fill_rect`, `clear`).
+  - Added matrix-plane showcase ROMs and bitmap import/capture tooling for matrix validation from real images.
+  - Locations: `internal/ppu/`, `internal/emulator/matrix_plane*.go`, `internal/corelx/*`, `test/roms/build_matrix_*`, `cmd/matrixpng_capture/`
+- **Release Package Test ROMs**
+  - Added bundled release-package ROMs for runtime validation:
+    - `roms/pong_ym2608_demo.rom`
+    - `roms/matrix_floor_only_kart.rom`
+  - Updated local and GitHub release packaging to include these ROMs in downloadable archives.
+  - Locations: `scripts/package_release.sh`, `.github/workflows/release-binaries.yml`
 
 ### Changed
 - **ROM Path and Test Generator Cleanup**
@@ -20,6 +31,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Updated active docs/scripts to use `roms/...` outputs for consistent run/build/test commands.
   - Retired legacy duplicate command path `cmd/testrom_input` in favor of `cmd/testrom/input`.
   - Why this changed: reduce tooling drift, eliminate duplicate command maintenance, and make Dev Kit/default ROM discovery predictable across workflows.
+- **YM2608 Runtime Path Simplification**
+  - Removed legacy FM fallback behavior from the emulator/devkit runtime path and aligned builds around the YMFM-backed YM2608 runtime.
+  - Why this changed: ensure release testing happens against the intended audio path instead of a silent fallback.
+- **Compact Song Storage For YM2608 Demo ROMs**
+  - Replaced code-generated per-frame YM write playback with compact banked song data + ROM playback driver for the active Pong demo path.
+  - Why this changed: allow full-song playback and realistic multi-song cartridge budgeting.
 
 ---
 

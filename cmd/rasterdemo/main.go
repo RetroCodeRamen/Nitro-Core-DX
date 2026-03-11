@@ -20,7 +20,7 @@ function Start()
 
 func main() {
 	var (
-		demoName   = flag.String("demo", devkit.RasterDemoSplitTilemap, "raster demo to render: split-tilemap, rebind-priority, or scroll-affine")
+		demoName   = flag.String("demo", devkit.RasterDemoSplitTilemap, "raster demo to render: split-tilemap, rebind-priority, scroll-affine, or matrix-plane")
 		outputPath = flag.String("out", "raster_demo.png", "output PNG path")
 	)
 	flag.Parse()

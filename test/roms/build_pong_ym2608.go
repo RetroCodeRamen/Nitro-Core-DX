@@ -10,11 +10,13 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"nitro-core-dx/internal/rom"
+	"nitro-core-dx/internal/ymstream"
 )
 
 type ymWrite struct {
@@ -59,20 +61,16 @@ func (a *asm) uniq(prefix string) string { a.uniqID++; return fmt.Sprintf("%s_%d
 func (a *asm) movImm(reg uint8, v uint16)  { a.inst(rom.EncodeMOV(1, reg, 0)); a.imm(v) }
 func (a *asm) movReg(dst, src uint8)       { a.inst(rom.EncodeMOV(0, dst, src)) }
 func (a *asm) movLoad(dst, addrReg uint8)  { a.inst(rom.EncodeMOV(2, dst, addrReg)) }
+func (a *asm) movLoad8(dst, addrReg uint8) { a.inst(rom.EncodeMOV(6, dst, addrReg)) }
 func (a *asm) movStore(addrReg, src uint8) { a.inst(rom.EncodeMOV(3, addrReg, src)) }
+func (a *asm) setDBR(src uint8)            { a.inst(rom.EncodeMOV(8, src, 0)) }
 func (a *asm) addImm(reg uint8, v uint16)  { a.inst(rom.EncodeADD(1, reg, 0)); a.imm(v) }
 func (a *asm) addReg(dst, src uint8)       { a.inst(rom.EncodeADD(0, dst, src)) }
 func (a *asm) subImm(reg uint8, v uint16)  { a.inst(rom.EncodeSUB(1, reg, 0)); a.imm(v) }
 func (a *asm) subReg(dst, src uint8)       { a.inst(rom.EncodeSUB(0, dst, src)) }
 func (a *asm) andImm(reg uint8, v uint16)  { a.inst(rom.EncodeAND(1, reg, 0)); a.imm(v) }
 func (a *asm) cmpImm(reg uint8, v uint16) {
-	// CPU decode currently aliases CMP-immediate mode with BEQ encoding when reg1=0 and reg2=0.
-	// Encode reg2 as non-zero for R0 compares so mode=1 is treated as CMP immediate, not BEQ.
-	reg2 := uint8(0)
-	if reg == 0 {
-		reg2 = 1
-	}
-	a.inst(rom.EncodeCMP(1, reg, reg2))
+	a.inst(rom.EncodeCMP(7, reg, 0))
 	a.imm(v)
 }
 func (a *asm) cmpReg(r1, r2 uint8)        { a.inst(rom.EncodeCMP(0, r1, r2)) }
@@ -233,6 +231,52 @@ func parseVGM(data []byte) (*vgmSong, error) {
 	return nil, errors.New("VGM stream ended without 0x66 end marker")
 }
 
+func encodeCompactSong(song *vgmSong) ([]byte, error) {
+	frames := make([][]ymstream.Write, len(song.frames))
+	for i, fw := range song.frames {
+		frames[i] = make([]ymstream.Write, len(fw))
+		for j, w := range fw {
+			frames[i][j] = ymstream.Write{Port: w.port, Addr: w.addr, Data: w.data}
+		}
+	}
+	return ymstream.EncodeSong(&ymstream.Song{
+		Frames:       frames,
+		FrameSamples: song.frameSamples,
+		TotalSamples: song.totalSamples,
+		WriteCount:   song.writeCount,
+	})
+}
+
+func encodeFrameTable(song *vgmSong) ([]byte, []byte, int) {
+	counts := make([]byte, len(song.frames)*2)
+	writeBytes := make([]byte, 0, song.writeCount*3)
+	totalWrites := 0
+	for i, fw := range song.frames {
+		binary.LittleEndian.PutUint16(counts[i*2:i*2+2], uint16(len(fw)))
+		totalWrites += len(fw)
+		for _, w := range fw {
+			writeBytes = append(writeBytes, w.port, w.addr, w.data)
+		}
+	}
+	return counts, writeBytes, totalWrites
+}
+
+func encodeFramePointers(song *vgmSong, writeStartBank uint8, writeStartOffset uint16) []byte {
+	ptrs := make([]byte, len(song.frames)*4)
+	byteOffset := 0
+	for i, fw := range song.frames {
+		abs := int(writeStartOffset) + byteOffset
+		bank := writeStartBank + uint8((abs-0x8000)/rom.ROMBankSizeBytes)
+		off := uint16(0x8000 + ((abs - 0x8000) % rom.ROMBankSizeBytes))
+		base := i * 4
+		ptrs[base] = bank
+		binary.LittleEndian.PutUint16(ptrs[base+1:base+3], off)
+		ptrs[base+3] = 0
+		byteOffset += len(fw) * 3
+	}
+	return ptrs
+}
+
 func extractBuilderWords(b *rom.ROMBuilder) ([]uint16, error) {
 	img, err := b.BuildROMBytes(1, 0x8000)
 	if err != nil {
@@ -258,6 +302,197 @@ func write8(a *asm, addr uint16, value uint8) {
 	a.movStore(4, 5)
 }
 
+func write16(a *asm, addr uint16, value uint16) {
+	write8(a, addr, uint8(value&0xFF))
+	write8(a, addr+1, uint8((value>>8)&0xFF))
+}
+
+func write16s(a *asm, addr uint16, value int16) {
+	write16(a, addr, uint16(value))
+}
+
+func setVRAMAddr(a *asm, addr uint16) {
+	write8(a, 0x800E, uint8(addr&0xFF))
+	write8(a, 0x800F, uint8((addr>>8)&0xFF))
+}
+
+func setCGRAMColor(a *asm, colorIndex uint8, rgb555 uint16) {
+	write8(a, 0x8012, colorIndex)
+	write8(a, 0x8013, uint8(rgb555&0xFF))
+	write8(a, 0x8013, uint8((rgb555>>8)&0xFF))
+}
+
+func writeVRAMBlock(a *asm, addr uint16, data []uint8) {
+	setVRAMAddr(a, addr)
+	a.movImm(4, 0x8010)
+	for _, b := range data {
+		a.movImm(5, uint16(b))
+		a.movStore(4, 5)
+	}
+}
+
+func makePackedTile(size int, pixel func(x, y int) uint8) []uint8 {
+	data := make([]uint8, size*size/2)
+	for y := 0; y < size; y++ {
+		for x := 0; x < size; x += 2 {
+			hi := pixel(x, y) & 0x0F
+			lo := pixel(x+1, y) & 0x0F
+			data[(y*size+x)/2] = (hi << 4) | lo
+		}
+	}
+	return data
+}
+
+func buildSolidTile(size int, color uint8) []uint8 {
+	return makePackedTile(size, func(x, y int) uint8 {
+		return color
+	})
+}
+
+func buildPaddleTile() []uint8 {
+	return makePackedTile(16, func(x, y int) uint8 {
+		if x >= 6 && x <= 9 {
+			return 1
+		}
+		return 0
+	})
+}
+
+func buildBallTile() []uint8 {
+	return makePackedTile(16, func(x, y int) uint8 {
+		dx := x - 7
+		dy := y - 7
+		d2 := dx*dx + dy*dy
+		switch {
+		case d2 <= 16:
+			return 2
+		case d2 <= 28:
+			return 1
+		default:
+			return 0
+		}
+	})
+}
+
+func buildPipTile() []uint8 {
+	return makePackedTile(16, func(x, y int) uint8 {
+		if x >= 4 && x <= 11 && y >= 4 && y <= 11 {
+			return 1
+		}
+		return 0
+	})
+}
+
+func buildCheckerTilemap(baseA, baseB, marker uint8, width int) []uint8 {
+	data := make([]uint8, width*width*2)
+	for y := 0; y < width; y++ {
+		for x := 0; x < width; x++ {
+			mx := x / 2
+			my := y / 2
+			tile := baseA
+			if (mx+my)%2 != 0 {
+				tile = baseB
+			}
+
+			// Large-scale asymmetry so the rotated field does not read like a
+			// perfectly repeating square.
+			if mx <= 1 || my <= 1 {
+				tile = baseA
+			}
+			if mx >= 14 && my >= 10 {
+				tile = baseB
+			}
+
+			// Add lane/marker features across the court.
+			if (mx >= 4 && mx <= 12 && (my == 7 || my == 8)) ||
+				(my >= 3 && my <= 11 && (mx == 5 || mx == 6)) ||
+				(mx >= 10 && mx <= 13 && (my == 3 || my == 4)) {
+				tile = marker
+			}
+			idx := (y*width + x) * 2
+			data[idx] = tile
+			data[idx+1] = 0x00
+		}
+	}
+	return data
+}
+
+func fillTilemapConstant(a *asm, base uint16, entries uint16, tileIndex uint8, attr uint8) {
+	loop := a.uniq("fill_tilemap")
+	setVRAMAddr(a, base)
+	a.movImm(6, entries)
+	a.movImm(4, 0x8010)
+	a.mark(loop)
+	a.movImm(5, uint16(tileIndex))
+	a.movStore(4, 5)
+	a.movImm(5, uint16(attr))
+	a.movStore(4, 5)
+	a.subImm(6, 1)
+	a.movImm(7, 0)
+	a.cmpReg(6, 7)
+	a.bne(loop)
+}
+
+func emitCheckerTilemapRuntime(a *asm, base uint16, width uint16, groupShift uint16, baseA, baseB uint8) {
+	setVRAMAddr(a, base)
+	a.movImm(4, 0x8010) // VRAM data port
+	a.movImm(0, 0)      // y
+
+	rowLoop := a.uniq("checker_row")
+	colLoop := a.uniq("checker_col")
+	useA := a.uniq("checker_use_a")
+	nextCol := a.uniq("checker_next_col")
+	nextRow := a.uniq("checker_next_row")
+
+	a.mark(rowLoop)
+	a.movImm(1, 0) // x
+	a.mark(colLoop)
+
+	// parity = ((x >> groupShift) + (y >> groupShift)) & 1
+	a.movReg(2, 1)
+	a.shrImm(2, groupShift)
+	a.movReg(3, 0)
+	a.shrImm(3, groupShift)
+	a.addReg(2, 3)
+	a.andImm(2, 1)
+	a.cmpImm(2, 0)
+	a.beq(useA)
+
+	a.movImm(5, uint16(baseB))
+	a.movStore(4, 5)
+	a.movImm(5, 0)
+	a.movStore(4, 5)
+	a.jmp(nextCol)
+
+	a.mark(useA)
+	a.movImm(5, uint16(baseA))
+	a.movStore(4, 5)
+	a.movImm(5, 0)
+	a.movStore(4, 5)
+
+	a.mark(nextCol)
+	a.addImm(1, 1)
+	a.cmpImm(1, width)
+	a.blt(colLoop)
+
+	a.mark(nextRow)
+	a.addImm(0, 1)
+	a.cmpImm(0, width)
+	a.blt(rowLoop)
+}
+
+func emitMatrixBackgroundFrame(a *asm, animFrame int) {
+	angle := float64(animFrame) * (math.Pi / 2700.0)
+	scale := 1.15
+	cosv := int16(math.Round(math.Cos(angle) * scale * 256.0))
+	sinv := int16(math.Round(math.Sin(angle) * scale * 256.0))
+
+	write16s(a, 0x8019, cosv)
+	write16s(a, 0x801B, -sinv)
+	write16s(a, 0x801D, sinv)
+	write16s(a, 0x801F, cosv)
+}
+
 func emitText(a *asm, x uint16, y uint8, r, g, b uint8, s string) {
 	write8(a, 0x8070, uint8(x&0xFF))
 	write8(a, 0x8071, uint8((x>>8)&0xFF))
@@ -270,6 +505,19 @@ func emitText(a *asm, x uint16, y uint8, r, g, b uint8, s string) {
 	}
 }
 
+func emitDigit(a *asm, x uint16, y uint8, r, g, b uint8, reg uint8) {
+	write8(a, 0x8070, uint8(x&0xFF))
+	write8(a, 0x8071, uint8((x>>8)&0xFF))
+	write8(a, 0x8072, y)
+	write8(a, 0x8073, r)
+	write8(a, 0x8074, g)
+	write8(a, 0x8075, b)
+	a.movReg(6, reg)
+	a.addImm(6, uint16('0'))
+	a.movImm(4, 0x8076)
+	a.movStore(4, 6)
+}
+
 func writeFMPort0(a *asm, addr, data uint8) {
 	write8(a, 0x9100, addr)
 	write8(a, 0x9101, data)
@@ -280,6 +528,37 @@ func writeFMPort1(a *asm, addr, data uint8) {
 	write8(a, 0x9105, data)
 }
 
+func writeFMPort0FromRegs(a *asm, addrReg, dataReg uint8) {
+	a.movImm(4, 0x9100)
+	a.movStore(4, addrReg)
+	a.movImm(4, 0x9101)
+	a.movStore(4, dataReg)
+}
+
+func writeFMPort1FromRegs(a *asm, addrReg, dataReg uint8) {
+	a.movImm(4, 0x9104)
+	a.movStore(4, addrReg)
+	a.movImm(4, 0x9105)
+	a.movStore(4, dataReg)
+}
+
+func emitSilenceYM2608(a *asm) {
+	// FM key-off for all 6 melodic channels.
+	for _, ch := range []uint8{0x00, 0x01, 0x02, 0x04, 0x05, 0x06} {
+		writeFMPort0(a, 0x28, ch)
+	}
+
+	// Silence SSG mixer and channel levels.
+	writeFMPort0(a, 0x07, 0x3F)
+	writeFMPort0(a, 0x08, 0x00)
+	writeFMPort0(a, 0x09, 0x00)
+	writeFMPort0(a, 0x0A, 0x00)
+
+	// Disable rhythm and ADPCM playback if any state was left active.
+	writeFMPort0(a, 0x10, 0x00)
+	writeFMPort1(a, 0x00, 0x01) // ADPCM-B reset/stop
+}
+
 func loadWRAM(a *asm, dst uint8, addr uint16) {
 	a.movImm(4, addr)
 	a.movLoad(dst, 4)
@@ -288,6 +567,143 @@ func loadWRAM(a *asm, dst uint8, addr uint16) {
 func storeWRAM(a *asm, addr uint16, src uint8) {
 	a.movImm(4, addr)
 	a.movStore(4, src)
+}
+
+func emitInitSongState(a *asm, writeStartBank uint8, writeStartOffset uint16) {
+	const (
+		wramSongFrameIndex = 0x0040
+	)
+	a.movImm(7, 0)
+	storeWRAM(a, wramSongFrameIndex, 7)
+}
+
+func emitSongPlayerFrame(a *asm, frameCount uint16, countsBank uint8, countsOffset uint16, ptrBank uint8, ptrOffset uint16) {
+	const (
+		wramSongFrameIndex = 0x0040
+	)
+	writeDone := a.uniq("song_write_done")
+	nextFrameDone := a.uniq("song_next_frame_done")
+
+	// Load current frame index into R7.
+	loadWRAM(a, 7, wramSongFrameIndex)
+
+	// Look up frame write count from count table.
+	a.movReg(3, 7) // R3 = frame index
+	a.inst(rom.EncodeSHL(1, 3, 0))
+	a.imm(1) // *2
+	a.addImm(3, countsOffset)
+	a.movImm(6, uint16(countsBank))
+	a.setDBR(6)
+	a.movLoad8(4, 3) // count lo
+	a.addImm(3, 1)
+	a.movLoad8(5, 3) // count hi
+	a.inst(rom.EncodeSHL(1, 5, 0))
+	a.imm(8)
+	a.addReg(5, 4) // R5 = write count
+
+	// Look up raw write stream bank/offset for this frame from pointer table.
+	a.movReg(3, 7)
+	a.inst(rom.EncodeSHL(1, 3, 0))
+	a.imm(2) // *4
+	a.addImm(3, ptrOffset)
+	a.movImm(6, uint16(ptrBank))
+	a.setDBR(6)
+	a.movLoad8(6, 3) // data bank
+	a.addImm(3, 1)
+	a.movLoad8(0, 3) // data off lo
+	a.addImm(3, 1)
+	a.movLoad8(1, 3) // data off hi
+	a.inst(rom.EncodeSHL(1, 1, 0))
+	a.imm(8)
+	a.addReg(0, 1) // R0 = data offset
+	a.movImm(1, 0)
+	a.setDBR(1)
+	a.cmpImm(5, 0)
+	a.beq(writeDone)
+
+	// Program bus-side YM burst streamer:
+	// 0x9110/11 count, 0x9112 bank, 0x9113/14 offset, 0x9115 trigger.
+	a.movImm(4, 0x9110)
+	a.movStore(4, 4) // count low
+	a.addImm(4, 1)
+	a.movStore(4, 1) // count high
+	a.addImm(4, 1)
+	a.movStore(4, 6) // source bank
+	a.addImm(4, 1)
+	a.movStore(4, 0) // source offset low
+	a.addImm(4, 1)
+	a.movReg(1, 0)
+	a.shrImm(1, 8)
+	a.movStore(4, 1) // source offset high
+	a.addImm(4, 1)
+	a.movImm(1, 1)
+	a.movStore(4, 1) // trigger burst
+
+	a.mark(writeDone)
+
+	loadWRAM(a, 7, wramSongFrameIndex)
+	a.addImm(7, 1)
+	a.cmpImm(7, frameCount)
+	a.blt(nextFrameDone)
+	a.movImm(7, 0)
+	a.mark(nextFrameDone)
+	storeWRAM(a, wramSongFrameIndex, 7)
+}
+
+func emitInitMatrixTable(a *asm) {
+	const wramMatrixTableBase = 0x0600
+	for i := 0; i < 256; i++ {
+		angle := float64(i) * (2.0 * math.Pi / 256.0)
+		scale := 1.15
+		cosv := int16(math.Round(math.Cos(angle) * scale * 256.0))
+		sinv := int16(math.Round(math.Sin(angle) * scale * 256.0))
+		write16s(a, wramMatrixTableBase+uint16(i*4), cosv)
+		write16s(a, wramMatrixTableBase+uint16(i*4)+2, sinv)
+	}
+}
+
+func emitMatrixBackgroundFrameRuntime(a *asm) {
+	const wramMatrixTableBase = 0x0600
+	// Use the full 16-bit frame counter and a 256-entry table.
+	// Shift by 3 to slow the motion down substantially without reintroducing the earlier coarse 64-step jitter.
+	a.movImm(4, 0x803F)
+	a.movLoad(2, 4)
+	a.shrImm(2, 3)
+	a.andImm(2, 0x00FF)
+	a.movReg(3, 2)
+	a.inst(rom.EncodeSHL(1, 3, 0))
+	a.imm(2)
+	a.addImm(3, wramMatrixTableBase)
+	a.movLoad(0, 3) // cos
+	a.inst(rom.EncodeMOV(9, 1, 3))
+	a.imm(2) // sin
+	a.movImm(5, 0)
+	a.subReg(5, 1)
+	// Write A=cos, B=-sin, C=sin, D=cos
+	a.movImm(4, 0x8019)
+	a.movStore(4, 0)
+	a.addImm(4, 1)
+	a.movReg(6, 0)
+	a.shrImm(6, 8)
+	a.movStore(4, 6)
+	a.addImm(4, 1)
+	a.movStore(4, 5)
+	a.addImm(4, 1)
+	a.movReg(6, 5)
+	a.shrImm(6, 8)
+	a.movStore(4, 6)
+	a.addImm(4, 1)
+	a.movStore(4, 1)
+	a.addImm(4, 1)
+	a.movReg(6, 1)
+	a.shrImm(6, 8)
+	a.movStore(4, 6)
+	a.addImm(4, 1)
+	a.movStore(4, 0)
+	a.addImm(4, 1)
+	a.movReg(6, 0)
+	a.shrImm(6, 8)
+	a.movStore(4, 6)
 }
 
 func emitWaitOneFrame(a *asm, wramLastFrame uint16) {
@@ -355,7 +771,7 @@ func clearSprite(a *asm, spriteID uint8) {
 	write8(a, 0x8015, 0)
 }
 
-func emitPongFrame(a *asm, frameWrites []ymWrite, playSong bool) {
+func emitPongFrame(a *asm, titleOffset uint16, songFrameCount uint16, songCountsBank uint8, songCountsOffset uint16, songWriteStartBank uint8, songWriteStartOffset uint16) {
 	const (
 		wramLastFrame  = 0x0010
 		wramLeftY      = 0x0020
@@ -368,22 +784,30 @@ func emitPongFrame(a *asm, frameWrites []ymWrite, playSong bool) {
 		wramRightScore = 0x002E
 		wramGameOver   = 0x0030
 		wramWinner     = 0x0032
+		wramTitleArmed = 0x0034
+		wramAIMiss     = 0x0036
+		wramAIDecided  = 0x0038
 	)
 
 	const (
-		leftX       = 12
-		rightX      = 292
-		paddleMinY  = 24
-		paddleMaxY  = 168
-		ballMinY    = 4
-		ballMaxY    = 184
-		leftColX    = 24
-		rightColX   = 280
-		rightScoreX = 304
-		ctrl16On    = 0x03
+		leftX            = 12
+		rightX           = 244
+		paddleMinY       = 24
+		paddleMaxY       = 168
+		ballMinY         = 4
+		ballMaxY         = 184
+		leftPaddleRight  = leftX + 9
+		rightPaddleLeft  = rightX + 6
+		rightBallTrigger = rightPaddleLeft - 15
+		rightBallResetX  = rightPaddleLeft - 16
+		rightScoreX      = 304
+		ctrl16On         = 0x03
+		paddleTile       = 8
+		ballTile         = 9
 	)
 
 	emitWaitOneFrame(a, wramLastFrame)
+	emitMatrixBackgroundFrameRuntime(a)
 
 	// Read controller low byte (up/down for left paddle)
 	write8(a, 0xA001, 0x01)
@@ -425,10 +849,105 @@ func emitPongFrame(a *asm, frameWrites []ymWrite, playSong bool) {
 	a.mark(moveDone)
 	storeWRAM(a, wramLeftY, 0)
 
-	// Right paddle AI in R1, ball Y in R6
+	// Right paddle AI in R1, ball Y in R6.
+	// When a new approach starts (ball moving right), decide once whether the AI
+	// intentionally misses this return, with the miss chance decreasing as the
+	// match progresses.
 	loadWRAM(a, 1, wramRightY)
 	loadWRAM(a, 6, wramBallY)
+	loadWRAM(a, 5, wramBallVX)
 
+	aiDecisionReady := a.uniq("ai_decision_ready")
+	aiDecisionDone := a.uniq("ai_decision_done")
+	aiThreshold25 := a.uniq("ai_threshold_25")
+	aiThreshold40 := a.uniq("ai_threshold_40")
+	aiSetMiss := a.uniq("ai_set_miss")
+	aiSetTrack := a.uniq("ai_set_track")
+	aiStoreRightY := a.uniq("ai_store_right_y")
+
+	a.cmpImm(5, 0)
+	a.bgt(aiDecisionReady)
+	a.movImm(7, 0)
+	storeWRAM(a, wramAIMiss, 7)
+	storeWRAM(a, wramAIDecided, 7)
+	a.jmp(aiDecisionDone)
+
+	a.mark(aiDecisionReady)
+	loadWRAM(a, 7, wramAIDecided)
+	a.cmpImm(7, 0)
+	a.bne(aiDecisionDone)
+
+	a.movImm(4, 0x803F)
+	a.movLoad(7, 4)
+	a.addReg(7, 6)
+	loadWRAM(a, 3, wramLeftScore)
+	loadWRAM(a, 4, wramRightScore)
+	a.addReg(7, 3)
+	a.addReg(7, 4)
+	a.andImm(7, 0x00FF)
+	a.addReg(4, 3) // total points so far
+	a.cmpImm(4, 0)
+	a.beq(aiSetMiss) // fall through to 1-in-10 check using threshold below
+	a.cmpImm(4, 1)
+	a.beq(aiThreshold25)
+	a.jmp(aiThreshold40)
+
+	a.mark(aiSetMiss) // about 1 in 10
+	a.cmpImm(7, 26)
+	a.blt(aiSetMiss + "_store")
+	a.jmp(aiSetTrack)
+
+	a.mark(aiThreshold25) // about 1 in 25
+	a.cmpImm(7, 10)
+	a.blt(aiSetMiss + "_store")
+	a.jmp(aiSetTrack)
+
+	a.mark(aiThreshold40) // about 1 in 40
+	a.cmpImm(7, 6)
+	a.blt(aiSetMiss + "_store")
+	a.jmp(aiSetTrack)
+
+	a.mark(aiSetMiss + "_store")
+	a.movImm(7, 1)
+	storeWRAM(a, wramAIMiss, 7)
+	a.movImm(7, 1)
+	storeWRAM(a, wramAIDecided, 7)
+	a.jmp(aiDecisionDone)
+
+	a.mark(aiSetTrack)
+	a.movImm(7, 0)
+	storeWRAM(a, wramAIMiss, 7)
+	a.movImm(7, 1)
+	storeWRAM(a, wramAIDecided, 7)
+	a.mark(aiDecisionDone)
+
+	loadWRAM(a, 7, wramAIMiss)
+	aiTrackNormally := a.uniq("ai_track_normally")
+	a.cmpImm(7, 0)
+	a.beq(aiTrackNormally)
+
+	missDownSkip := a.uniq("ai_miss_down_skip")
+	a.movReg(7, 1)
+	a.addImm(7, 8)
+	a.cmpReg(7, 6)
+	a.ble(missDownSkip)
+	a.cmpImm(1, paddleMaxY)
+	a.bge(missDownSkip)
+	a.addImm(1, 1)
+	a.mark(missDownSkip)
+
+	missUpSkip := a.uniq("ai_miss_up_skip")
+	a.movReg(7, 1)
+	a.addImm(7, 8)
+	a.cmpReg(7, 6)
+	a.bge(missUpSkip)
+	a.cmpImm(1, paddleMinY)
+	a.ble(missUpSkip)
+	a.subImm(1, 1)
+	a.mark(missUpSkip)
+	a.jmp(aiStoreRightY)
+
+	a.mark(aiTrackNormally)
 	aiDownSkip := a.uniq("ai_down_skip")
 	a.movReg(7, 1)
 	a.addImm(7, 8)
@@ -448,6 +967,8 @@ func emitPongFrame(a *asm, frameWrites []ymWrite, playSong bool) {
 	a.ble(aiUpSkip)
 	a.subImm(1, 1)
 	a.mark(aiUpSkip)
+
+	a.mark(aiStoreRightY)
 	storeWRAM(a, wramRightY, 1)
 
 	// If game over, skip movement and collisions.
@@ -484,43 +1005,43 @@ func emitPongFrame(a *asm, frameWrites []ymWrite, playSong bool) {
 	a.movReg(1, 7)
 	a.mark(bottomDone)
 
-	// Left paddle collision (when vx < 0 and x <= leftColX)
+	// Left paddle collision against the visible 4-pixel paddle strip inside the 16x16 sprite.
 	leftColDone := a.uniq("left_col_done")
 	a.cmpImm(0, 0)
 	a.bge(leftColDone)
-	a.cmpImm(3, leftColX)
+	a.cmpImm(3, leftPaddleRight)
 	a.bgt(leftColDone)
 	loadWRAM(a, 7, wramLeftY)
 	a.movReg(5, 7)
-	a.subImm(5, 24)
-	a.cmpReg(6, 5)
-	a.blt(leftColDone)
-	a.movReg(5, 7)
-	a.addImm(5, 24)
+	a.addImm(5, 15)
 	a.cmpReg(6, 5)
 	a.bgt(leftColDone)
-	a.movImm(3, leftColX)
+	a.movReg(5, 6)
+	a.addImm(5, 15)
+	a.cmpReg(5, 7)
+	a.blt(leftColDone)
+	a.movImm(3, leftPaddleRight+1)
 	a.movImm(7, 0)
 	a.subReg(7, 0)
 	a.movReg(0, 7)
 	a.mark(leftColDone)
 
-	// Right paddle collision (when vx > 0 and x >= rightColX)
+	// Right paddle collision against the visible 4-pixel paddle strip inside the 16x16 sprite.
 	rightColDone := a.uniq("right_col_done")
 	a.cmpImm(0, 0)
 	a.ble(rightColDone)
-	a.cmpImm(3, rightColX)
+	a.cmpImm(3, rightBallTrigger)
 	a.blt(rightColDone)
 	loadWRAM(a, 7, wramRightY)
 	a.movReg(5, 7)
-	a.subImm(5, 24)
-	a.cmpReg(6, 5)
-	a.blt(rightColDone)
-	a.movReg(5, 7)
-	a.addImm(5, 24)
+	a.addImm(5, 15)
 	a.cmpReg(6, 5)
 	a.bgt(rightColDone)
-	a.movImm(3, rightColX)
+	a.movReg(5, 6)
+	a.addImm(5, 15)
+	a.cmpReg(5, 7)
+	a.blt(rightColDone)
+	a.movImm(3, rightBallResetX)
 	a.movImm(7, 0)
 	a.subReg(7, 0)
 	a.movReg(0, 7)
@@ -576,64 +1097,32 @@ func emitPongFrame(a *asm, frameWrites []ymWrite, playSong bool) {
 	a.mark(movementDone)
 
 	// Draw sprites.
-	// Each paddle uses 3 stacked 16x16 sprites to form a vertical line paddle.
 	loadWRAM(a, 0, wramLeftY)
 	loadWRAM(a, 1, wramRightY)
 	loadWRAM(a, 3, wramBallX)
 	loadWRAM(a, 6, wramBallY)
-	a.movReg(5, 0)
-	a.subImm(5, 16)
-	writeSpriteImm(a, 0, leftX, 5, 1, 0x01, ctrl16On)
-	writeSpriteImm(a, 1, leftX, 0, 1, 0x01, ctrl16On)
-	a.movReg(5, 0)
-	a.addImm(5, 16)
-	writeSpriteImm(a, 2, leftX, 5, 1, 0x01, ctrl16On)
+	writeSpriteImm(a, 0, leftX, 0, paddleTile, 0x01, ctrl16On)
+	writeSpriteImm(a, 1, rightX, 1, paddleTile, 0x02, ctrl16On)
+	writeSpriteFromRegs(a, 2, 3, 6, ballTile, 0x03, ctrl16On)
 
-	a.movReg(5, 1)
-	a.subImm(5, 16)
-	writeSpriteImm(a, 3, rightX, 5, 1, 0x01, ctrl16On)
-	writeSpriteImm(a, 4, rightX, 1, 1, 0x01, ctrl16On)
-	a.movReg(5, 1)
-	a.addImm(5, 16)
-	writeSpriteImm(a, 5, rightX, 5, 1, 0x01, ctrl16On)
-
-	writeSpriteFromRegs(a, 6, 3, 6, 2, 0x01, ctrl16On)
-
-	// Left score pips (sprites 7..9)
-	loadWRAM(a, 5, wramLeftScore)
-	for i := 0; i < 3; i++ {
-		draw := a.uniq("lp_draw")
-		done := a.uniq("lp_done")
-		a.cmpImm(5, uint16(i+1))
-		a.bge(draw)
-		clearSprite(a, uint8(7+i))
-		a.jmp(done)
-		a.mark(draw)
-		a.movImm(7, 10)
-		writeSpriteImm(a, uint8(7+i), uint16(100+(i*20)), 7, 3, 0x01, ctrl16On)
-		a.mark(done)
+	// Disable all remaining sprite slots to keep the scene unambiguous.
+	for i := 3; i <= 12; i++ {
+		clearSprite(a, uint8(i))
 	}
 
-	// Right score pips (sprites 10..12)
-	loadWRAM(a, 5, wramRightScore)
-	for i := 0; i < 3; i++ {
-		draw := a.uniq("rp_draw")
-		done := a.uniq("rp_done")
-		a.cmpImm(5, uint16(i+1))
-		a.bge(draw)
-		clearSprite(a, uint8(10+i))
-		a.jmp(done)
-		a.mark(draw)
-		a.movImm(7, 10)
-		writeSpriteImm(a, uint8(10+i), uint16(180+(i*20)), 7, 3, 0x01, ctrl16On)
-		a.mark(done)
-	}
+	loadWRAM(a, 6, wramLeftScore)
+	emitDigit(a, 136, 20, 255, 255, 255, 6)
+	loadWRAM(a, 6, wramRightScore)
+	emitDigit(a, 176, 20, 120, 220, 255, 6)
+	emitText(a, 156, 20, 200, 200, 200, "-")
 
 	// Winner flash backdrop after game over
 	loadWRAM(a, 7, wramGameOver)
 	goDone := a.uniq("go_flash_done")
 	a.cmpImm(7, 0)
 	a.beq(goDone)
+	emitText(a, 116, 90, 255, 255, 255, "GAME OVER")
+	emitText(a, 88, 110, 255, 220, 120, "PRESS START")
 	loadWRAM(a, 7, wramWinner)
 	leftWin := a.uniq("left_win")
 	a.cmpImm(7, 1)
@@ -649,15 +1138,34 @@ func emitPongFrame(a *asm, frameWrites []ymWrite, playSong bool) {
 	write8(a, 0x8013, 0x7C)
 	a.mark(goDone)
 
-	if playSong {
-		for _, w := range frameWrites {
-			if w.port == 0 {
-				writeFMPort0(a, w.addr, w.data)
-			} else {
-				writeFMPort1(a, w.addr, w.data)
-			}
-		}
-	}
+	// Return to title from game over on START or A.
+	restartDone := a.uniq("restart_done")
+	loadWRAM(a, 7, wramGameOver)
+	a.cmpImm(7, 0)
+	a.beq(restartDone)
+	write8(a, 0xA001, 0x01)
+	a.movImm(4, 0xA000)
+	a.movLoad(2, 4)
+	a.movImm(4, 0xA001)
+	a.movLoad(3, 4)
+	write8(a, 0xA001, 0x00)
+	a.movReg(6, 2)
+	a.andImm(6, 0x0010)
+	a.cmpImm(6, 0x0010)
+	restartTitle := a.uniq("restart_title")
+	a.beq(restartTitle)
+	a.movReg(5, 3)
+	a.andImm(5, 0x0004)
+	a.cmpImm(5, 0x0004)
+	a.beq(restartTitle)
+	a.jmp(restartDone)
+	a.mark(restartTitle)
+	a.movImm(7, 0)
+	storeWRAM(a, wramTitleArmed, 7)
+	emitFarJumpTo(a, uint8(rom.ROMMinProgramBank), titleOffset)
+	a.mark(restartDone)
+
+	emitSongPlayerFrame(a, songFrameCount, songCountsBank, songCountsOffset, songWriteStartBank, songWriteStartOffset)
 }
 
 func emitFarJumpTo(a *asm, bank uint8, offset uint16) {
@@ -674,7 +1182,7 @@ func emitFarJumpToBank(a *asm, bank uint8) {
 	emitFarJumpTo(a, bank, 0x8000)
 }
 
-func initGraphicsAndGame(a *asm) {
+func initGraphicsAndGame(a *asm, songWriteStartBank uint8, songWriteStartOffset uint16) {
 	const (
 		wramLastFrame  = 0x0010
 		wramLeftY      = 0x0020
@@ -687,63 +1195,54 @@ func initGraphicsAndGame(a *asm) {
 		wramRightScore = 0x002E
 		wramGameOver   = 0x0030
 		wramWinner     = 0x0032
+		wramTitleArmed = 0x0034
+		wramAIMiss     = 0x0036
+		wramAIDecided  = 0x0038
 	)
 
-	// Basic palette/background
-	write8(a, 0x8012, 0x00)
-	write8(a, 0x8013, 0x00)
-	write8(a, 0x8013, 0x00)
-	write8(a, 0x8008, 0x00) // BG off
+	const (
+		bgCourtTile   = 0
+		paddleTile    = 8
+		ballTile      = 9
+		tilemapBase   = 0x4000
+	)
 
-	// Sprite palette entries
-	// P1 white
-	write8(a, 0x8012, 0x11)
-	write8(a, 0x8013, 0xFF)
-	write8(a, 0x8013, 0x7F)
-	// P2 cyan
-	write8(a, 0x8012, 0x21)
-	write8(a, 0x8013, 0xFF)
-	write8(a, 0x8013, 0x03)
-	// P3 yellow
-	write8(a, 0x8012, 0x31)
-	write8(a, 0x8013, 0xE0)
-	write8(a, 0x8013, 0x7F)
+	// Backdrop + BG palette.
+	setCGRAMColor(a, 0x00, 0x0000)
+	setCGRAMColor(a, 0x01, 0x0820) // dark navy
+	setCGRAMColor(a, 0x02, 0x14A8) // bright blue
+	setCGRAMColor(a, 0x03, 0x7FFF) // white
 
-	// Tile 1: solid 16x16 for paddles (0x11)
-	write8(a, 0x800E, 0x20)
-	write8(a, 0x800F, 0x00)
-	a.movImm(6, 128)
-	fill1 := a.uniq("fill_tile1")
-	a.mark(fill1)
-	write8(a, 0x8010, 0x11)
-	a.subImm(6, 1)
-	a.movImm(7, 0)
-	a.cmpReg(6, 7)
-	a.bne(fill1)
+	// Sprite palettes.
+	setCGRAMColor(a, 0x11, 0x7FFF) // P1 paddle white
+	setCGRAMColor(a, 0x21, 0x03FF) // P2 paddle cyan
+	setCGRAMColor(a, 0x31, 0x7FFF) // Ball outline
+	setCGRAMColor(a, 0x32, 0x7FE0) // Ball fill
 
-	// Tile 2: solid for ball (0x11 using palette 3)
-	write8(a, 0x800E, 0x40)
-	write8(a, 0x800F, 0x00)
-	a.movImm(6, 128)
-	fill2 := a.uniq("fill_tile2")
-	a.mark(fill2)
-	write8(a, 0x8010, 0x11)
-	a.subImm(6, 1)
-	a.movImm(7, 0)
-	a.cmpReg(6, 7)
-	a.bne(fill2)
+	// BG + sprite art.
+	writeVRAMBlock(a, uint16(bgCourtTile)*32, buildSolidTile(8, 1))
+	writeVRAMBlock(a, uint16(bgCourtTile+1)*32, buildSolidTile(8, 2))
+	writeVRAMBlock(a, uint16(paddleTile)*128, buildPaddleTile())
+	writeVRAMBlock(a, uint16(ballTile)*128, buildBallTile())
 
-	// Tile 3: score pip
-	write8(a, 0x800E, 0x60)
-	write8(a, 0x800F, 0x00)
-	a.movImm(6, 128)
-	fill3 := a.uniq("fill_tile3")
-	a.mark(fill3)
-	write8(a, 0x8010, 0x11)
-	a.subImm(6, 1)
-	a.movImm(7, 0)
-	a.cmpReg(6, 7)
-	a.bne(fill3)
+	// 128x128 tilemap arranged as 4x4 tile blocks, yielding 32x32 pixel checker cells.
+	emitCheckerTilemapRuntime(a, tilemapBase, 128, 2, bgCourtTile, bgCourtTile+1)
+
+	// Bind BG0 to an 8x8 matrix-backed playfield with a 128x128 tile source.
+	write16(a, 0x8077, tilemapBase)
+	write8(a, 0x8008, 0x21) // BG0 enable + 8x8 tiles + 128x128 tilemap
+	write8(a, 0x806C, 0x00) // BG0 -> transform channel 0
+	write8(a, 0x8068, 0x00) // tilemap source
+	write8(a, 0x8018, 0x01) // matrix mode enabled on BG0
+	write16s(a, 0x8000, 256)
+	write16s(a, 0x8002, 256)
+	write16s(a, 0x8019, 0x0100)
+	write16s(a, 0x801B, 0)
+	write16s(a, 0x801D, 0)
+	write16s(a, 0x801F, 0x0100)
+	write16s(a, 0x8027, 160)
+	write16s(a, 0x8029, 100)
+	emitInitMatrixTable(a)
 
 	// YM/FM host setup
 	write8(a, 0x9020, 0xC0)
@@ -768,6 +1267,12 @@ func initGraphicsAndGame(a *asm) {
 	storeWRAM(a, wramRightScore, 7)
 	storeWRAM(a, wramGameOver, 7)
 	storeWRAM(a, wramWinner, 7)
+	a.movImm(7, 1)
+	storeWRAM(a, wramTitleArmed, 7)
+	a.movImm(7, 0)
+	storeWRAM(a, wramAIMiss, 7)
+	storeWRAM(a, wramAIDecided, 7)
+	emitInitSongState(a, songWriteStartBank, songWriteStartOffset)
 
 	// Frame baseline
 	a.movImm(4, 0x803F)
@@ -776,7 +1281,7 @@ func initGraphicsAndGame(a *asm) {
 	a.movStore(4, 2)
 }
 
-func resetGameStateForMatchStart(a *asm) {
+func resetGameStateForMatchStart(a *asm, songWriteStartBank uint8, songWriteStartOffset uint16) {
 	const (
 		wramLeftY      = 0x0020
 		wramRightY     = 0x0022
@@ -788,6 +1293,9 @@ func resetGameStateForMatchStart(a *asm) {
 		wramRightScore = 0x002E
 		wramGameOver   = 0x0030
 		wramWinner     = 0x0032
+		wramTitleArmed = 0x0034
+		wramAIMiss     = 0x0036
+		wramAIDecided  = 0x0038
 	)
 	a.movImm(7, 92)
 	storeWRAM(a, wramLeftY, 7)
@@ -805,100 +1313,123 @@ func resetGameStateForMatchStart(a *asm) {
 	storeWRAM(a, wramRightScore, 7)
 	storeWRAM(a, wramGameOver, 7)
 	storeWRAM(a, wramWinner, 7)
+	a.movImm(7, 1)
+	storeWRAM(a, wramTitleArmed, 7)
+	a.movImm(7, 0)
+	storeWRAM(a, wramAIMiss, 7)
+	storeWRAM(a, wramAIDecided, 7)
+	emitInitSongState(a, songWriteStartBank, songWriteStartOffset)
 }
 
-func buildPongROM(song *vgmSong, outPath string, framesPerBank int, songFrames int) error {
+func buildPongROM(song *vgmSong, outPath string, songFrames int) error {
 	if songFrames > 0 && songFrames < len(song.frames) {
 		song.frames = song.frames[:songFrames]
-	}
-	if framesPerBank <= 0 {
-		framesPerBank = 12
 	}
 	if len(song.frames) == 0 {
 		return errors.New("no frames to emit")
 	}
 
-	banksNeeded := (len(song.frames) + framesPerBank - 1) / framesPerBank
-	if banksNeeded > (rom.ROMMaxProgramBank - rom.ROMMinProgramBank + 1) {
-		return fmt.Errorf("song requires %d banks with frames-per-bank=%d (max=%d)",
-			banksNeeded, framesPerBank, rom.ROMMaxProgramBank-rom.ROMMinProgramBank+1)
-	}
+	countBytes, writeBytes, _ := encodeFrameTable(song)
+	const songCountsBank = uint8(2)
+	const songCountsOffset = uint16(0x8000)
+	const songPtrBank = uint8(2)
+	ptrOffset := uint16(int(songCountsOffset) + len(countBytes))
+	writeStartAbs := int(ptrOffset) + len(song.frames)*4
+	songWriteStartBank := songCountsBank + uint8((writeStartAbs-0x8000)/rom.ROMBankSizeBytes)
+	songWriteStartOffset := uint16(0x8000 + ((writeStartAbs - 0x8000) % rom.ROMBankSizeBytes))
+	ptrBytes := encodeFramePointers(song, songWriteStartBank, songWriteStartOffset)
 
 	banked := rom.NewBankedROMBuilder()
-	loopBank := uint8(rom.ROMMinProgramBank)
-	loopOffset := uint16(0x8002)
+	a := newASM()
+	initGraphicsAndGame(a, songWriteStartBank, songWriteStartOffset)
 
-	for seg := 0; seg < banksNeeded; seg++ {
-		start := seg * framesPerBank
-		end := start + framesPerBank
-		if end > len(song.frames) {
-			end = len(song.frames)
-		}
-		bank := uint8(rom.ROMMinProgramBank + seg)
-		isFirst := seg == 0
-		isLastSongBank := end == len(song.frames)
+	titleLoop := a.uniq("title_loop")
+	startMatch := a.uniq("start_match")
+	gameLoop := a.uniq("game_loop")
+	titleOffset := uint16(0x8002)
 
-		a := newASM()
-		if isFirst {
-			initGraphicsAndGame(a)
+	a.mark(titleLoop)
+	titleOffset = 0x8002 + a.pc()
+	emitWaitOneFrame(a, 0x0010)
+	emitSilenceYM2608(a)
+	setCGRAMColor(a, 0x00, 0x0000)
+	emitText(a, 78, 58, 255, 255, 255, "NITRO PONG DX")
+	emitText(a, 64, 78, 120, 220, 255, "YM2608 SHOWCASE MATCH")
+	emitText(a, 88, 104, 255, 255, 255, "PRESS START")
+	emitText(a, 56, 122, 180, 220, 255, "UP / DOWN TO MOVE PADDLE")
+	emitText(a, 76, 140, 180, 220, 255, "FIRST TO 3 POINTS")
+	emitText(a, 64, 176, 255, 220, 120, "ROTATING MATRIX BACKDROP")
+	for i := 0; i <= 12; i++ {
+		clearSprite(a, uint8(i))
+	}
+	write8(a, 0xA001, 0x01)
+	a.movImm(4, 0xA000)
+	a.movLoad(2, 4)
+	a.movImm(4, 0xA001)
+	a.movLoad(3, 4)
+	write8(a, 0xA001, 0x00)
+	loadWRAM(a, 7, 0x0034)
+	titleReady := a.uniq("title_ready")
+	titleKeepWaiting := a.uniq("title_keep_waiting")
+	a.cmpImm(7, 0)
+	a.bne(titleReady)
+	a.movReg(6, 2)
+	a.andImm(6, 0x0010)
+	a.cmpImm(6, 0)
+	a.bne(titleKeepWaiting)
+	a.movReg(5, 3)
+	a.andImm(5, 0x0004)
+	a.cmpImm(5, 0)
+	a.bne(titleKeepWaiting)
+	a.movImm(7, 1)
+	storeWRAM(a, 0x0034, 7)
+	a.jmp(titleLoop)
+	a.mark(titleKeepWaiting)
+	a.jmp(titleLoop)
+	a.mark(titleReady)
+	a.movReg(6, 2)
+	a.andImm(6, 0x0010)
+	a.cmpImm(6, 0x0010)
+	a.beq(startMatch)
+	a.movReg(5, 3)
+	a.andImm(5, 0x0004)
+	a.cmpImm(5, 0x0004)
+	a.beq(startMatch)
+	a.jmp(titleLoop)
 
-			// Title/start gate: no song writes until START is pressed.
-			titleLoop := a.uniq("title_loop")
-			startMatch := a.uniq("start_match")
-			a.mark(titleLoop)
-			emitWaitOneFrame(a, 0x0010)
-			emitText(a, 88, 88, 255, 255, 255, "PRESS START")
-			emitText(a, 72, 104, 120, 200, 255, "FIRST TO 3 WINS")
-			// Latch input and read high byte for START (bit2).
-			write8(a, 0xA001, 0x01)
-			a.movImm(4, 0xA000)
-			a.movLoad(2, 4)
-			a.movImm(4, 0xA001)
-			a.movLoad(3, 4)
-			write8(a, 0xA001, 0x00)
-			a.movReg(5, 3)
-			a.andImm(5, 0x0004)
-			a.cmpImm(5, 0x0004)
-			a.beq(startMatch)
-			a.jmp(titleLoop)
+	a.mark(startMatch)
+	resetGameStateForMatchStart(a, songWriteStartBank, songWriteStartOffset)
+	a.mark(gameLoop)
+	emitPongFrame(a, titleOffset, uint16(len(song.frames)), songCountsBank, songCountsOffset, songPtrBank, ptrOffset)
+	a.jmp(gameLoop)
 
-			a.mark(startMatch)
-			resetGameStateForMatchStart(a)
-			// Bank 1 has a RET trampoline inserted at 0x8000, so code starts at 0x8002.
-			// Loop target is the first frame's game+music update code after start.
-			loopOffset = 0x8002 + a.pc()
-		}
+	if err := a.resolve(); err != nil {
+		return fmt.Errorf("resolve code bank: %w", err)
+	}
+	words, err := extractBuilderWords(a.b)
+	if err != nil {
+		return fmt.Errorf("extract code bank: %w", err)
+	}
+	if len(words) > rom.ROMBankSizeWords {
+		return fmt.Errorf("code bank overflow: %d words > %d", len(words), rom.ROMBankSizeWords)
+	}
+	banked.AddInstruction(1, rom.EncodeRET()) // IRQ/NMI trampoline
+	for _, w := range words {
+		banked.AddInstruction(1, w)
+	}
 
-		for _, fw := range song.frames[start:end] {
-			emitPongFrame(a, fw, true)
+	dataBlob := append(countBytes, ptrBytes...)
+	dataBlob = append(dataBlob, writeBytes...)
+	for i := 0; i < len(dataBlob); i += 2 {
+		bank := uint8(int(songCountsBank) + (i / rom.ROMBankSizeBytes))
+		if bank > rom.ROMMaxProgramBank {
+			return fmt.Errorf("song data exceeds ROM bank budget at bank %d", bank)
 		}
-
-		if isLastSongBank {
-			// Loop BGM segment during gameplay without reinitializing game state.
-			emitFarJumpTo(a, loopBank, loopOffset)
-		} else {
-			emitFarJumpToBank(a, bank+1)
+		word := uint16(dataBlob[i])
+		if i+1 < len(dataBlob) {
+			word |= uint16(dataBlob[i+1]) << 8
 		}
-
-		if err := a.resolve(); err != nil {
-			return fmt.Errorf("segment %d resolve: %w", seg, err)
-		}
-
-		words, err := extractBuilderWords(a.b)
-		if err != nil {
-			return fmt.Errorf("segment %d extract: %w", seg, err)
-		}
-		if len(words) > rom.ROMBankSizeWords {
-			return fmt.Errorf("segment %d overflow: %d words > %d (reduce frames-per-bank)",
-				seg, len(words), rom.ROMBankSizeWords)
-		}
-		if bank == rom.ROMMinProgramBank {
-			// IRQ/NMI trampoline
-			banked.AddInstruction(bank, rom.EncodeRET())
-		}
-		for _, w := range words {
-			banked.AddInstruction(bank, w)
-		}
+		banked.AddInstruction(bank, word)
 	}
 
 	return banked.BuildROM(1, 0x8002, outPath)
@@ -907,8 +1438,7 @@ func buildPongROM(song *vgmSong, outPath string, framesPerBank int, songFrames i
 func main() {
 	inPath := flag.String("in", "Resources/Demo.vgz", "Input VGM/VGZ file")
 	outPath := flag.String("out", "roms/pong_ym2608_demo.rom", "Output ROM path")
-	framesPerBank := flag.Int("frames-per-bank", 12, "Frames per program bank segment")
-	songFrames := flag.Int("song-frames", 1500, "Song frame cap for Pong BGM (0 = full, may exceed bank budget)")
+	songFrames := flag.Int("song-frames", 0, "Song frame cap for Pong BGM (0 = full song)")
 	flag.Parse()
 
 	raw, err := readVGM(*inPath)
@@ -923,7 +1453,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := buildPongROM(song, *outPath, *framesPerBank, *songFrames); err != nil {
+	if err := buildPongROM(song, *outPath, *songFrames); err != nil {
 		fmt.Fprintf(os.Stderr, "build ROM: %v\n", err)
 		os.Exit(1)
 	}
@@ -940,10 +1470,14 @@ func main() {
 		selectedWrites += len(fw)
 	}
 	seconds := float64(effectiveFrames*int(song.frameSamples)) / 44100.0
+	countBytes, writeBytes, totalWrites := encodeFrameTable(song)
+	ptrBytes := make([]byte, len(song.frames)*4)
+	dataBytes := len(countBytes) + len(ptrBytes) + len(writeBytes)
+	dataBanks := (dataBytes + rom.ROMBankSizeBytes - 1) / rom.ROMBankSizeBytes
 	fmt.Printf("Built %s\n", *outPath)
 	fmt.Printf("Pong mode: first to 3 points (left paddle player, right paddle AI)\n")
-	fmt.Printf("Frames: %d  YM writes emitted: %d  Approx music duration: %.2fs\n",
-		effectiveFrames, selectedWrites, seconds)
-	fmt.Printf("Frames per bank: %d  Estimated banks used: %d\n",
-		*framesPerBank, (effectiveFrames+*framesPerBank-1)/(*framesPerBank))
+	fmt.Printf("Frames: %d  YM writes source: %d  Approx music duration: %.2fs\n",
+		effectiveFrames, totalWrites, seconds)
+	fmt.Printf("Frame table bytes: %d (counts=%d ptrs=%d writes=%d)  Estimated data banks used: %d\n",
+		dataBytes, len(countBytes), len(ptrBytes), len(writeBytes), dataBanks)
 }

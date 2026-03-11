@@ -1,0 +1,172 @@
+-- Matrix Plane Pipeline Showcase
+-- This ROM is a stronger dedicated matrix-plane validation demo than the
+-- minimal matrix_plane_showcase. It intentionally exercises the current
+-- high-level CoreLX matrix-plane API in several different ways:
+--   1. Large 128x128 plane authored with clear/fill/set_tile
+--   2. Same plane under affine rotation/skew
+--   3. Asset-loaded top-left patch with clamp outside behavior
+--   4. Smooth pan across the large plane with wrap enabled
+
+asset DeepTile: tiles8
+    hex
+        11 11 11 11 11 11 11 11
+        11 11 11 11 11 11 11 11
+        11 11 11 11 11 11 11 11
+        11 11 11 11 11 11 11 11
+
+asset LightTile: tiles8
+    hex
+        22 22 22 22 22 22 22 22
+        22 22 22 22 22 22 22 22
+        22 22 22 22 22 22 22 22
+        22 22 22 22 22 22 22 22
+
+asset StripeTile: tiles8
+    hex
+        33 33 00 00 33 33 00 00
+        33 33 00 00 33 33 00 00
+        00 00 33 33 00 00 33 33
+        00 00 33 33 00 00 33 33
+
+asset MarkerTile: tiles8
+    hex
+        00 44 44 44 44 44 44 00
+        44 44 00 00 00 00 44 44
+        44 00 44 44 44 44 00 44
+        44 44 00 00 00 00 44 44
+
+asset PatchTile: tiles8
+    hex
+        55 55 55 55 00 00 00 00
+        55 00 00 55 00 55 55 00
+        55 00 55 55 00 55 00 00
+        55 55 55 55 00 00 00 00
+
+-- Small authored patch loaded into the top-left of the dedicated matrix plane.
+-- This gives phase 3 a clear signal that matrix_plane.load_tilemap(...) works.
+asset PlanePatch: tilemap hex
+    04 00 04 00 04 00 04 00
+    04 00 03 00 03 00 04 00
+    04 00 03 00 03 00 04 00
+    04 00 04 00 04 00 04 00
+
+function Start()
+    -- Palette 0 is shared by the matrix plane.
+    gfx.set_palette(0, 0, 0x0000)
+    gfx.set_palette(0, 1, 0x0010)
+    gfx.set_palette(0, 2, 0x421F)
+    gfx.set_palette(0, 3, 0x03FF)
+    gfx.set_palette(0, 4, 0x7FE0)
+    gfx.set_palette(0, 5, 0x7C00)
+
+    bg.enable(0)
+    bg.set_priority(0, 0)
+    bg.set_tile_size(0, 0)
+    bg.set_source_mode(0, 0)
+    bg.bind_transform(0, 0)
+    bg.set_scroll(0, 512, 512)
+
+    matrix.enable(0)
+    matrix.identity(0)
+    matrix.set_center(0, 160, 100)
+    matrix.set_flags(0, false, false, 0, false)
+
+    matrix_plane.enable(0, 128)
+    matrix_plane.load_tiles(ASSET_DeepTile, 0, 0)
+    matrix_plane.load_tiles(ASSET_LightTile, 0, 1)
+    matrix_plane.load_tiles(ASSET_StripeTile, 0, 2)
+    matrix_plane.load_tiles(ASSET_MarkerTile, 0, 3)
+    matrix_plane.load_tiles(ASSET_PatchTile, 0, 4)
+
+    -- Build the large dedicated plane.
+    matrix_plane.clear(0, 0, 0)
+    matrix_plane.fill_rect(0, 64, 0, 64, 128, 1, 0)
+    matrix_plane.fill_rect(0, 0, 60, 128, 8, 2, 0)
+    matrix_plane.fill_rect(0, 60, 0, 8, 128, 2, 0)
+    matrix_plane.set_tile(0, 62, 62, 3, 0)
+    matrix_plane.set_tile(0, 65, 62, 3, 0)
+    matrix_plane.set_tile(0, 62, 65, 3, 0)
+    matrix_plane.set_tile(0, 65, 65, 3, 0)
+    matrix_plane.load_tilemap(ASSET_PlanePatch, 0)
+
+    ppu.enable_display()
+
+    last_frame := frame_counter()
+    phase := 0
+
+    -- Phase 1: identity view of the large plane centered on the cross marker.
+    while phase < 180
+        while frame_counter() == last_frame
+            wait_vblank()
+        last_frame = frame_counter()
+
+        bg.set_scroll(0, 512, 512)
+        matrix.set_center(0, 160, 100)
+        matrix.set_flags(0, false, false, 0, false)
+        matrix.set_matrix(0, 0x0100, 0, 0, 0x0100)
+
+        phase = phase + 1
+
+    -- Phase 2: rotated/skewed view of the same plane.
+    phase = 0
+    while phase < 180
+        while frame_counter() == last_frame
+            wait_vblank()
+        last_frame = frame_counter()
+
+        bg.set_scroll(0, 512, 512)
+        matrix.set_center(0, 160, 100)
+        matrix.set_flags(0, false, false, 0, false)
+        matrix.set_matrix(0, 0x00D0, 0x0040, 0xFFC0, 0x00D0)
+
+        phase = phase + 1
+
+    -- Phase 3: move near the top-left and clamp outside behavior so the
+    -- authored asset patch becomes visible and the plane edge is defined.
+    phase = 0
+    while phase < 180
+        while frame_counter() == last_frame
+            wait_vblank()
+        last_frame = frame_counter()
+
+        bg.set_scroll(0, 48, 48)
+        matrix.set_center(0, 120, 80)
+        matrix.set_flags(0, false, false, 3, false)
+        matrix.set_matrix(0, 0x0100, 0, 0, 0x0100)
+
+        phase = phase + 1
+
+    -- Phase 4: smooth pan across the large plane with gentle affine warp.
+    phase = 0
+    scroll_x := 448
+    scroll_y := 416
+    while phase < 240
+        while frame_counter() == last_frame
+            wait_vblank()
+        last_frame = frame_counter()
+
+        bg.set_scroll(0, scroll_x, scroll_y)
+        matrix.set_center(0, 160, 100)
+        matrix.set_flags(0, false, false, 0, false)
+        matrix.set_matrix(0, 0x00F0, 0x0018, 0xFFE8, 0x00F0)
+
+        scroll_x = scroll_x + 2
+        if scroll_x >= 704
+            scroll_x = 448
+
+        scroll_y = scroll_y + 1
+        if scroll_y >= 640
+            scroll_y = 416
+
+        phase = phase + 1
+
+    -- Loop the showcase.
+    while true
+        while frame_counter() == last_frame
+            wait_vblank()
+        last_frame = frame_counter()
+
+        bg.set_scroll(0, 512, 512)
+        matrix.set_center(0, 160, 100)
+        matrix.set_flags(0, false, false, 0, false)
+        matrix.set_matrix(0, 0x0100, 0, 0, 0x0100)

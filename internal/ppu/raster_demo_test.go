@@ -186,7 +186,7 @@ func TestScanlineCommandProgramRendersRebindAndPriorityEffect(t *testing.T) {
 			bg0.Rebind = 1
 			bg0.HasPriority = true
 			bg0.Priority = 3
-			bg0.CenterX = -8 // shift sample right within the 16x16 tile => green half
+			bg0.ScrollX = 8 // shift sample right within the 16x16 tile => green half
 		}
 
 		err := ppu.WriteScanlineCommandProgram(scanline, ScanlineCommandProgram{

@@ -1,11 +1,14 @@
 package corelx
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"nitro-core-dx/internal/emulator"
+	"nitro-core-dx/internal/ppu"
 )
 
 // TestCoreLXCompilation tests that CoreLX programs compile successfully
@@ -1010,6 +1013,722 @@ func TestMatrixSetFlagsHelperDrivesBoundTransformFlags(t *testing.T) {
 	}
 	if !ch.DirectColor {
 		t.Fatal("expected matrix.set_flags to set DirectColor")
+	}
+}
+
+func TestMatrixPlaneHelpersDriveExpectedPPUState(t *testing.T) {
+	source := `asset Solid: tiles8 hex
+    11 11 11 11 11 11 11 11
+    11 11 11 11 11 11 11 11
+    11 11 11 11 11 11 11 11
+    11 11 11 11 11 11 11 11
+
+function Start()
+    matrix_plane.enable(1, 128)
+    base := matrix_plane.load_tiles(ASSET_Solid, 1, 3)
+    matrix_plane.set_tile(1, 2, 3, 0x12, 0x34)
+    while true
+        wait_vblank()
+`
+
+	tmpDir := t.TempDir()
+	sourcePath := filepath.Join(tmpDir, "matrix_plane_helpers.corelx")
+	outputPath := filepath.Join(tmpDir, "matrix_plane_helpers.rom")
+
+	if err := os.WriteFile(sourcePath, []byte(source), 0o644); err != nil {
+		t.Fatalf("Failed to write source file: %v", err)
+	}
+	if err := CompileFile(sourcePath, outputPath); err != nil {
+		t.Fatalf("Compilation failed: %v", err)
+	}
+
+	romData, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("Failed to read ROM: %v", err)
+	}
+	emu := emulator.NewEmulator()
+	emu.SetFrameLimit(false)
+	if err := emu.LoadROM(romData); err != nil {
+		t.Fatalf("Failed to load ROM: %v", err)
+	}
+	emu.Start()
+
+	for i := 0; i < 2; i++ {
+		if err := emu.RunFrame(); err != nil {
+			t.Fatalf("RunFrame failed: %v", err)
+		}
+	}
+
+	plane := emu.PPU.MatrixPlanes[1]
+	if !plane.Enabled {
+		t.Fatal("expected matrix_plane.enable(1, 128) to enable plane 1")
+	}
+	if plane.Size != ppu.TilemapSize128x128 {
+		t.Fatalf("plane.Size = %d, want %d", plane.Size, ppu.TilemapSize128x128)
+	}
+	offset := (3*128 + 2) * 2
+	if got := plane.Tilemap[offset]; got != 0x12 {
+		t.Fatalf("plane tile low byte = 0x%02X, want 0x12", got)
+	}
+	if got := plane.Tilemap[offset+1]; got != 0x34 {
+		t.Fatalf("plane tile attr byte = 0x%02X, want 0x34", got)
+	}
+	for i := 0; i < 32; i++ {
+		if got := plane.Pattern[3*32+i]; got != 0x11 {
+			t.Fatalf("plane pattern byte %d = 0x%02X, want 0x11", i, got)
+		}
+	}
+}
+
+func TestMatrixPlaneTilemapAndFillHelpersDriveExpectedPPUState(t *testing.T) {
+	source := `asset PlaneMap: tilemap hex
+    21 43 65 87
+
+function Start()
+    matrix_plane.enable(2, 32)
+    matrix_plane.clear(2, 0x01, 0x02)
+    matrix_plane.fill_rect(2, 1, 2, 3, 2, 0x07, 0x40)
+    matrix_plane.load_tilemap(ASSET_PlaneMap, 2)
+    while true
+        wait_vblank()
+`
+
+	tmpDir := t.TempDir()
+	sourcePath := filepath.Join(tmpDir, "matrix_plane_tilemap_fill.corelx")
+	outputPath := filepath.Join(tmpDir, "matrix_plane_tilemap_fill.rom")
+
+	if err := os.WriteFile(sourcePath, []byte(source), 0o644); err != nil {
+		t.Fatalf("Failed to write source file: %v", err)
+	}
+	if err := CompileFile(sourcePath, outputPath); err != nil {
+		t.Fatalf("Compilation failed: %v", err)
+	}
+
+	romData, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("Failed to read ROM: %v", err)
+	}
+	emu := emulator.NewEmulator()
+	emu.SetFrameLimit(false)
+	if err := emu.LoadROM(romData); err != nil {
+		t.Fatalf("Failed to load ROM: %v", err)
+	}
+	emu.Start()
+
+	for i := 0; i < 4; i++ {
+		if err := emu.RunFrame(); err != nil {
+			t.Fatalf("RunFrame failed: %v", err)
+		}
+	}
+
+	plane := emu.PPU.MatrixPlanes[2]
+	if !plane.Enabled {
+		t.Fatal("expected matrix plane 2 to be enabled")
+	}
+	// load_tilemap writes from address 0, so the first bytes should come from the asset
+	if got := plane.Tilemap[0]; got != 0x21 {
+		t.Fatalf("plane.Tilemap[0] = 0x%02X, want 0x21", got)
+	}
+	if got := plane.Tilemap[1]; got != 0x43 {
+		t.Fatalf("plane.Tilemap[1] = 0x%02X, want 0x43", got)
+	}
+	// clear/fill_rect should have populated later cells.
+	fillOffset := (2*32 + 1) * 2
+	if got := plane.Tilemap[fillOffset]; got != 0x07 {
+		t.Fatalf("filled tile low byte = 0x%02X, want 0x07", got)
+	}
+	if got := plane.Tilemap[fillOffset+1]; got != 0x40 {
+		t.Fatalf("filled tile attr byte = 0x%02X, want 0x40", got)
+	}
+	clearOffset := (10*32 + 10) * 2
+	if got := plane.Tilemap[clearOffset]; got != 0x01 {
+		t.Fatalf("cleared tile low byte = 0x%02X, want 0x01", got)
+	}
+	if got := plane.Tilemap[clearOffset+1]; got != 0x02 {
+		t.Fatalf("cleared tile attr byte = 0x%02X, want 0x02", got)
+	}
+}
+
+func TestBGSetTileDefaultsToRendererTilemapBase(t *testing.T) {
+	source := `function Start()
+    bg.set_tile(0, 2, 1, 0x12, 0x34)
+    while true
+        wait_vblank()
+`
+
+	tmpDir := t.TempDir()
+	sourcePath := filepath.Join(tmpDir, "bg_set_tile.corelx")
+	outputPath := filepath.Join(tmpDir, "bg_set_tile.rom")
+
+	if err := os.WriteFile(sourcePath, []byte(source), 0o644); err != nil {
+		t.Fatalf("Failed to write source file: %v", err)
+	}
+	if err := CompileFile(sourcePath, outputPath); err != nil {
+		t.Fatalf("Compilation failed: %v", err)
+	}
+
+	romData, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("Failed to read ROM: %v", err)
+	}
+	emu := emulator.NewEmulator()
+	emu.SetFrameLimit(false)
+	if err := emu.LoadROM(romData); err != nil {
+		t.Fatalf("Failed to load ROM: %v", err)
+	}
+	emu.Start()
+
+	for i := 0; i < 2; i++ {
+		if err := emu.RunFrame(); err != nil {
+			t.Fatalf("RunFrame failed: %v", err)
+		}
+	}
+
+	entry := uint16(0x4000 + ((1*32 + 2) * 2))
+	if got := emu.PPU.VRAM[entry]; got != 0x12 {
+		t.Fatalf("tile byte at 0x%04X = 0x%02X, want 0x12", entry, got)
+	}
+	if got := emu.PPU.VRAM[entry+1]; got != 0x34 {
+		t.Fatalf("attr byte at 0x%04X = 0x%02X, want 0x34", entry+1, got)
+	}
+}
+
+func TestBGClearAndFillSpanDriveExpectedTilemapWrites(t *testing.T) {
+	source := `function Start()
+    bg.set_tilemap_base(1, 0x4800)
+    bg.clear(1, 0x21, 0x43)
+    bg.fill_span(1, 4, 6, 3, 0x55, 0x66)
+    while true
+        wait_vblank()
+`
+
+	tmpDir := t.TempDir()
+	sourcePath := filepath.Join(tmpDir, "bg_fill_span.corelx")
+	outputPath := filepath.Join(tmpDir, "bg_fill_span.rom")
+
+	if err := os.WriteFile(sourcePath, []byte(source), 0o644); err != nil {
+		t.Fatalf("Failed to write source file: %v", err)
+	}
+	if err := CompileFile(sourcePath, outputPath); err != nil {
+		t.Fatalf("Compilation failed: %v", err)
+	}
+
+	romData, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("Failed to read ROM: %v", err)
+	}
+	emu := emulator.NewEmulator()
+	emu.SetFrameLimit(false)
+	if err := emu.LoadROM(romData); err != nil {
+		t.Fatalf("Failed to load ROM: %v", err)
+	}
+	emu.Start()
+
+	for i := 0; i < 2; i++ {
+		if err := emu.RunFrame(); err != nil {
+			t.Fatalf("RunFrame failed: %v", err)
+		}
+	}
+
+	base := uint16(0x4800)
+	clearEntry := base
+	if got := emu.PPU.VRAM[clearEntry]; got != 0x21 {
+		t.Fatalf("clear tile byte at 0x%04X = 0x%02X, want 0x21", clearEntry, got)
+	}
+	if got := emu.PPU.VRAM[clearEntry+1]; got != 0x43 {
+		t.Fatalf("clear attr byte at 0x%04X = 0x%02X, want 0x43", clearEntry+1, got)
+	}
+
+	for x := 4; x < 7; x++ {
+		entry := base + uint16(((6*32)+x)*2)
+		if got := emu.PPU.VRAM[entry]; got != 0x55 {
+			t.Fatalf("fill tile byte at x=%d addr 0x%04X = 0x%02X, want 0x55", x, entry, got)
+		}
+		if got := emu.PPU.VRAM[entry+1]; got != 0x66 {
+			t.Fatalf("fill attr byte at x=%d addr 0x%04X = 0x%02X, want 0x66", x, entry+1, got)
+		}
+	}
+}
+
+func TestBGLoadTilemapAssetUsesConfiguredLayerBase(t *testing.T) {
+	source := `asset MapA: tilemap hex
+    10 01 20 02
+
+function Start()
+    bg.set_tilemap_base(0, 0x4A00)
+    base := bg.load_tilemap(ASSET_MapA, 0)
+    while true
+        wait_vblank()
+`
+
+	tmpDir := t.TempDir()
+	sourcePath := filepath.Join(tmpDir, "bg_load_tilemap.corelx")
+	outputPath := filepath.Join(tmpDir, "bg_load_tilemap.rom")
+
+	if err := os.WriteFile(sourcePath, []byte(source), 0o644); err != nil {
+		t.Fatalf("Failed to write source file: %v", err)
+	}
+	if err := CompileFile(sourcePath, outputPath); err != nil {
+		t.Fatalf("Compilation failed: %v", err)
+	}
+
+	romData, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("Failed to read ROM: %v", err)
+	}
+	emu := emulator.NewEmulator()
+	emu.SetFrameLimit(false)
+	if err := emu.LoadROM(romData); err != nil {
+		t.Fatalf("Failed to load ROM: %v", err)
+	}
+	emu.Start()
+
+	for i := 0; i < 2; i++ {
+		if err := emu.RunFrame(); err != nil {
+			t.Fatalf("RunFrame failed: %v", err)
+		}
+	}
+
+	if emu.PPU.BG0.TilemapBase != 0x4A00 {
+		t.Fatalf("BG0.TilemapBase = 0x%04X, want 0x4A00", emu.PPU.BG0.TilemapBase)
+	}
+	want := []byte{0x10, 0x01, 0x20, 0x02}
+	for i, b := range want {
+		addr := uint16(0x4A00 + i)
+		if got := emu.PPU.VRAM[addr]; got != b {
+			t.Fatalf("tilemap byte at 0x%04X = 0x%02X, want 0x%02X", addr, got, b)
+		}
+	}
+}
+
+func TestRasterHelpersDriveExpectedPPUState(t *testing.T) {
+	source := `function Start()
+    raster.enable(0x3800, 0x03, false, true, true, true)
+    raster.disable()
+    raster.enable(0x3C00, 0x01, true, false, true, false)
+    while true
+        wait_vblank()
+`
+
+	tmpDir := t.TempDir()
+	sourcePath := filepath.Join(tmpDir, "raster_helpers.corelx")
+	outputPath := filepath.Join(tmpDir, "raster_helpers.rom")
+
+	if err := os.WriteFile(sourcePath, []byte(source), 0o644); err != nil {
+		t.Fatalf("Failed to write source file: %v", err)
+	}
+	if err := CompileFile(sourcePath, outputPath); err != nil {
+		t.Fatalf("Compilation failed: %v", err)
+	}
+
+	romData, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("Failed to read ROM: %v", err)
+	}
+	emu := emulator.NewEmulator()
+	emu.SetFrameLimit(false)
+	if err := emu.LoadROM(romData); err != nil {
+		t.Fatalf("Failed to load ROM: %v", err)
+	}
+	emu.Start()
+
+	for i := 0; i < 2; i++ {
+		if err := emu.RunFrame(); err != nil {
+			t.Fatalf("RunFrame failed: %v", err)
+		}
+	}
+
+	if !emu.PPU.HDMAEnabled {
+		t.Fatal("expected raster.enable to leave HDMA enabled")
+	}
+	if emu.PPU.HDMATableBase != 0x3C00 {
+		t.Fatalf("HDMATableBase = 0x%04X, want 0x3C00", emu.PPU.HDMATableBase)
+	}
+	if emu.PPU.HDMAControl != 0xA3 {
+		t.Fatalf("HDMAControl = 0x%02X, want 0xA3", emu.PPU.HDMAControl)
+	}
+	if emu.PPU.HDMAExtControl != 0x00 {
+		t.Fatalf("HDMAExtControl = 0x%02X, want 0x00", emu.PPU.HDMAExtControl)
+	}
+}
+
+func TestRasterScanlineHelpersWriteExpectedTableEntries(t *testing.T) {
+	source := `function Start()
+    raster.enable(0x3000, 0x01, true, true, true, true)
+    raster.set_scanline_scroll(5, 0, 3, 4)
+    raster.set_scanline_matrix(5, 0, 0x0100, 0x0001, 0x0002, 0x0200)
+    raster.set_scanline_center(5, 0, 7, 8)
+    raster.set_scanline_rebind(5, 0, 2)
+    raster.set_scanline_priority(5, 0, 3)
+    raster.set_scanline_tilemap_base(5, 0, 0x1800)
+    raster.set_scanline_source_mode(5, 0, 1)
+    while true
+        wait_vblank()
+`
+
+	tmpDir := t.TempDir()
+	sourcePath := filepath.Join(tmpDir, "raster_scanline_helpers.corelx")
+	outputPath := filepath.Join(tmpDir, "raster_scanline_helpers.rom")
+
+	if err := os.WriteFile(sourcePath, []byte(source), 0o644); err != nil {
+		t.Fatalf("Failed to write source file: %v", err)
+	}
+	if err := CompileFile(sourcePath, outputPath); err != nil {
+		t.Fatalf("Compilation failed: %v", err)
+	}
+
+	romData, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("Failed to read ROM: %v", err)
+	}
+	emu := emulator.NewEmulator()
+	emu.SetFrameLimit(false)
+	if err := emu.LoadROM(romData); err != nil {
+		t.Fatalf("Failed to load ROM: %v", err)
+	}
+	emu.Start()
+
+	for i := 0; i < 2; i++ {
+		if err := emu.RunFrame(); err != nil {
+			t.Fatalf("RunFrame failed: %v", err)
+		}
+	}
+
+	base := uint16(0x3000 + 5*84)
+	want := []uint8{
+		0x03, 0x00, // scroll x
+		0x04, 0x00, // scroll y
+		0x00, 0x01, // A
+		0x01, 0x00, // B
+		0x02, 0x00, // C
+		0x00, 0x02, // D
+		0x07, 0x00, // center x
+		0x08, 0x00, // center y
+	}
+	for i, b := range want {
+		addr := base + uint16(i)
+		if got := emu.PPU.VRAM[addr]; got != b {
+			t.Fatalf("scanline payload byte at 0x%04X = 0x%02X, want 0x%02X", addr, got, b)
+		}
+	}
+
+	rebindAddr := base + 64
+	if got := emu.PPU.VRAM[rebindAddr]; got != 0x02 {
+		t.Fatalf("rebind byte at 0x%04X = 0x%02X, want 0x02", rebindAddr, got)
+	}
+
+	priorityAddr := base + 68
+	if got := emu.PPU.VRAM[priorityAddr]; got != 0x03 {
+		t.Fatalf("priority byte at 0x%04X = 0x%02X, want 0x03", priorityAddr, got)
+	}
+
+	tilemapBaseAddr := base + 72
+	if got := emu.PPU.VRAM[tilemapBaseAddr]; got != 0x00 {
+		t.Fatalf("tilemap base low byte at 0x%04X = 0x%02X, want 0x00", tilemapBaseAddr, got)
+	}
+	if got := emu.PPU.VRAM[tilemapBaseAddr+1]; got != 0x18 {
+		t.Fatalf("tilemap base high byte at 0x%04X = 0x%02X, want 0x18", tilemapBaseAddr+1, got)
+	}
+
+	sourceModeAddr := base + 80
+	if got := emu.PPU.VRAM[sourceModeAddr]; got != 0x01 {
+		t.Fatalf("source mode byte at 0x%04X = 0x%02X, want 0x01", sourceModeAddr, got)
+	}
+}
+
+func TestRasterShowcaseDemoRendersVisibleSplit(t *testing.T) {
+	var sourcePath string
+	possiblePaths := []string{
+		"test/roms/raster_showcase.corelx",
+		"../../test/roms/raster_showcase.corelx",
+		"../test/roms/raster_showcase.corelx",
+	}
+	for _, path := range possiblePaths {
+		if _, err := os.Stat(path); err == nil {
+			sourcePath = path
+			break
+		}
+	}
+	if sourcePath == "" {
+		t.Skip("raster showcase demo not found")
+	}
+
+	tmpDir := t.TempDir()
+	outputPath := filepath.Join(tmpDir, "raster_showcase.rom")
+	if err := CompileFile(sourcePath, outputPath); err != nil {
+		t.Fatalf("Compilation failed: %v", err)
+	}
+
+	romData, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("Failed to read ROM: %v", err)
+	}
+	emu := emulator.NewEmulator()
+	emu.SetFrameLimit(false)
+	if err := emu.LoadROM(romData); err != nil {
+		t.Fatalf("Failed to load ROM: %v", err)
+	}
+	emu.Start()
+
+	for i := 0; i < 90; i++ {
+		if err := emu.RunFrame(); err != nil {
+			t.Fatalf("RunFrame failed: %v", err)
+		}
+		topColor := emu.PPU.OutputBuffer[10*320+10]
+		bottomColor := emu.PPU.OutputBuffer[(200-10)*320+10]
+		if topColor != 0 && bottomColor != 0 && topColor != bottomColor {
+			return
+		}
+	}
+
+	topColor := emu.PPU.OutputBuffer[10*320+10]
+	bottomColor := emu.PPU.OutputBuffer[(200-10)*320+10]
+	t.Fatalf("expected raster showcase split after initialization, got top=0x%06X bottom=0x%06X", topColor, bottomColor)
+}
+
+func TestGraphicsImageDemoRendersScene(t *testing.T) {
+	var sourcePath string
+	possiblePaths := []string{
+		"test/roms/graphics_image_demo.corelx",
+		"../../test/roms/graphics_image_demo.corelx",
+		"../test/roms/graphics_image_demo.corelx",
+	}
+	for _, path := range possiblePaths {
+		if _, err := os.Stat(path); err == nil {
+			sourcePath = path
+			break
+		}
+	}
+	if sourcePath == "" {
+		t.Skip("graphics image demo not found")
+	}
+
+	tmpDir := t.TempDir()
+	outputPath := filepath.Join(tmpDir, "graphics_image_demo.rom")
+	if err := CompileFile(sourcePath, outputPath); err != nil {
+		t.Fatalf("Compilation failed: %v", err)
+	}
+
+	romData, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("Failed to read ROM: %v", err)
+	}
+	emu := emulator.NewEmulator()
+	emu.SetFrameLimit(false)
+	if err := emu.LoadROM(romData); err != nil {
+		t.Fatalf("Failed to load ROM: %v", err)
+	}
+	emu.Start()
+
+	for i := 0; i < 600; i++ {
+		if err := emu.RunFrame(); err != nil {
+			t.Fatalf("RunFrame failed: %v", err)
+		}
+		sky := emu.PPU.OutputBuffer[20*320+20]
+		ground := emu.PPU.OutputBuffer[180*320+20]
+		sun := emu.PPU.OutputBuffer[52*320+76]
+		if sky != 0 && ground != 0 && sun != 0 && sky != ground && sky != sun && ground != sun {
+			return
+		}
+	}
+
+	sky := emu.PPU.OutputBuffer[20*320+20]
+	ground := emu.PPU.OutputBuffer[180*320+20]
+	sun := emu.PPU.OutputBuffer[52*320+76]
+	t.Fatalf("expected visible image scene, got sky=0x%06X ground=0x%06X sun=0x%06X", sky, ground, sun)
+}
+
+func TestMatrixPlaneShowcaseProgramsDedicatedPlane(t *testing.T) {
+	var sourcePath string
+	possiblePaths := []string{
+		"test/roms/matrix_plane_showcase.corelx",
+		"../../test/roms/matrix_plane_showcase.corelx",
+		"../test/roms/matrix_plane_showcase.corelx",
+	}
+	for _, path := range possiblePaths {
+		if _, err := os.Stat(path); err == nil {
+			sourcePath = path
+			break
+		}
+	}
+	if sourcePath == "" {
+		t.Skip("matrix plane showcase not found")
+	}
+
+	tmpDir := t.TempDir()
+	outputPath := filepath.Join(tmpDir, "matrix_plane_showcase.rom")
+	if err := CompileFile(sourcePath, outputPath); err != nil {
+		t.Fatalf("Compilation failed: %v", err)
+	}
+
+	romData, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("Failed to read ROM: %v", err)
+	}
+	emu := emulator.NewEmulator()
+	emu.SetFrameLimit(false)
+	if err := emu.LoadROM(romData); err != nil {
+		t.Fatalf("Failed to load ROM: %v", err)
+	}
+	emu.Start()
+
+	for i := 0; i < 600; i++ {
+		if err := emu.RunFrame(); err != nil {
+			t.Fatalf("RunFrame failed: %v", err)
+		}
+	}
+
+	if !emu.PPU.BG0.Enabled {
+		t.Fatal("expected matrix plane showcase to enable BG0")
+	}
+	if emu.PPU.BG0.TransformChannel != 0 {
+		t.Fatalf("BG0.TransformChannel = %d, want 0", emu.PPU.BG0.TransformChannel)
+	}
+	if !emu.PPU.TransformChannels[0].Enabled {
+		t.Fatal("expected matrix plane showcase to enable transform channel 0")
+	}
+	if !emu.PPU.MatrixPlanes[0].Enabled {
+		t.Fatal("expected matrix plane showcase to enable dedicated matrix plane 0")
+	}
+	if emu.PPU.MatrixPlanes[0].Size != ppu.TilemapSize32x32 {
+		t.Fatalf("matrix plane 0 size = %d, want %d", emu.PPU.MatrixPlanes[0].Size, ppu.TilemapSize32x32)
+	}
+	if emu.PPU.MatrixPlanes[0].Pattern[0] == 0 && emu.PPU.MatrixPlanes[0].Pattern[32] == 0 {
+		t.Fatal("expected matrix plane showcase to upload pattern data")
+	}
+	rightHalfOffset := (0*32 + 20) * 2
+	markerOffset := (14*32 + 14) * 2
+	if got := emu.PPU.MatrixPlanes[0].Tilemap[rightHalfOffset]; got != 0x01 {
+		t.Fatalf("expected right-half tile entry to be 0x01, got 0x%02X", got)
+	}
+	if got := emu.PPU.MatrixPlanes[0].Tilemap[markerOffset]; got != 0x02 {
+		t.Fatalf("expected marker tile entry to be 0x02, got 0x%02X", got)
+	}
+}
+
+func framebufferFingerprint(buf []uint32) string {
+	raw := make([]byte, len(buf)*4)
+	for i, px := range buf {
+		raw[i*4+0] = byte(px)
+		raw[i*4+1] = byte(px >> 8)
+		raw[i*4+2] = byte(px >> 16)
+		raw[i*4+3] = byte(px >> 24)
+	}
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
+}
+
+func TestGraphicsPipelineShowcasePhasesDiffer(t *testing.T) {
+	var sourcePath string
+	possiblePaths := []string{
+		"test/roms/graphics_pipeline_showcase.corelx",
+		"../../test/roms/graphics_pipeline_showcase.corelx",
+		"../test/roms/graphics_pipeline_showcase.corelx",
+	}
+	for _, path := range possiblePaths {
+		if _, err := os.Stat(path); err == nil {
+			sourcePath = path
+			break
+		}
+	}
+	if sourcePath == "" {
+		t.Skip("graphics pipeline showcase not found")
+	}
+
+	tmpDir := t.TempDir()
+	outputPath := filepath.Join(tmpDir, "graphics_pipeline_showcase.rom")
+	if err := CompileFile(sourcePath, outputPath); err != nil {
+		t.Fatalf("Compilation failed: %v", err)
+	}
+
+	romData, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("Failed to read ROM: %v", err)
+	}
+	emu := emulator.NewEmulator()
+	emu.SetFrameLimit(false)
+	if err := emu.LoadROM(romData); err != nil {
+		t.Fatalf("Failed to load ROM: %v", err)
+	}
+	emu.Start()
+
+	checkpoints := []int{120, 240, 420, 600}
+	fingerprints := make([]string, 0, len(checkpoints))
+	frame := 0
+	for _, target := range checkpoints {
+		for frame < target {
+			if err := emu.RunFrame(); err != nil {
+				t.Fatalf("RunFrame failed at frame %d: %v", frame, err)
+			}
+			frame++
+		}
+		fp := framebufferFingerprint(emu.PPU.OutputBuffer[:])
+		fingerprints = append(fingerprints, fp)
+	}
+
+	seen := map[string]bool{}
+	for _, fp := range fingerprints {
+		seen[fp] = true
+	}
+	if len(seen) < 4 {
+		t.Fatalf("expected 4 distinct phase framebuffers, got %d unique fingerprints: %v", len(seen), fingerprints)
+	}
+}
+
+func TestMatrixPlanePipelineShowcasePhasesDiffer(t *testing.T) {
+	var sourcePath string
+	possiblePaths := []string{
+		"test/roms/matrix_plane_pipeline_showcase.corelx",
+		"../../test/roms/matrix_plane_pipeline_showcase.corelx",
+		"../test/roms/matrix_plane_pipeline_showcase.corelx",
+	}
+	for _, path := range possiblePaths {
+		if _, err := os.Stat(path); err == nil {
+			sourcePath = path
+			break
+		}
+	}
+	if sourcePath == "" {
+		t.Skip("matrix plane pipeline showcase not found")
+	}
+
+	tmpDir := t.TempDir()
+	outputPath := filepath.Join(tmpDir, "matrix_plane_pipeline_showcase.rom")
+	if err := CompileFile(sourcePath, outputPath); err != nil {
+		t.Fatalf("Compilation failed: %v", err)
+	}
+
+	romData, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("Failed to read ROM: %v", err)
+	}
+	emu := emulator.NewEmulator()
+	emu.SetFrameLimit(false)
+	if err := emu.LoadROM(romData); err != nil {
+		t.Fatalf("Failed to load ROM: %v", err)
+	}
+	emu.Start()
+
+	checkpoints := []int{120, 300, 480, 700}
+	fingerprints := make([]string, 0, len(checkpoints))
+	frame := 0
+	for _, target := range checkpoints {
+		for frame < target {
+			if err := emu.RunFrame(); err != nil {
+				t.Fatalf("RunFrame failed at frame %d: %v", frame, err)
+			}
+			frame++
+		}
+		fp := framebufferFingerprint(emu.PPU.OutputBuffer[:])
+		fingerprints = append(fingerprints, fp)
+	}
+
+	seen := map[string]bool{}
+	for _, fp := range fingerprints {
+		seen[fp] = true
+	}
+	if len(seen) < 4 {
+		t.Fatalf("expected 4 distinct matrix-plane phase framebuffers, got %d unique fingerprints: %v", len(seen), fingerprints)
 	}
 }
 

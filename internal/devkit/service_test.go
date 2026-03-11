@@ -385,6 +385,117 @@ function Start()
 	}
 }
 
+func TestServiceInstallRasterDemoMatrixPlaneRenders(t *testing.T) {
+	tmpDir := t.TempDir()
+	svc := NewService(tmpDir)
+	defer svc.Shutdown()
+
+	src := `
+function Start()
+    while true
+        wait_vblank()
+`
+	build, err := svc.BuildSource(src, "raster_demo_matrix_plane.corelx")
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if err := svc.LoadROMBytes(build.Result.ROMBytes); err != nil {
+		t.Fatalf("load rom: %v", err)
+	}
+	if err := svc.InstallRasterDemo(RasterDemoMatrixPlane); err != nil {
+		t.Fatalf("InstallRasterDemo(matrix-plane): %v", err)
+	}
+	if err := svc.RunFrame(); err != nil {
+		t.Fatalf("RunFrame: %v", err)
+	}
+
+	fb := svc.FramebufferCopy()
+	a := fb[30*320+30]
+	b := fb[120*320+160]
+	c := fb[180*320+280]
+	if a == 0 || b == 0 || c == 0 {
+		t.Fatalf("expected visible matrix-plane colors, got a=0x%06X b=0x%06X c=0x%06X", a, b, c)
+	}
+	if a == b && b == c {
+		t.Fatalf("expected matrix-plane demo to produce spatially varying output, got a=b=c=0x%06X", a)
+	}
+}
+
+func TestServiceInstallMatrixPlaneProgramWithBuilder(t *testing.T) {
+	tmpDir := t.TempDir()
+	svc := NewService(tmpDir)
+	defer svc.Shutdown()
+
+	src := `
+function Start()
+    while true
+        wait_vblank()
+`
+	build, err := svc.BuildSource(src, "matrix_plane_builder.corelx")
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if err := svc.LoadROMBytes(build.Result.ROMBytes); err != nil {
+		t.Fatalf("load rom: %v", err)
+	}
+
+	emu := svc.emu
+	emu.PPU.BG0.Enabled = true
+	emu.PPU.BG0.TileSize = false
+	emu.PPU.BG0.TilemapSize = 2
+	emu.PPU.BG0.TransformChannel = 0
+	emu.PPU.TransformChannels[0].Enabled = true
+	emu.PPU.TransformChannels[0].A = 0x0100
+	emu.PPU.TransformChannels[0].D = 0x0100
+	emu.PPU.TransformChannels[0].CenterX = 0
+	emu.PPU.TransformChannels[0].CenterY = 0
+	emu.PPU.CGRAM[0x01*2] = 0x1F
+	emu.PPU.CGRAM[0x01*2+1] = 0x00
+	emu.PPU.CGRAM[0x02*2] = 0xE0
+	emu.PPU.CGRAM[0x02*2+1] = 0x03
+
+	builder, err := emulator.NewMatrixPlaneBuilder(0, 2)
+	if err != nil {
+		t.Fatalf("NewMatrixPlaneBuilder: %v", err)
+	}
+	if err := builder.SetPatternTile8x8(0, bytesRepeat(0x11, 32)); err != nil {
+		t.Fatalf("SetPatternTile8x8(0): %v", err)
+	}
+	if err := builder.SetPatternTile8x8(1, bytesRepeat(0x22, 32)); err != nil {
+		t.Fatalf("SetPatternTile8x8(1): %v", err)
+	}
+	if err := builder.FillRect(0, 0, 20, 128, 0x00, 0x00); err != nil {
+		t.Fatalf("FillRect left: %v", err)
+	}
+	if err := builder.FillRect(20, 0, 108, 128, 0x01, 0x00); err != nil {
+		t.Fatalf("FillRect right: %v", err)
+	}
+	if err := svc.InstallMatrixPlaneProgram(builder.Build()); err != nil {
+		t.Fatalf("InstallMatrixPlaneProgram: %v", err)
+	}
+	if err := svc.RunFrame(); err != nil {
+		t.Fatalf("RunFrame: %v", err)
+	}
+
+	fb := svc.FramebufferCopy()
+	left := fb[20*320+20]
+	right := fb[20*320+280]
+	if left == 0 || right == 0 {
+		t.Fatalf("expected visible matrix plane halves, got left=0x%06X right=0x%06X", left, right)
+	}
+	if left == right {
+		t.Fatalf("expected matrix plane builder program to produce distinct halves, got 0x%06X", left)
+	}
+}
+
+func bytesRepeat(value byte, count int) []byte {
+	out := make([]byte, count)
+	for i := range out {
+		out[i] = value
+	}
+	return out
+}
+
 func TestServiceStepFrameWhilePaused(t *testing.T) {
 	tmpDir := t.TempDir()
 	svc := NewService(tmpDir)

@@ -36,7 +36,8 @@ type Emulator struct {
 
 	// Performance tracking
 	FPS               float64
-	FrameCount        uint64
+	FrameCount        uint64 // Total emulated frames since start/reset.
+	fpsFrameCount     uint64 // Frames accumulated since last FPS update.
 	FPSUpdateTime     time.Time
 	CPUCyclesPerFrame uint32
 	LastCPUCycles     uint32
@@ -148,6 +149,7 @@ func NewEmulatorWithLogger(logger *debug.Logger) *Emulator {
 		LastFrameTime:     time.Now(),
 		FPS:               0.0,
 		FrameCount:        0,
+		fpsFrameCount:     0,
 		FPSUpdateTime:     time.Now(),
 		CPUCyclesPerFrame: 0,
 		LastCPUCycles:     0,
@@ -337,10 +339,11 @@ func (e *Emulator) RunFrame() error {
 
 	// Update FPS counter
 	e.FrameCount++
+	e.fpsFrameCount++
 	now := time.Now()
 	if now.Sub(e.FPSUpdateTime) >= time.Second {
-		e.FPS = float64(e.FrameCount) / now.Sub(e.FPSUpdateTime).Seconds()
-		e.FrameCount = 0
+		e.FPS = float64(e.fpsFrameCount) / now.Sub(e.FPSUpdateTime).Seconds()
+		e.fpsFrameCount = 0
 		e.FPSUpdateTime = now
 	}
 
@@ -383,6 +386,10 @@ func (e *Emulator) Resume() {
 func (e *Emulator) Reset() {
 	e.CPU.Reset()
 	e.Clock.Reset()
+	e.FrameCount = 0
+	e.fpsFrameCount = 0
+	e.FPS = 0
+	e.FPSUpdateTime = time.Now()
 	if e.Cartridge.HasROM() {
 		bank, offset, err := e.Cartridge.GetROMEntryPoint()
 		if err != nil {

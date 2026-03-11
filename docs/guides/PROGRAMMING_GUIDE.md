@@ -599,7 +599,7 @@ The Sprite Lab is a built-in pixel-art editor accessible from the workbench tabs
 ### Quick Workflow
 
 1. Switch to the **Sprite Lab** tab in the workbench area
-2. Choose a canvas size (8x8 to 64x64 in steps of 8)
+2. Choose a canvas size (8x8 to 32x32 in steps of 8)
 3. Select a color from the palette and paint with the Pencil tool
 4. Adjust colors using RGB555 channel editors, full hex entry, or the palette value slider
 5. Click **Apply To Manifest** (recommended) to write the asset into `corelx.assets.json`, or use **Insert CoreLX Asset** / **Apply To Project** for in-source workflows
@@ -634,11 +634,12 @@ The Tilemap Lab is the map-authoring companion to Sprite Lab in the workbench ta
 ### Quick Workflow
 
 1. Open the **Tilemap Lab** tab
-2. Choose map size (8x8 to 64x64)
+2. Choose map size (8x8 to 32x32)
 3. Set brush tile index/palette/flip attributes and paint/fill
 4. Use **Tile Source** refresh to parse tiles from current source asset declarations
 5. Pick tiles directly from the atlas view
 6. Use **Apply To Manifest** (recommended), or **Insert CoreLX Asset** / **Apply To Project**
+7. In CoreLX, point a BG layer at a tilemap base and load the asset with `bg.load_tilemap(ASSET_YourMap, layer)`
 
 ### Current Behavior Notes
 
@@ -646,6 +647,7 @@ The Tilemap Lab is the map-authoring companion to Sprite Lab in the workbench ta
 - `attr` includes palette and flip flags
 - Tile atlas rendering uses parsed in-source tile assets and current palette assignments when available
 - Import/export uses `.clxtilemap`
+- Runtime BG rendering currently consumes **32x32** tilemaps. The lab can still author larger canvases, but larger-than-32x32 content is not yet a first-class runtime path until large-world tilemap support lands.
 
 ---
 

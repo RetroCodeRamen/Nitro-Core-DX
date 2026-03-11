@@ -2297,6 +2297,737 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		}
 		return nil
 
+	case "bg.load_tilemap":
+		// bg.load_tilemap(asset: u16, layer: u8) -> u16
+		// Args: R0 = asset ID (ASSET_* constant), R1 = layer
+		// Loads packed tilemap bytes into the bound layer tilemap base. Returns the
+		// tilemap base used for the transfer.
+		if len(args) != 2 {
+			return fmt.Errorf("bg.load_tilemap requires 2 arguments (asset, layer)")
+		}
+
+		if ident, ok := args[0].(*IdentExpr); ok && strings.HasPrefix(ident.Name, "ASSET_") {
+			assetName := strings.TrimPrefix(ident.Name, "ASSET_")
+			if asset, exists := cg.assets[assetName]; exists {
+				return cg.generateInlineTilemapLoad(asset, args[1], destReg)
+			}
+		}
+
+		if len(cg.program.Assets) == 0 {
+			return fmt.Errorf("bg.load_tilemap requires declared tilemap assets in this source file")
+		}
+		return cg.generateRuntimeTilemapLoadDispatch(destReg)
+
+	case "bg.set_tile":
+		// bg.set_tile(layer: u8, x: u16, y: u16, tile: u8, attr: u8)
+		// Args: R0 = layer, R1 = x, R2 = y, R3 = tile, R4 = attr
+		// Writes a single 2-byte tilemap entry at the active layer tilemap base.
+		// If the tilemap base register is unset (0), the helper falls back to 0x4000
+		// to match the renderer's default tilemap base.
+		if len(args) != 5 {
+			return fmt.Errorf("bg.set_tile requires 5 arguments (layer, x, y, tile, attr)")
+		}
+		bgTilemapAddrs := []uint16{0x8077, 0x8079, 0x807B, 0x807D}
+		jumpToEnd := make([]int, 0, 4)
+		for i, addr := range bgTilemapAddrs {
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+			cg.builder.AddImmediate(uint16(i))
+			cg.builder.AddInstruction(rom.EncodeCMP(0, 0, 6))
+			cg.builder.AddInstruction(rom.EncodeBNE())
+			skipPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(0)
+
+			// Resolve tilemap base into R5.
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+			cg.builder.AddImmediate(addr)
+			cg.builder.AddInstruction(rom.EncodeMOV(2, 5, 6)) // R5 = low byte
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+			cg.builder.AddImmediate(addr + 1)
+			cg.builder.AddInstruction(rom.EncodeMOV(2, 6, 6)) // R6 = high byte
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
+			cg.builder.AddImmediate(8)
+			cg.builder.AddInstruction(rom.EncodeSHL(0, 6, 7))
+			cg.builder.AddInstruction(rom.EncodeOR(0, 5, 6))
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
+			cg.builder.AddImmediate(0)
+			cg.builder.AddInstruction(rom.EncodeCMP(0, 5, 7))
+			cg.builder.AddInstruction(rom.EncodeBNE())
+			baseReadyPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(0)
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0))
+			cg.builder.AddImmediate(0x4000)
+			baseReadyPC := uint16(cg.builder.GetCodeLength() * 2)
+			cg.builder.SetImmediateAt(baseReadyPos, uint16(rom.CalculateBranchOffset(uint16(baseReadyPos*2), baseReadyPC)))
+
+			// offset = ((y << 5) + x) << 1
+			cg.builder.AddInstruction(rom.EncodeMOV(0, 6, 2))
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
+			cg.builder.AddImmediate(5)
+			cg.builder.AddInstruction(rom.EncodeSHL(0, 6, 7))
+			cg.builder.AddInstruction(rom.EncodeADD(0, 6, 1))
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
+			cg.builder.AddImmediate(1)
+			cg.builder.AddInstruction(rom.EncodeSHL(0, 6, 7))
+			cg.builder.AddInstruction(rom.EncodeADD(0, 5, 6))
+
+			// Program VRAM address registers with R5.
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+			cg.builder.AddImmediate(0x800E)
+			cg.builder.AddInstruction(rom.EncodeMOV(0, 7, 5))
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 0, 0))
+			cg.builder.AddImmediate(0x00FF)
+			cg.builder.AddInstruction(rom.EncodeAND(0, 7, 0))
+			cg.builder.AddInstruction(rom.EncodeMOV(3, 6, 7))
+
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+			cg.builder.AddImmediate(0x800F)
+			cg.builder.AddInstruction(rom.EncodeMOV(0, 7, 5))
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 0, 0))
+			cg.builder.AddImmediate(8)
+			cg.builder.AddInstruction(rom.EncodeSHR(0, 7, 0))
+			cg.builder.AddInstruction(rom.EncodeMOV(3, 6, 7))
+
+			// Write tile + attr via auto-incrementing VRAM_DATA.
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+			cg.builder.AddImmediate(0x8010)
+			cg.builder.AddInstruction(rom.EncodeMOV(3, 6, 3))
+			cg.builder.AddInstruction(rom.EncodeMOV(3, 6, 4))
+
+			cg.builder.AddInstruction(rom.EncodeJMP())
+			jumpPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(0)
+			jumpToEnd = append(jumpToEnd, jumpPos)
+
+			nextPC := uint16(cg.builder.GetCodeLength() * 2)
+			skipPC := uint16(skipPos * 2)
+			cg.builder.SetImmediateAt(skipPos, uint16(rom.CalculateBranchOffset(skipPC, nextPC)))
+		}
+		endPC := uint16(cg.builder.GetCodeLength() * 2)
+		for _, jp := range jumpToEnd {
+			jpPC := uint16(jp * 2)
+			cg.builder.SetImmediateAt(jp, uint16(rom.CalculateBranchOffset(jpPC, endPC)))
+		}
+		return nil
+
+	case "bg.fill_span":
+		// bg.fill_span(layer: u8, x: u16, y: u16, count: u16, tile: u8, attr: u8)
+		// Args: R0 = layer, R1 = x, R2 = y, R3 = count, R4 = tile, R5 = attr
+		// Fills a contiguous run of tilemap entries on a single row.
+		if len(args) != 6 {
+			return fmt.Errorf("bg.fill_span requires 6 arguments (layer, x, y, count, tile, attr)")
+		}
+		bgTilemapAddrs := []uint16{0x8077, 0x8079, 0x807B, 0x807D}
+		jumpToEnd := make([]int, 0, 4)
+		for i, addr := range bgTilemapAddrs {
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+			cg.builder.AddImmediate(uint16(i))
+			cg.builder.AddInstruction(rom.EncodeCMP(0, 0, 6))
+			cg.builder.AddInstruction(rom.EncodeBNE())
+			skipPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(0)
+
+			// Resolve tilemap base into R6.
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
+			cg.builder.AddImmediate(addr)
+			cg.builder.AddInstruction(rom.EncodeMOV(2, 6, 7))
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
+			cg.builder.AddImmediate(addr + 1)
+			cg.builder.AddInstruction(rom.EncodeMOV(2, 7, 7))
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 0, 0))
+			cg.builder.AddImmediate(8)
+			cg.builder.AddInstruction(rom.EncodeSHL(0, 7, 0))
+			cg.builder.AddInstruction(rom.EncodeOR(0, 6, 7))
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
+			cg.builder.AddImmediate(0)
+			cg.builder.AddInstruction(rom.EncodeCMP(0, 6, 7))
+			cg.builder.AddInstruction(rom.EncodeBNE())
+			baseReadyPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(0)
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+			cg.builder.AddImmediate(0x4000)
+			baseReadyPC := uint16(cg.builder.GetCodeLength() * 2)
+			cg.builder.SetImmediateAt(baseReadyPos, uint16(rom.CalculateBranchOffset(uint16(baseReadyPos*2), baseReadyPC)))
+
+			// startAddr = base + (((y << 5) + x) << 1)
+			cg.builder.AddInstruction(rom.EncodeMOV(0, 7, 2))
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 0, 0))
+			cg.builder.AddImmediate(5)
+			cg.builder.AddInstruction(rom.EncodeSHL(0, 7, 0))
+			cg.builder.AddInstruction(rom.EncodeADD(0, 7, 1))
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 0, 0))
+			cg.builder.AddImmediate(1)
+			cg.builder.AddInstruction(rom.EncodeSHL(0, 7, 0))
+			cg.builder.AddInstruction(rom.EncodeADD(0, 6, 7))
+
+			// Program VRAM address once; VRAM_DATA auto-increments.
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
+			cg.builder.AddImmediate(0x800E)
+			cg.builder.AddInstruction(rom.EncodeMOV(0, 1, 6))
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 0, 0))
+			cg.builder.AddImmediate(0x00FF)
+			cg.builder.AddInstruction(rom.EncodeAND(0, 1, 0))
+			cg.builder.AddInstruction(rom.EncodeMOV(3, 7, 1))
+
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
+			cg.builder.AddImmediate(0x800F)
+			cg.builder.AddInstruction(rom.EncodeMOV(0, 1, 6))
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 0, 0))
+			cg.builder.AddImmediate(8)
+			cg.builder.AddInstruction(rom.EncodeSHR(0, 1, 0))
+			cg.builder.AddInstruction(rom.EncodeMOV(3, 7, 1))
+
+			// Loop count times writing tile/attr pairs.
+			loopStart := cg.builder.GetCodeLength()
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 0, 0))
+			cg.builder.AddImmediate(0)
+			cg.builder.AddInstruction(rom.EncodeCMP(0, 3, 0))
+			cg.builder.AddInstruction(rom.EncodeBEQ())
+			loopEndPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(0)
+
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
+			cg.builder.AddImmediate(0x8010)
+			cg.builder.AddInstruction(rom.EncodeMOV(3, 7, 4))
+			cg.builder.AddInstruction(rom.EncodeMOV(3, 7, 5))
+
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 0, 0))
+			cg.builder.AddImmediate(1)
+			cg.builder.AddInstruction(rom.EncodeSUB(0, 3, 0))
+
+			cg.builder.AddInstruction(rom.EncodeJMP())
+			loopJumpPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(uint16(rom.CalculateBranchOffset(uint16(loopJumpPos*2), uint16(loopStart*2))))
+
+			loopEndPC := uint16(cg.builder.GetCodeLength() * 2)
+			cg.builder.SetImmediateAt(loopEndPos, uint16(rom.CalculateBranchOffset(uint16(loopEndPos*2), loopEndPC)))
+
+			cg.builder.AddInstruction(rom.EncodeJMP())
+			jumpPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(0)
+			jumpToEnd = append(jumpToEnd, jumpPos)
+
+			nextPC := uint16(cg.builder.GetCodeLength() * 2)
+			skipPC := uint16(skipPos * 2)
+			cg.builder.SetImmediateAt(skipPos, uint16(rom.CalculateBranchOffset(skipPC, nextPC)))
+		}
+		endPC := uint16(cg.builder.GetCodeLength() * 2)
+		for _, jp := range jumpToEnd {
+			jpPC := uint16(jp * 2)
+			cg.builder.SetImmediateAt(jp, uint16(rom.CalculateBranchOffset(jpPC, endPC)))
+		}
+		return nil
+
+	case "bg.clear":
+		// bg.clear(layer: u8, tile: u8, attr: u8)
+		// Args: R0 = layer, R1 = tile, R2 = attr
+		// Clears the full 32x32 tilemap for a layer.
+		if len(args) != 3 {
+			return fmt.Errorf("bg.clear requires 3 arguments (layer, tile, attr)")
+		}
+		bgTilemapAddrs := []uint16{0x8077, 0x8079, 0x807B, 0x807D}
+		jumpToEnd := make([]int, 0, 4)
+		for i, addr := range bgTilemapAddrs {
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+			cg.builder.AddImmediate(uint16(i))
+			cg.builder.AddInstruction(rom.EncodeCMP(0, 0, 6))
+			cg.builder.AddInstruction(rom.EncodeBNE())
+			skipPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(0)
+
+			// Resolve tilemap base into R4.
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0))
+			cg.builder.AddImmediate(addr)
+			cg.builder.AddInstruction(rom.EncodeMOV(2, 4, 5))
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0))
+			cg.builder.AddImmediate(addr + 1)
+			cg.builder.AddInstruction(rom.EncodeMOV(2, 5, 5))
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+			cg.builder.AddImmediate(8)
+			cg.builder.AddInstruction(rom.EncodeSHL(0, 5, 6))
+			cg.builder.AddInstruction(rom.EncodeOR(0, 4, 5))
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+			cg.builder.AddImmediate(0)
+			cg.builder.AddInstruction(rom.EncodeCMP(0, 4, 6))
+			cg.builder.AddInstruction(rom.EncodeBNE())
+			baseReadyPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(0)
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0))
+			cg.builder.AddImmediate(0x4000)
+			baseReadyPC := uint16(cg.builder.GetCodeLength() * 2)
+			cg.builder.SetImmediateAt(baseReadyPos, uint16(rom.CalculateBranchOffset(uint16(baseReadyPos*2), baseReadyPC)))
+
+			// Program VRAM address once.
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0))
+			cg.builder.AddImmediate(0x800E)
+			cg.builder.AddInstruction(rom.EncodeMOV(0, 6, 4))
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
+			cg.builder.AddImmediate(0x00FF)
+			cg.builder.AddInstruction(rom.EncodeAND(0, 6, 7))
+			cg.builder.AddInstruction(rom.EncodeMOV(3, 5, 6))
+
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0))
+			cg.builder.AddImmediate(0x800F)
+			cg.builder.AddInstruction(rom.EncodeMOV(0, 6, 4))
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
+			cg.builder.AddImmediate(8)
+			cg.builder.AddInstruction(rom.EncodeSHR(0, 6, 7))
+			cg.builder.AddInstruction(rom.EncodeMOV(3, 5, 6))
+
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 3, 0))
+			cg.builder.AddImmediate(1024)
+
+			loopStart := cg.builder.GetCodeLength()
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0))
+			cg.builder.AddImmediate(0)
+			cg.builder.AddInstruction(rom.EncodeCMP(0, 3, 4))
+			cg.builder.AddInstruction(rom.EncodeBEQ())
+			loopEndPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(0)
+
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0))
+			cg.builder.AddImmediate(0x8010)
+			cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 1))
+			cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 2))
+
+			cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0))
+			cg.builder.AddImmediate(1)
+			cg.builder.AddInstruction(rom.EncodeSUB(0, 3, 4))
+
+			cg.builder.AddInstruction(rom.EncodeJMP())
+			loopJumpPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(uint16(rom.CalculateBranchOffset(uint16(loopJumpPos*2), uint16(loopStart*2))))
+
+			loopEndPC := uint16(cg.builder.GetCodeLength() * 2)
+			cg.builder.SetImmediateAt(loopEndPos, uint16(rom.CalculateBranchOffset(uint16(loopEndPos*2), loopEndPC)))
+
+			cg.builder.AddInstruction(rom.EncodeJMP())
+			jumpPos := cg.builder.GetCodeLength()
+			cg.builder.AddImmediate(0)
+			jumpToEnd = append(jumpToEnd, jumpPos)
+
+			nextPC := uint16(cg.builder.GetCodeLength() * 2)
+			skipPC := uint16(skipPos * 2)
+			cg.builder.SetImmediateAt(skipPos, uint16(rom.CalculateBranchOffset(skipPC, nextPC)))
+		}
+		endPC := uint16(cg.builder.GetCodeLength() * 2)
+		for _, jp := range jumpToEnd {
+			jpPC := uint16(jp * 2)
+			cg.builder.SetImmediateAt(jp, uint16(rom.CalculateBranchOffset(jpPC, endPC)))
+		}
+		return nil
+
+	case "matrix_plane.enable":
+		// matrix_plane.enable(channel: u8, size: u16)
+		// Args: R0 = channel, R1 = size in tiles (32, 64, 128)
+		if len(args) != 2 {
+			return fmt.Errorf("matrix_plane.enable requires 2 arguments (channel, size)")
+		}
+		cg.emitSelectMatrixPlane(0, 6, 7)
+		// Default to 32x32 enabled.
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0))
+		cg.builder.AddImmediate(0x01)
+
+		// if size == 64 -> control = 0x03
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+		cg.builder.AddImmediate(64)
+		cg.builder.AddInstruction(rom.EncodeCMP(0, 1, 6))
+		cg.builder.AddInstruction(rom.EncodeBNE())
+		not64Pos := cg.builder.GetCodeLength()
+		cg.builder.AddImmediate(0)
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0))
+		cg.builder.AddImmediate(0x03)
+		cg.builder.AddInstruction(rom.EncodeJMP())
+		after64Pos := cg.builder.GetCodeLength()
+		cg.builder.AddImmediate(0)
+		not64PC := uint16(cg.builder.GetCodeLength() * 2)
+		cg.builder.SetImmediateAt(not64Pos, uint16(rom.CalculateBranchOffset(uint16(not64Pos*2), not64PC)))
+
+		// if size == 128 -> control = 0x05
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+		cg.builder.AddImmediate(128)
+		cg.builder.AddInstruction(rom.EncodeCMP(0, 1, 6))
+		cg.builder.AddInstruction(rom.EncodeBNE())
+		not128Pos := cg.builder.GetCodeLength()
+		cg.builder.AddImmediate(0)
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0))
+		cg.builder.AddImmediate(0x05)
+		not128PC := uint16(cg.builder.GetCodeLength() * 2)
+		cg.builder.SetImmediateAt(not128Pos, uint16(rom.CalculateBranchOffset(uint16(not128Pos*2), not128PC)))
+
+		after64PC := uint16(cg.builder.GetCodeLength() * 2)
+		cg.builder.SetImmediateAt(after64Pos, uint16(rom.CalculateBranchOffset(uint16(after64Pos*2), after64PC)))
+
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+		cg.builder.AddImmediate(0x8081)
+		cg.builder.AddInstruction(rom.EncodeMOV(3, 6, 5))
+		return nil
+
+	case "matrix_plane.disable":
+		// matrix_plane.disable(channel: u8)
+		// Args: R0 = channel
+		if len(args) != 1 {
+			return fmt.Errorf("matrix_plane.disable requires 1 argument (channel)")
+		}
+		cg.emitSelectMatrixPlane(0, 6, 7)
+		cg.emitLoadMMIO8(5, 0x8081)
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+		cg.builder.AddImmediate(0x06)
+		cg.builder.AddInstruction(rom.EncodeAND(0, 5, 6))
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+		cg.builder.AddImmediate(0x8081)
+		cg.builder.AddInstruction(rom.EncodeMOV(3, 6, 5))
+		return nil
+
+	case "matrix_plane.load_tiles":
+		// matrix_plane.load_tiles(asset: u16, channel: u8, base: u16) -> u16
+		// Args: R0 = asset ID, R1 = channel, R2 = base tile index
+		if len(args) != 3 {
+			return fmt.Errorf("matrix_plane.load_tiles requires 3 arguments (asset, channel, base)")
+		}
+		if ident, ok := args[0].(*IdentExpr); ok && strings.HasPrefix(ident.Name, "ASSET_") {
+			assetName := strings.TrimPrefix(ident.Name, "ASSET_")
+			if asset, exists := cg.assets[assetName]; exists {
+				return cg.generateInlineMatrixPlaneTileLoadFromRegs(asset, 1, 2, destReg)
+			}
+		}
+		if len(cg.program.Assets) == 0 {
+			return fmt.Errorf("matrix_plane.load_tiles requires declared tile assets in this source file")
+		}
+		return cg.generateRuntimeMatrixPlaneTileLoadDispatch(destReg)
+
+	case "matrix_plane.load_tilemap":
+		// matrix_plane.load_tilemap(asset: u16, channel: u8)
+		// Args: R0 = asset ID, R1 = channel
+		if len(args) != 2 {
+			return fmt.Errorf("matrix_plane.load_tilemap requires 2 arguments (asset, channel)")
+		}
+		if ident, ok := args[0].(*IdentExpr); ok && strings.HasPrefix(ident.Name, "ASSET_") {
+			assetName := strings.TrimPrefix(ident.Name, "ASSET_")
+			if asset, exists := cg.assets[assetName]; exists {
+				return cg.generateInlineMatrixPlaneTilemapLoadFromChannelReg(asset, 1, destReg)
+			}
+		}
+		if len(cg.program.Assets) == 0 {
+			return fmt.Errorf("matrix_plane.load_tilemap requires declared tilemap assets in this source file")
+		}
+		return cg.generateRuntimeMatrixPlaneTilemapLoadDispatch(destReg)
+
+	case "matrix_plane.set_tile":
+		// matrix_plane.set_tile(channel: u8, x: u16, y: u16, tile: u8, attr: u8)
+		// Args: R0 = channel, R1 = x, R2 = y, R3 = tile, R4 = attr
+		if len(args) != 5 {
+			return fmt.Errorf("matrix_plane.set_tile requires 5 arguments (channel, x, y, tile, attr)")
+		}
+		cg.emitSelectMatrixPlane(0, 6, 7)
+		cg.emitSelectedMatrixPlaneShift(5, 6, 7)
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 6, 2)) // R6 = y
+		cg.builder.AddInstruction(rom.EncodeSHL(0, 6, 5))
+		cg.builder.AddInstruction(rom.EncodeADD(0, 6, 1))
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
+		cg.builder.AddImmediate(1)
+		cg.builder.AddInstruction(rom.EncodeSHL(0, 6, 7))
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
+		cg.builder.AddImmediate(0x8082)
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 0, 6))
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0))
+		cg.builder.AddImmediate(0x00FF)
+		cg.builder.AddInstruction(rom.EncodeAND(0, 0, 5))
+		cg.builder.AddInstruction(rom.EncodeMOV(3, 7, 0))
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
+		cg.builder.AddImmediate(0x8083)
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 0, 6))
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0))
+		cg.builder.AddImmediate(8)
+		cg.builder.AddInstruction(rom.EncodeSHR(0, 0, 5))
+		cg.builder.AddInstruction(rom.EncodeMOV(3, 7, 0))
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
+		cg.builder.AddImmediate(0x8084)
+		cg.builder.AddInstruction(rom.EncodeMOV(3, 7, 3))
+		cg.builder.AddInstruction(rom.EncodeMOV(3, 7, 4))
+		return nil
+
+	case "matrix_plane.fill_rect":
+		// matrix_plane.fill_rect(channel: u8, x: u16, y: u16, w: u16, h: u16, tile: u8, attr: u8)
+		// Args: R0 = channel, R1 = x, R2 = y, R3 = w, R4 = h, R5 = tile, R6 = attr
+		if len(args) != 7 {
+			return fmt.Errorf("matrix_plane.fill_rect requires 7 arguments (channel, x, y, w, h, tile, attr)")
+		}
+		return cg.generateMatrixPlaneFillRect()
+
+	case "matrix_plane.clear":
+		// matrix_plane.clear(channel: u8, tile: u8, attr: u8)
+		// Args: R0 = channel, R1 = tile, R2 = attr
+		if len(args) != 3 {
+			return fmt.Errorf("matrix_plane.clear requires 3 arguments (channel, tile, attr)")
+		}
+		return cg.generateMatrixPlaneClear()
+
+	case "raster.enable":
+		// raster.enable(table_base: u16, layer_mask: u8, rebind: bool, priority: bool, tilemap_base: bool, source_mode: bool)
+		// Args:
+		//   R0 = scanline table base in VRAM
+		//   R1 = layer mask bits [3:0] for BG0-BG3
+		//   R2 = include rebind table
+		//   R3 = include priority table
+		//   R4 = include tilemap-base table
+		//   R5 = include source-mode table
+		if len(args) != 6 {
+			return fmt.Errorf("raster.enable requires 6 arguments (table_base, layer_mask, rebind, priority, tilemap_base, source_mode)")
+		}
+
+		// Program table base.
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+		cg.builder.AddImmediate(0x805E)
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 7, 0))
+		cg.builder.AddInstruction(rom.EncodeAND(1, 7, 0))
+		cg.builder.AddImmediate(0x00FF)
+		cg.builder.AddInstruction(rom.EncodeMOV(3, 6, 7))
+
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+		cg.builder.AddImmediate(0x805F)
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 7, 0))
+		cg.builder.AddInstruction(rom.EncodeSHR(1, 7, 0))
+		cg.builder.AddImmediate(8)
+		cg.builder.AddInstruction(rom.EncodeMOV(3, 6, 7))
+
+		// Build HDMA control byte in R7.
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
+		cg.builder.AddImmediate(0x01) // enable bit
+
+		// Layer mask -> bits [4:1]
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 6, 1))
+		cg.builder.AddInstruction(rom.EncodeAND(1, 6, 0))
+		cg.builder.AddImmediate(0x0F)
+		cg.builder.AddInstruction(rom.EncodeSHL(1, 6, 0))
+		cg.builder.AddImmediate(1)
+		cg.builder.AddInstruction(rom.EncodeOR(0, 7, 6))
+
+		// rebind -> bit 5
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 6, 2))
+		cg.builder.AddInstruction(rom.EncodeAND(1, 6, 0))
+		cg.builder.AddImmediate(0x01)
+		cg.builder.AddInstruction(rom.EncodeSHL(1, 6, 0))
+		cg.builder.AddImmediate(5)
+		cg.builder.AddInstruction(rom.EncodeOR(0, 7, 6))
+
+		// priority -> bit 6
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 6, 3))
+		cg.builder.AddInstruction(rom.EncodeAND(1, 6, 0))
+		cg.builder.AddImmediate(0x01)
+		cg.builder.AddInstruction(rom.EncodeSHL(1, 6, 0))
+		cg.builder.AddImmediate(6)
+		cg.builder.AddInstruction(rom.EncodeOR(0, 7, 6))
+
+		// tilemap_base -> bit 7
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 6, 4))
+		cg.builder.AddInstruction(rom.EncodeAND(1, 6, 0))
+		cg.builder.AddImmediate(0x01)
+		cg.builder.AddInstruction(rom.EncodeSHL(1, 6, 0))
+		cg.builder.AddImmediate(7)
+		cg.builder.AddInstruction(rom.EncodeOR(0, 7, 6))
+
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+		cg.builder.AddImmediate(0x805D)
+		cg.builder.AddInstruction(rom.EncodeMOV(3, 6, 7))
+
+		// Extension control: source-mode table bit 0.
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+		cg.builder.AddImmediate(0x807F)
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 7, 5))
+		cg.builder.AddInstruction(rom.EncodeAND(1, 7, 0))
+		cg.builder.AddImmediate(0x01)
+		cg.builder.AddInstruction(rom.EncodeMOV(3, 6, 7))
+		return nil
+
+	case "raster.disable":
+		// raster.disable()
+		// Clears scanline-command enablement and extension flags.
+		if len(args) != 0 {
+			return fmt.Errorf("raster.disable requires 0 arguments")
+		}
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0))
+		cg.builder.AddImmediate(0x805D)
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0))
+		cg.builder.AddImmediate(0)
+		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5))
+
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0))
+		cg.builder.AddImmediate(0x807F)
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0))
+		cg.builder.AddImmediate(0)
+		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5))
+		return nil
+
+	case "raster.set_scanline_scroll":
+		// raster.set_scanline_scroll(scanline: u16, layer: u8, scroll_x: i16, scroll_y: i16)
+		// Args: R0 = scanline, R1 = layer, R2 = scroll_x, R3 = scroll_y
+		if len(args) != 4 {
+			return fmt.Errorf("raster.set_scanline_scroll requires 4 arguments (scanline, layer, scroll_x, scroll_y)")
+		}
+		cg.emitComputeRasterScanlineBase(0, 6, 7)
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 7, 1))
+		cg.builder.AddInstruction(rom.EncodeSHL(1, 7, 0))
+		cg.builder.AddImmediate(4)
+		cg.builder.AddInstruction(rom.EncodeADD(0, 6, 7))
+		cg.emitWriteVRAM16AtAddrReg(6, 2, 7, 0)
+		cg.builder.AddInstruction(rom.EncodeADD(1, 6, 0))
+		cg.builder.AddImmediate(2)
+		cg.emitWriteVRAM16AtAddrReg(6, 3, 7, 0)
+		return nil
+
+	case "raster.set_scanline_matrix":
+		// raster.set_scanline_matrix(scanline: u16, layer: u8, a: i16, b: i16, c: i16, d: i16)
+		// Args: R0 = scanline, R1 = layer, R2 = A, R3 = B, R4 = C, R5 = D
+		if len(args) != 6 {
+			return fmt.Errorf("raster.set_scanline_matrix requires 6 arguments (scanline, layer, a, b, c, d)")
+		}
+		cg.emitComputeRasterScanlineBase(0, 6, 7)
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 7, 1))
+		cg.builder.AddInstruction(rom.EncodeSHL(1, 7, 0))
+		cg.builder.AddImmediate(4)
+		cg.builder.AddInstruction(rom.EncodeADD(0, 6, 7))
+		cg.builder.AddInstruction(rom.EncodeADD(1, 6, 0))
+		cg.builder.AddImmediate(4)
+		cg.emitWriteVRAM16AtAddrReg(6, 2, 7, 0)
+		cg.builder.AddInstruction(rom.EncodeADD(1, 6, 0))
+		cg.builder.AddImmediate(2)
+		cg.emitWriteVRAM16AtAddrReg(6, 3, 7, 0)
+		cg.builder.AddInstruction(rom.EncodeADD(1, 6, 0))
+		cg.builder.AddImmediate(2)
+		cg.emitWriteVRAM16AtAddrReg(6, 4, 7, 0)
+		cg.builder.AddInstruction(rom.EncodeADD(1, 6, 0))
+		cg.builder.AddImmediate(2)
+		cg.emitWriteVRAM16AtAddrReg(6, 5, 7, 0)
+		return nil
+
+	case "raster.set_scanline_center":
+		// raster.set_scanline_center(scanline: u16, layer: u8, center_x: i16, center_y: i16)
+		// Args: R0 = scanline, R1 = layer, R2 = center_x, R3 = center_y
+		if len(args) != 4 {
+			return fmt.Errorf("raster.set_scanline_center requires 4 arguments (scanline, layer, center_x, center_y)")
+		}
+		cg.emitComputeRasterScanlineBase(0, 6, 7)
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 7, 1))
+		cg.builder.AddInstruction(rom.EncodeSHL(1, 7, 0))
+		cg.builder.AddImmediate(4)
+		cg.builder.AddInstruction(rom.EncodeADD(0, 6, 7))
+		cg.builder.AddInstruction(rom.EncodeADD(1, 6, 0))
+		cg.builder.AddImmediate(12)
+		cg.emitWriteVRAM16AtAddrReg(6, 2, 7, 0)
+		cg.builder.AddInstruction(rom.EncodeADD(1, 6, 0))
+		cg.builder.AddImmediate(2)
+		cg.emitWriteVRAM16AtAddrReg(6, 3, 7, 0)
+		return nil
+
+	case "raster.set_scanline_tilemap_base":
+		// raster.set_scanline_tilemap_base(scanline: u16, layer: u8, tilemap_base: u16)
+		// Args: R0 = scanline, R1 = layer, R2 = tilemap base
+		if len(args) != 3 {
+			return fmt.Errorf("raster.set_scanline_tilemap_base requires 3 arguments (scanline, layer, tilemap_base)")
+		}
+		cg.emitComputeRasterScanlineBase(0, 6, 7)
+		cg.builder.AddInstruction(rom.EncodeADD(1, 6, 0))
+		cg.builder.AddImmediate(64)
+		cg.emitMaybeAddImmediateIfMMIOFlag(0x805D, 0x20, 4, 6, 7)
+		cg.emitMaybeAddImmediateIfMMIOFlag(0x805D, 0x40, 4, 6, 7)
+
+		cg.emitLoadMMIO8(7, 0x805D)
+		cg.builder.AddInstruction(rom.EncodeAND(1, 7, 0))
+		cg.builder.AddImmediate(0x80)
+		cg.builder.AddInstruction(rom.EncodeBEQ())
+		skipPos := cg.builder.GetCodeLength()
+		cg.builder.AddImmediate(0)
+
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 7, 1))
+		cg.builder.AddInstruction(rom.EncodeSHL(1, 7, 0))
+		cg.builder.AddImmediate(1)
+		cg.builder.AddInstruction(rom.EncodeADD(0, 6, 7))
+		cg.emitWriteVRAM16AtAddrReg(6, 2, 7, 0)
+
+		skipPC := uint16(skipPos * 2)
+		nextPC := uint16(cg.builder.GetCodeLength() * 2)
+		cg.builder.SetImmediateAt(skipPos, uint16(rom.CalculateBranchOffset(skipPC, nextPC)))
+		return nil
+
+	case "raster.set_scanline_rebind":
+		// raster.set_scanline_rebind(scanline: u16, layer: u8, channel: u8)
+		// Args: R0 = scanline, R1 = layer, R2 = channel
+		if len(args) != 3 {
+			return fmt.Errorf("raster.set_scanline_rebind requires 3 arguments (scanline, layer, channel)")
+		}
+		cg.emitComputeRasterScanlineBase(0, 6, 7)
+		cg.builder.AddInstruction(rom.EncodeADD(1, 6, 0))
+		cg.builder.AddImmediate(64)
+
+		cg.emitLoadMMIO8(7, 0x805D)
+		cg.builder.AddInstruction(rom.EncodeAND(1, 7, 0))
+		cg.builder.AddImmediate(0x20)
+		cg.builder.AddInstruction(rom.EncodeBEQ())
+		skipPos := cg.builder.GetCodeLength()
+		cg.builder.AddImmediate(0)
+
+		cg.builder.AddInstruction(rom.EncodeADD(0, 6, 1))
+		cg.emitWriteVRAM8AtAddrReg(6, 2, 7, 0)
+
+		skipPC := uint16(skipPos * 2)
+		nextPC := uint16(cg.builder.GetCodeLength() * 2)
+		cg.builder.SetImmediateAt(skipPos, uint16(rom.CalculateBranchOffset(skipPC, nextPC)))
+		return nil
+
+	case "raster.set_scanline_priority":
+		// raster.set_scanline_priority(scanline: u16, layer: u8, priority: u8)
+		// Args: R0 = scanline, R1 = layer, R2 = priority
+		if len(args) != 3 {
+			return fmt.Errorf("raster.set_scanline_priority requires 3 arguments (scanline, layer, priority)")
+		}
+		cg.emitComputeRasterScanlineBase(0, 6, 7)
+		cg.builder.AddInstruction(rom.EncodeADD(1, 6, 0))
+		cg.builder.AddImmediate(64)
+		cg.emitMaybeAddImmediateIfMMIOFlag(0x805D, 0x20, 4, 6, 7)
+
+		cg.emitLoadMMIO8(7, 0x805D)
+		cg.builder.AddInstruction(rom.EncodeAND(1, 7, 0))
+		cg.builder.AddImmediate(0x40)
+		cg.builder.AddInstruction(rom.EncodeBEQ())
+		skipPos := cg.builder.GetCodeLength()
+		cg.builder.AddImmediate(0)
+
+		cg.builder.AddInstruction(rom.EncodeADD(0, 6, 1))
+		cg.emitWriteVRAM8AtAddrReg(6, 2, 7, 0)
+
+		skipPC := uint16(skipPos * 2)
+		nextPC := uint16(cg.builder.GetCodeLength() * 2)
+		cg.builder.SetImmediateAt(skipPos, uint16(rom.CalculateBranchOffset(skipPC, nextPC)))
+		return nil
+
+	case "raster.set_scanline_source_mode":
+		// raster.set_scanline_source_mode(scanline: u16, layer: u8, mode: u8)
+		// Args: R0 = scanline, R1 = layer, R2 = mode
+		if len(args) != 3 {
+			return fmt.Errorf("raster.set_scanline_source_mode requires 3 arguments (scanline, layer, mode)")
+		}
+		cg.emitComputeRasterScanlineBase(0, 6, 7)
+		cg.builder.AddInstruction(rom.EncodeADD(1, 6, 0))
+		cg.builder.AddImmediate(64)
+		cg.emitMaybeAddImmediateIfMMIOFlag(0x805D, 0x20, 4, 6, 7)
+		cg.emitMaybeAddImmediateIfMMIOFlag(0x805D, 0x40, 4, 6, 7)
+		cg.emitMaybeAddImmediateIfMMIOFlag(0x805D, 0x80, 8, 6, 7)
+
+		cg.emitLoadMMIO8(7, 0x807F)
+		cg.builder.AddInstruction(rom.EncodeAND(1, 7, 0))
+		cg.builder.AddImmediate(0x01)
+		cg.builder.AddInstruction(rom.EncodeBEQ())
+		skipPos := cg.builder.GetCodeLength()
+		cg.builder.AddImmediate(0)
+
+		cg.builder.AddInstruction(rom.EncodeADD(0, 6, 1))
+		cg.emitWriteVRAM8AtAddrReg(6, 2, 7, 0)
+
+		skipPC := uint16(skipPos * 2)
+		nextPC := uint16(cg.builder.GetCodeLength() * 2)
+		cg.builder.SetImmediateAt(skipPos, uint16(rom.CalculateBranchOffset(skipPC, nextPC)))
+		return nil
+
 	case "bg.set_source_mode":
 		// bg.set_source_mode(layer: u8, mode: u8)
 		// Args: R0 = layer, R1 = source mode (0=tilemap, 1=bitmap)
@@ -2735,6 +3466,167 @@ func (cg *CodeGenerator) generateRuntimeTileLoadDispatch(destReg uint8) error {
 	return nil
 }
 
+func (cg *CodeGenerator) generateRuntimeTilemapLoadDispatch(destReg uint8) error {
+	// Runtime asset-ID dispatch for bg.load_tilemap(asset, layer).
+	cg.builder.AddInstruction(rom.EncodeMOV(0, 2, 1)) // R2 = layer (preserve)
+
+	tilemapAssets := make([]*AssetDecl, 0)
+	for _, asset := range cg.program.Assets {
+		if asset.Type == "tilemap" {
+			tilemapAssets = append(tilemapAssets, asset)
+		}
+	}
+	if len(tilemapAssets) == 0 {
+		return fmt.Errorf("bg.load_tilemap requires at least one tilemap asset")
+	}
+
+	jumpToEnd := make([]int, 0, len(tilemapAssets))
+	for _, asset := range tilemapAssets {
+		value, ok := cg.assetIDs[asset.Name]
+		if !ok {
+			continue
+		}
+
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 3, 0))
+		cg.builder.AddImmediate(value)
+		cg.builder.AddInstruction(rom.EncodeCMP(0, 0, 3))
+		cg.builder.AddInstruction(rom.EncodeBNE())
+		skipOffsetPos := cg.builder.GetCodeLength()
+		cg.builder.AddImmediate(0)
+
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 1, 2)) // restore layer to R1
+		if err := cg.generateInlineTilemapLoadFromLayerReg(asset, 1, destReg); err != nil {
+			return err
+		}
+
+		cg.builder.AddInstruction(rom.EncodeJMP())
+		jumpPos := cg.builder.GetCodeLength()
+		cg.builder.AddImmediate(0)
+		jumpToEnd = append(jumpToEnd, jumpPos)
+
+		nextCasePC := uint16(cg.builder.GetCodeLength() * 2)
+		currentPC := uint16(skipOffsetPos * 2)
+		offset := rom.CalculateBranchOffset(currentPC, nextCasePC)
+		cg.builder.SetImmediateAt(skipOffsetPos, uint16(offset))
+	}
+
+	// Unknown runtime ID: return 0.
+	cg.builder.AddInstruction(rom.EncodeMOV(1, destReg, 0))
+	cg.builder.AddImmediate(0)
+
+	endPC := uint16(cg.builder.GetCodeLength() * 2)
+	for _, jumpPos := range jumpToEnd {
+		currentPC := uint16(jumpPos * 2)
+		offset := rom.CalculateBranchOffset(currentPC, endPC)
+		cg.builder.SetImmediateAt(jumpPos, uint16(offset))
+	}
+
+	return nil
+}
+
+// generateRuntimeMatrixPlaneTileLoadDispatch generates runtime asset-ID dispatch
+// for matrix_plane.load_tiles. Assumes R0=assetID, R1=channel, R2=base tile index.
+func (cg *CodeGenerator) generateRuntimeMatrixPlaneTileLoadDispatch(destReg uint8) error {
+	cg.builder.AddInstruction(rom.EncodeMOV(0, 3, 1)) // R3 = channel
+	cg.builder.AddInstruction(rom.EncodeMOV(0, 4, 2)) // R4 = base
+
+	jumpToEnd := make([]int, 0, len(cg.program.Assets))
+
+	for _, asset := range cg.program.Assets {
+		assetID, ok := cg.assetIDs[asset.Name]
+		if !ok {
+			return fmt.Errorf("missing runtime asset ID for %s", asset.Name)
+		}
+
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0))
+		cg.builder.AddImmediate(assetID)
+		cg.builder.AddInstruction(rom.EncodeCMP(0, 0, 5))
+		cg.builder.AddInstruction(rom.EncodeBNE())
+		skipOffsetPos := cg.builder.GetCodeLength()
+		cg.builder.AddImmediate(0)
+
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 1, 3)) // restore channel to R1
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 2, 4)) // restore base to R2
+		if err := cg.generateInlineMatrixPlaneTileLoadFromRegs(asset, 1, 2, destReg); err != nil {
+			return err
+		}
+
+		cg.builder.AddInstruction(rom.EncodeJMP())
+		jumpPos := cg.builder.GetCodeLength()
+		cg.builder.AddImmediate(0)
+		jumpToEnd = append(jumpToEnd, jumpPos)
+
+		nextCasePC := uint16(cg.builder.GetCodeLength() * 2)
+		currentPC := uint16(skipOffsetPos * 2)
+		offset := rom.CalculateBranchOffset(currentPC, nextCasePC)
+		cg.builder.SetImmediateAt(skipOffsetPos, uint16(offset))
+	}
+
+	cg.builder.AddInstruction(rom.EncodeMOV(0, destReg, 4)) // return base unchanged
+
+	endPC := uint16(cg.builder.GetCodeLength() * 2)
+	for _, jumpPos := range jumpToEnd {
+		currentPC := uint16(jumpPos * 2)
+		offset := rom.CalculateBranchOffset(currentPC, endPC)
+		cg.builder.SetImmediateAt(jumpPos, uint16(offset))
+	}
+	return nil
+}
+
+func (cg *CodeGenerator) generateRuntimeMatrixPlaneTilemapLoadDispatch(destReg uint8) error {
+	cg.builder.AddInstruction(rom.EncodeMOV(0, 2, 1)) // R2 = channel
+
+	tilemapAssets := make([]*AssetDecl, 0)
+	for _, asset := range cg.program.Assets {
+		if asset.Type == "tilemap" {
+			tilemapAssets = append(tilemapAssets, asset)
+		}
+	}
+	if len(tilemapAssets) == 0 {
+		return fmt.Errorf("matrix_plane.load_tilemap requires at least one tilemap asset")
+	}
+
+	jumpToEnd := make([]int, 0, len(tilemapAssets))
+	for _, asset := range tilemapAssets {
+		value, ok := cg.assetIDs[asset.Name]
+		if !ok {
+			continue
+		}
+
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 3, 0))
+		cg.builder.AddImmediate(value)
+		cg.builder.AddInstruction(rom.EncodeCMP(0, 0, 3))
+		cg.builder.AddInstruction(rom.EncodeBNE())
+		skipOffsetPos := cg.builder.GetCodeLength()
+		cg.builder.AddImmediate(0)
+
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 1, 2)) // restore channel to R1
+		if err := cg.generateInlineMatrixPlaneTilemapLoadFromChannelReg(asset, 1, destReg); err != nil {
+			return err
+		}
+
+		cg.builder.AddInstruction(rom.EncodeJMP())
+		jumpPos := cg.builder.GetCodeLength()
+		cg.builder.AddImmediate(0)
+		jumpToEnd = append(jumpToEnd, jumpPos)
+
+		nextCasePC := uint16(cg.builder.GetCodeLength() * 2)
+		currentPC := uint16(skipOffsetPos * 2)
+		offset := rom.CalculateBranchOffset(currentPC, nextCasePC)
+		cg.builder.SetImmediateAt(skipOffsetPos, uint16(offset))
+	}
+
+	cg.builder.AddInstruction(rom.EncodeMOV(0, destReg, 2)) // return channel unchanged
+
+	endPC := uint16(cg.builder.GetCodeLength() * 2)
+	for _, jumpPos := range jumpToEnd {
+		currentPC := uint16(jumpPos * 2)
+		offset := rom.CalculateBranchOffset(currentPC, endPC)
+		cg.builder.SetImmediateAt(jumpPos, uint16(offset))
+	}
+	return nil
+}
+
 // generateInlineTileLoad generates code to load tile data from an asset directly to VRAM
 func (cg *CodeGenerator) generateInlineTileLoad(asset *AssetDecl, baseExpr Expr, destReg uint8) error {
 	if asset.Type != "tiles8" && asset.Type != "tiles16" && asset.Type != "sprite" && asset.Type != "tileset" {
@@ -2821,6 +3713,398 @@ func (cg *CodeGenerator) generateInlineTileLoadFromBaseReg(asset *AssetDecl, bas
 	return nil
 }
 
+func (cg *CodeGenerator) generateInlineMatrixPlaneTileLoadFromRegs(asset *AssetDecl, channelReg, baseReg uint8, destReg uint8) error {
+	if asset.Type != "tiles8" && asset.Type != "tiles16" && asset.Type != "sprite" && asset.Type != "tileset" {
+		return fmt.Errorf("matrix_plane.load_tiles requires tile asset type, got %s", asset.Type)
+	}
+	dataBytes, err := cg.inlineTileAssetBytes(asset)
+	if err != nil {
+		return err
+	}
+	bytesPayload := len(dataBytes)
+	use16x16Stride := asset.Type == "tiles16" || (asset.Type == "tileset" && bytesPayload == 128)
+
+	// Select the plane first.
+	cg.emitSelectMatrixPlane(channelReg, 3, 4)
+
+	// Calculate pattern address from tile index.
+	cg.builder.AddInstruction(rom.EncodeMOV(0, 3, baseReg)) // R3 = base
+	if use16x16Stride {
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0))
+		cg.builder.AddImmediate(7)
+		cg.builder.AddInstruction(rom.EncodeSHL(0, 3, 4))
+	} else {
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0))
+		cg.builder.AddImmediate(5)
+		cg.builder.AddInstruction(rom.EncodeSHL(0, 3, 4))
+	}
+
+	// Set pattern address registers.
+	cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0))
+	cg.builder.AddImmediate(0x8085)
+	cg.builder.AddInstruction(rom.EncodeMOV(0, 5, 3))
+	cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+	cg.builder.AddImmediate(0x00FF)
+	cg.builder.AddInstruction(rom.EncodeAND(0, 5, 6))
+	cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5))
+
+	cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0))
+	cg.builder.AddImmediate(0x8086)
+	cg.builder.AddInstruction(rom.EncodeMOV(0, 5, 3))
+	cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+	cg.builder.AddImmediate(8)
+	cg.builder.AddInstruction(rom.EncodeSHR(0, 5, 6))
+	cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5))
+
+	cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0))
+	cg.builder.AddImmediate(0x8087)
+
+	bytesToWrite := bytesPayload
+	switch asset.Type {
+	case "tiles8":
+		if bytesToWrite > 32 {
+			bytesToWrite = 32
+		}
+	case "tiles16":
+		if bytesToWrite > 128 {
+			bytesToWrite = 128
+		}
+	}
+	for i, value := range dataBytes {
+		if i >= bytesToWrite {
+			break
+		}
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0))
+		cg.builder.AddImmediate(uint16(value))
+		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5))
+	}
+
+	cg.builder.AddInstruction(rom.EncodeMOV(0, destReg, baseReg))
+	return nil
+}
+
+func (cg *CodeGenerator) generateInlineMatrixPlaneTilemapLoadFromChannelReg(asset *AssetDecl, channelReg uint8, destReg uint8) error {
+	if asset.Type != "tilemap" {
+		return fmt.Errorf("matrix_plane.load_tilemap requires tilemap asset type, got %s", asset.Type)
+	}
+	dataBytes, err := cg.inlineTilemapAssetBytes(asset)
+	if err != nil {
+		return err
+	}
+
+	cg.emitSelectMatrixPlane(channelReg, 3, 4)
+
+	cg.builder.AddInstruction(rom.EncodeMOV(1, 3, 0))
+	cg.builder.AddImmediate(0x8082)
+	cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0))
+	cg.builder.AddImmediate(0)
+	cg.builder.AddInstruction(rom.EncodeMOV(3, 3, 4))
+	cg.builder.AddInstruction(rom.EncodeMOV(1, 3, 0))
+	cg.builder.AddImmediate(0x8083)
+	cg.builder.AddInstruction(rom.EncodeMOV(3, 3, 4))
+	cg.builder.AddInstruction(rom.EncodeMOV(1, 3, 0))
+	cg.builder.AddImmediate(0x8084)
+	for _, value := range dataBytes {
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0))
+		cg.builder.AddImmediate(uint16(value))
+		cg.builder.AddInstruction(rom.EncodeMOV(3, 3, 4))
+	}
+
+	cg.builder.AddInstruction(rom.EncodeMOV(0, destReg, channelReg))
+	return nil
+}
+
+func (cg *CodeGenerator) generateMatrixPlaneFillRect() error {
+	xAddr, err := cg.allocateStack(2, "matrix plane fill rect x start")
+	if err != nil {
+		return err
+	}
+	yAddr, err := cg.allocateStack(2, "matrix plane fill rect y current")
+	if err != nil {
+		return err
+	}
+	wAddr, err := cg.allocateStack(2, "matrix plane fill rect width")
+	if err != nil {
+		return err
+	}
+	hAddr, err := cg.allocateStack(2, "matrix plane fill rect height")
+	if err != nil {
+		return err
+	}
+	tileAddr, err := cg.allocateStack(2, "matrix plane fill rect tile")
+	if err != nil {
+		return err
+	}
+	attrAddr, err := cg.allocateStack(2, "matrix plane fill rect attr")
+	if err != nil {
+		return err
+	}
+	shiftAddr, err := cg.allocateStack(2, "matrix plane fill rect shift")
+	if err != nil {
+		return err
+	}
+
+	// Spill arguments needed across the nested loops.
+	cg.emitStoreStackWord(1, xAddr)
+	cg.emitStoreStackWord(2, yAddr)
+	cg.emitStoreStackWord(3, wAddr)
+	cg.emitStoreStackWord(4, hAddr)
+	cg.emitStoreStackWord(5, tileAddr)
+	cg.emitStoreStackWord(6, attrAddr)
+
+	cg.emitSelectMatrixPlane(0, 6, 5)
+	cg.emitSelectedMatrixPlaneShift(5, 6, 4)
+	cg.emitStoreStackWord(5, shiftAddr)
+
+	rowLoopStart := cg.builder.GetCodeLength()
+	cg.emitLoadStackWord(4, hAddr) // R4 = remaining rows
+	cg.builder.AddInstruction(rom.EncodeMOV(1, 0, 0))
+	cg.builder.AddImmediate(0)
+	cg.builder.AddInstruction(rom.EncodeCMP(0, 4, 0))
+	cg.builder.AddInstruction(rom.EncodeBEQ())
+	rowLoopEndPos := cg.builder.GetCodeLength()
+	cg.builder.AddImmediate(0)
+
+	cg.emitLoadStackWord(1, yAddr) // R1 = current y
+	cg.emitLoadStackWord(2, xAddr) // R2 = current x
+	cg.emitLoadStackWord(3, wAddr) // R3 = remaining cols
+
+	colLoopStart := cg.builder.GetCodeLength()
+	cg.builder.AddInstruction(rom.EncodeMOV(1, 0, 0))
+	cg.builder.AddImmediate(0)
+	cg.builder.AddInstruction(rom.EncodeCMP(0, 3, 0))
+	cg.builder.AddInstruction(rom.EncodeBEQ())
+	colLoopEndPos := cg.builder.GetCodeLength()
+	cg.builder.AddImmediate(0)
+
+	// offset = ((y << shift) + x) << 1
+	cg.builder.AddInstruction(rom.EncodeMOV(0, 4, 1)) // R4 = y
+	cg.emitLoadStackWord(5, shiftAddr)
+	cg.builder.AddInstruction(rom.EncodeSHL(0, 4, 5))
+	cg.builder.AddInstruction(rom.EncodeADD(0, 4, 2))
+	cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0))
+	cg.builder.AddImmediate(1)
+	cg.builder.AddInstruction(rom.EncodeSHL(0, 4, 5))
+
+	// Address low/high
+	cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0))
+	cg.builder.AddImmediate(0x8082)
+	cg.builder.AddInstruction(rom.EncodeMOV(0, 6, 4))
+	cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
+	cg.builder.AddImmediate(0x00FF)
+	cg.builder.AddInstruction(rom.EncodeAND(0, 6, 7))
+	cg.builder.AddInstruction(rom.EncodeMOV(3, 5, 6))
+	cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0))
+	cg.builder.AddImmediate(0x8083)
+	cg.builder.AddInstruction(rom.EncodeMOV(0, 6, 4))
+	cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
+	cg.builder.AddImmediate(8)
+	cg.builder.AddInstruction(rom.EncodeSHR(0, 6, 7))
+	cg.builder.AddInstruction(rom.EncodeMOV(3, 5, 6))
+
+	// Data writes
+	cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0))
+	cg.builder.AddImmediate(0x8084)
+	cg.emitLoadStackWord(6, tileAddr)
+	cg.builder.AddInstruction(rom.EncodeMOV(3, 5, 6))
+	cg.emitLoadStackWord(6, attrAddr)
+	cg.builder.AddInstruction(rom.EncodeMOV(3, 5, 6))
+
+	// x++, remaining cols--
+	cg.builder.AddInstruction(rom.EncodeMOV(1, 0, 0))
+	cg.builder.AddImmediate(1)
+	cg.builder.AddInstruction(rom.EncodeADD(0, 2, 0))
+	cg.builder.AddInstruction(rom.EncodeSUB(0, 3, 0))
+	cg.builder.AddInstruction(rom.EncodeJMP())
+	colLoopJumpPos := cg.builder.GetCodeLength()
+	cg.builder.AddImmediate(uint16(rom.CalculateBranchOffset(uint16(colLoopJumpPos*2), uint16(colLoopStart*2))))
+
+	colLoopEndPC := uint16(cg.builder.GetCodeLength() * 2)
+	cg.builder.SetImmediateAt(colLoopEndPos, uint16(rom.CalculateBranchOffset(uint16(colLoopEndPos*2), colLoopEndPC)))
+
+	// y++, remaining rows--
+	cg.builder.AddInstruction(rom.EncodeMOV(1, 0, 0))
+	cg.builder.AddImmediate(1)
+	cg.builder.AddInstruction(rom.EncodeADD(0, 1, 0))
+	cg.emitStoreStackWord(1, yAddr)
+	cg.emitLoadStackWord(4, hAddr)
+	cg.builder.AddInstruction(rom.EncodeSUB(0, 4, 0))
+	cg.emitStoreStackWord(4, hAddr)
+	cg.builder.AddInstruction(rom.EncodeJMP())
+	rowLoopJumpPos := cg.builder.GetCodeLength()
+	cg.builder.AddImmediate(uint16(rom.CalculateBranchOffset(uint16(rowLoopJumpPos*2), uint16(rowLoopStart*2))))
+
+	rowLoopEndPC := uint16(cg.builder.GetCodeLength() * 2)
+	cg.builder.SetImmediateAt(rowLoopEndPos, uint16(rom.CalculateBranchOffset(uint16(rowLoopEndPos*2), rowLoopEndPC)))
+
+	return nil
+}
+
+func (cg *CodeGenerator) generateMatrixPlaneClear() error {
+	// Args: R0 = channel, R1 = tile, R2 = attr
+	cg.emitSelectMatrixPlane(0, 6, 5)
+	cg.emitSelectedMatrixPlaneShift(5, 6, 4) // shift in R5
+
+	// total entries based on selected plane size:
+	// 32x32 -> 1024, 64x64 -> 4096, 128x128 -> 16384
+	cg.builder.AddInstruction(rom.EncodeMOV(1, 3, 0))
+	cg.builder.AddImmediate(1024)
+	cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0))
+	cg.builder.AddImmediate(6)
+	cg.builder.AddInstruction(rom.EncodeCMP(0, 5, 4))
+	cg.builder.AddInstruction(rom.EncodeBNE())
+	not64Pos := cg.builder.GetCodeLength()
+	cg.builder.AddImmediate(0)
+	cg.builder.AddInstruction(rom.EncodeMOV(1, 3, 0))
+	cg.builder.AddImmediate(4096)
+	cg.builder.AddInstruction(rom.EncodeJMP())
+	after64Pos := cg.builder.GetCodeLength()
+	cg.builder.AddImmediate(0)
+	not64PC := uint16(cg.builder.GetCodeLength() * 2)
+	cg.builder.SetImmediateAt(not64Pos, uint16(rom.CalculateBranchOffset(uint16(not64Pos*2), not64PC)))
+
+	cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0))
+	cg.builder.AddImmediate(7)
+	cg.builder.AddInstruction(rom.EncodeCMP(0, 5, 4))
+	cg.builder.AddInstruction(rom.EncodeBNE())
+	not128Pos := cg.builder.GetCodeLength()
+	cg.builder.AddImmediate(0)
+	cg.builder.AddInstruction(rom.EncodeMOV(1, 3, 0))
+	cg.builder.AddImmediate(16384)
+	not128PC := uint16(cg.builder.GetCodeLength() * 2)
+	cg.builder.SetImmediateAt(not128Pos, uint16(rom.CalculateBranchOffset(uint16(not128Pos*2), not128PC)))
+
+	after64PC := uint16(cg.builder.GetCodeLength() * 2)
+	cg.builder.SetImmediateAt(after64Pos, uint16(rom.CalculateBranchOffset(uint16(after64Pos*2), after64PC)))
+
+	// zero tilemap address
+	cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0))
+	cg.builder.AddImmediate(0x8082)
+	cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+	cg.builder.AddImmediate(0)
+	cg.builder.AddInstruction(rom.EncodeMOV(3, 5, 6))
+	cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0))
+	cg.builder.AddImmediate(0x8083)
+	cg.builder.AddInstruction(rom.EncodeMOV(3, 5, 6))
+
+	cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0))
+	cg.builder.AddImmediate(0x8084)
+	loopStart := cg.builder.GetCodeLength()
+	cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+	cg.builder.AddImmediate(0)
+	cg.builder.AddInstruction(rom.EncodeCMP(0, 3, 6))
+	cg.builder.AddInstruction(rom.EncodeBEQ())
+	loopEndPos := cg.builder.GetCodeLength()
+	cg.builder.AddImmediate(0)
+	cg.builder.AddInstruction(rom.EncodeMOV(3, 5, 1))
+	cg.builder.AddInstruction(rom.EncodeMOV(3, 5, 2))
+	cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+	cg.builder.AddImmediate(1)
+	cg.builder.AddInstruction(rom.EncodeSUB(0, 3, 6))
+	cg.builder.AddInstruction(rom.EncodeJMP())
+	loopJumpPos := cg.builder.GetCodeLength()
+	cg.builder.AddImmediate(uint16(rom.CalculateBranchOffset(uint16(loopJumpPos*2), uint16(loopStart*2))))
+	loopEndPC := uint16(cg.builder.GetCodeLength() * 2)
+	cg.builder.SetImmediateAt(loopEndPos, uint16(rom.CalculateBranchOffset(uint16(loopEndPos*2), loopEndPC)))
+	return nil
+}
+
+func (cg *CodeGenerator) generateInlineTilemapLoad(asset *AssetDecl, layerExpr Expr, destReg uint8) error {
+	if asset.Type != "tilemap" {
+		return fmt.Errorf("bg.load_tilemap requires tilemap asset type, got %s", asset.Type)
+	}
+	if err := cg.generateExpr(layerExpr, 1); err != nil {
+		return err
+	}
+	return cg.generateInlineTilemapLoadFromLayerReg(asset, 1, destReg)
+}
+
+func (cg *CodeGenerator) generateInlineTilemapLoadFromLayerReg(asset *AssetDecl, layerReg uint8, destReg uint8) error {
+	if asset.Type != "tilemap" {
+		return fmt.Errorf("bg.load_tilemap requires tilemap asset type, got %s", asset.Type)
+	}
+	dataBytes, err := cg.inlineTilemapAssetBytes(asset)
+	if err != nil {
+		return err
+	}
+
+	// Resolve the configured tilemap base for the selected layer into R5.
+	bgTilemapAddrs := []uint16{0x8077, 0x8079, 0x807B, 0x807D}
+	jumpToEnd := make([]int, 0, 4)
+	for i, addr := range bgTilemapAddrs {
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+		cg.builder.AddImmediate(uint16(i))
+		cg.builder.AddInstruction(rom.EncodeCMP(0, layerReg, 6))
+		cg.builder.AddInstruction(rom.EncodeBNE())
+		skipPos := cg.builder.GetCodeLength()
+		cg.builder.AddImmediate(0)
+
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+		cg.builder.AddImmediate(addr)
+		cg.builder.AddInstruction(rom.EncodeMOV(2, 5, 6))
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+		cg.builder.AddImmediate(addr + 1)
+		cg.builder.AddInstruction(rom.EncodeMOV(2, 6, 6))
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
+		cg.builder.AddImmediate(8)
+		cg.builder.AddInstruction(rom.EncodeSHL(0, 6, 7))
+		cg.builder.AddInstruction(rom.EncodeOR(0, 5, 6))
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
+		cg.builder.AddImmediate(0)
+		cg.builder.AddInstruction(rom.EncodeCMP(0, 5, 7))
+		cg.builder.AddInstruction(rom.EncodeBNE())
+		baseReadyPos := cg.builder.GetCodeLength()
+		cg.builder.AddImmediate(0)
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0))
+		cg.builder.AddImmediate(0x4000)
+		baseReadyPC := uint16(cg.builder.GetCodeLength() * 2)
+		cg.builder.SetImmediateAt(baseReadyPos, uint16(rom.CalculateBranchOffset(uint16(baseReadyPos*2), baseReadyPC)))
+
+		cg.builder.AddInstruction(rom.EncodeJMP())
+		jumpPos := cg.builder.GetCodeLength()
+		cg.builder.AddImmediate(0)
+		jumpToEnd = append(jumpToEnd, jumpPos)
+
+		nextPC := uint16(cg.builder.GetCodeLength() * 2)
+		skipPC := uint16(skipPos * 2)
+		cg.builder.SetImmediateAt(skipPos, uint16(rom.CalculateBranchOffset(skipPC, nextPC)))
+	}
+	endPC := uint16(cg.builder.GetCodeLength() * 2)
+	for _, jp := range jumpToEnd {
+		jpPC := uint16(jp * 2)
+		cg.builder.SetImmediateAt(jp, uint16(rom.CalculateBranchOffset(jpPC, endPC)))
+	}
+
+	// Program VRAM address from resolved base.
+	cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+	cg.builder.AddImmediate(0x800E)
+	cg.builder.AddInstruction(rom.EncodeMOV(0, 7, 5))
+	cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0))
+	cg.builder.AddImmediate(0x00FF)
+	cg.builder.AddInstruction(rom.EncodeAND(0, 7, 4))
+	cg.builder.AddInstruction(rom.EncodeMOV(3, 6, 7))
+
+	cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+	cg.builder.AddImmediate(0x800F)
+	cg.builder.AddInstruction(rom.EncodeMOV(0, 7, 5))
+	cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0))
+	cg.builder.AddImmediate(8)
+	cg.builder.AddInstruction(rom.EncodeSHR(0, 7, 4))
+	cg.builder.AddInstruction(rom.EncodeMOV(3, 6, 7))
+
+	cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+	cg.builder.AddImmediate(0x8010)
+	for _, value := range dataBytes {
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
+		cg.builder.AddImmediate(uint16(value))
+		cg.builder.AddInstruction(rom.EncodeMOV(3, 6, 7))
+	}
+
+	// Return the tilemap base used for the transfer.
+	cg.builder.AddInstruction(rom.EncodeMOV(0, destReg, 5))
+	return nil
+}
+
 func (cg *CodeGenerator) inlineTileAssetBytes(asset *AssetDecl) ([]byte, error) {
 	if norm, ok := cg.normalizedAssets[asset.Name]; ok {
 		return norm.Data, nil
@@ -2830,6 +4114,191 @@ func (cg *CodeGenerator) inlineTileAssetBytes(asset *AssetDecl) ([]byte, error) 
 		return nil, fmt.Errorf("inline tile load requires normalized asset data for %s encoding", asset.Encoding)
 	}
 	return decodeHexAssetData(asset.Data)
+}
+
+func (cg *CodeGenerator) inlineTilemapAssetBytes(asset *AssetDecl) ([]byte, error) {
+	if norm, ok := cg.normalizedAssets[asset.Name]; ok {
+		return norm.Data, nil
+	}
+	switch asset.Encoding {
+	case "hex":
+		return decodeHexAssetData(asset.Data)
+	case "b64":
+		return decodeBase64AssetData(asset.Data)
+	default:
+		return nil, fmt.Errorf("inline tilemap load requires normalized asset data for %s encoding", asset.Encoding)
+	}
+}
+
+func (cg *CodeGenerator) emitLoadMMIO8(destReg uint8, addr uint16) {
+	cg.builder.AddInstruction(rom.EncodeMOV(1, destReg, 0))
+	cg.builder.AddImmediate(addr)
+	cg.builder.AddInstruction(rom.EncodeMOV(2, destReg, destReg))
+}
+
+func (cg *CodeGenerator) emitLoadStackWord(destReg uint8, addr uint16) {
+	cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
+	cg.builder.AddImmediate(addr)
+	cg.builder.AddInstruction(rom.EncodeMOV(2, destReg, 7))
+}
+
+func (cg *CodeGenerator) emitStoreStackWord(srcReg uint8, addr uint16) {
+	cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
+	cg.builder.AddImmediate(addr)
+	cg.builder.AddInstruction(rom.EncodeMOV(3, 7, srcReg))
+}
+
+func (cg *CodeGenerator) emitSelectMatrixPlane(channelReg, addrReg, tmpReg uint8) {
+	cg.builder.AddInstruction(rom.EncodeMOV(1, addrReg, 0))
+	cg.builder.AddImmediate(0x8080)
+	cg.builder.AddInstruction(rom.EncodeMOV(0, tmpReg, channelReg))
+	cg.builder.AddInstruction(rom.EncodeMOV(1, 0, 0))
+	cg.builder.AddImmediate(0x03)
+	cg.builder.AddInstruction(rom.EncodeAND(0, tmpReg, 0))
+	cg.builder.AddInstruction(rom.EncodeMOV(3, addrReg, tmpReg))
+}
+
+func (cg *CodeGenerator) emitSelectedMatrixPlaneShift(shiftReg, controlReg, scratchReg uint8) {
+	cg.emitLoadMMIO8(controlReg, 0x8081)
+	cg.builder.AddInstruction(rom.EncodeMOV(1, scratchReg, 0))
+	cg.builder.AddImmediate(1)
+	cg.builder.AddInstruction(rom.EncodeSHR(0, controlReg, scratchReg))
+	cg.builder.AddInstruction(rom.EncodeMOV(1, scratchReg, 0))
+	cg.builder.AddImmediate(0x03)
+	cg.builder.AddInstruction(rom.EncodeAND(0, controlReg, scratchReg))
+	cg.builder.AddInstruction(rom.EncodeMOV(1, shiftReg, 0))
+	cg.builder.AddImmediate(5)
+
+	cg.builder.AddInstruction(rom.EncodeMOV(1, scratchReg, 0))
+	cg.builder.AddImmediate(1)
+	cg.builder.AddInstruction(rom.EncodeCMP(0, controlReg, scratchReg))
+	cg.builder.AddInstruction(rom.EncodeBNE())
+	not64Pos := cg.builder.GetCodeLength()
+	cg.builder.AddImmediate(0)
+	cg.builder.AddInstruction(rom.EncodeMOV(1, shiftReg, 0))
+	cg.builder.AddImmediate(6)
+	cg.builder.AddInstruction(rom.EncodeJMP())
+	after64Pos := cg.builder.GetCodeLength()
+	cg.builder.AddImmediate(0)
+	not64PC := uint16(cg.builder.GetCodeLength() * 2)
+	cg.builder.SetImmediateAt(not64Pos, uint16(rom.CalculateBranchOffset(uint16(not64Pos*2), not64PC)))
+
+	cg.builder.AddInstruction(rom.EncodeMOV(1, scratchReg, 0))
+	cg.builder.AddImmediate(2)
+	cg.builder.AddInstruction(rom.EncodeCMP(0, controlReg, scratchReg))
+	cg.builder.AddInstruction(rom.EncodeBNE())
+	not128Pos := cg.builder.GetCodeLength()
+	cg.builder.AddImmediate(0)
+	cg.builder.AddInstruction(rom.EncodeMOV(1, shiftReg, 0))
+	cg.builder.AddImmediate(7)
+	not128PC := uint16(cg.builder.GetCodeLength() * 2)
+	cg.builder.SetImmediateAt(not128Pos, uint16(rom.CalculateBranchOffset(uint16(not128Pos*2), not128PC)))
+
+	after64PC := uint16(cg.builder.GetCodeLength() * 2)
+	cg.builder.SetImmediateAt(after64Pos, uint16(rom.CalculateBranchOffset(uint16(after64Pos*2), after64PC)))
+}
+
+func (cg *CodeGenerator) emitMaybeAddShiftedScanlineIfMMIOFlag(mmioAddr, mask, shiftImm uint16, scanlineReg, destReg, scratchReg uint8) {
+	cg.emitLoadMMIO8(scratchReg, mmioAddr)
+	cg.builder.AddInstruction(rom.EncodeAND(1, scratchReg, 0))
+	cg.builder.AddImmediate(mask)
+	cg.builder.AddInstruction(rom.EncodeBEQ())
+	skipPos := cg.builder.GetCodeLength()
+	cg.builder.AddImmediate(0)
+
+	cg.builder.AddInstruction(rom.EncodeMOV(0, scratchReg, scanlineReg))
+	if shiftImm != 0 {
+		cg.builder.AddInstruction(rom.EncodeSHL(1, scratchReg, 0))
+		cg.builder.AddImmediate(shiftImm)
+	}
+	cg.builder.AddInstruction(rom.EncodeADD(0, destReg, scratchReg))
+
+	skipPC := uint16(skipPos * 2)
+	nextPC := uint16(cg.builder.GetCodeLength() * 2)
+	cg.builder.SetImmediateAt(skipPos, uint16(rom.CalculateBranchOffset(skipPC, nextPC)))
+}
+
+func (cg *CodeGenerator) emitMaybeAddImmediateIfMMIOFlag(mmioAddr, mask, addImm uint16, destReg, scratchReg uint8) {
+	cg.emitLoadMMIO8(scratchReg, mmioAddr)
+	cg.builder.AddInstruction(rom.EncodeAND(1, scratchReg, 0))
+	cg.builder.AddImmediate(mask)
+	cg.builder.AddInstruction(rom.EncodeBEQ())
+	skipPos := cg.builder.GetCodeLength()
+	cg.builder.AddImmediate(0)
+
+	cg.builder.AddInstruction(rom.EncodeADD(1, destReg, 0))
+	cg.builder.AddImmediate(addImm)
+
+	skipPC := uint16(skipPos * 2)
+	nextPC := uint16(cg.builder.GetCodeLength() * 2)
+	cg.builder.SetImmediateAt(skipPos, uint16(rom.CalculateBranchOffset(skipPC, nextPC)))
+}
+
+func (cg *CodeGenerator) emitComputeRasterScanlineBase(scanlineReg, destReg, scratchReg uint8) {
+	cg.builder.AddInstruction(rom.EncodeMOV(0, destReg, scanlineReg))
+	cg.builder.AddInstruction(rom.EncodeSHL(1, destReg, 0))
+	cg.builder.AddImmediate(6)
+	cg.emitMaybeAddShiftedScanlineIfMMIOFlag(0x805D, 0x20, 2, scanlineReg, destReg, scratchReg)
+	cg.emitMaybeAddShiftedScanlineIfMMIOFlag(0x805D, 0x40, 2, scanlineReg, destReg, scratchReg)
+	cg.emitMaybeAddShiftedScanlineIfMMIOFlag(0x805D, 0x80, 3, scanlineReg, destReg, scratchReg)
+	cg.emitMaybeAddShiftedScanlineIfMMIOFlag(0x807F, 0x01, 2, scanlineReg, destReg, scratchReg)
+
+	cg.emitLoadMMIO8(scratchReg, 0x805E)
+	cg.builder.AddInstruction(rom.EncodeADD(0, destReg, scratchReg))
+	cg.emitLoadMMIO8(scratchReg, 0x805F)
+	cg.builder.AddInstruction(rom.EncodeSHL(1, scratchReg, 0))
+	cg.builder.AddImmediate(8)
+	cg.builder.AddInstruction(rom.EncodeADD(0, destReg, scratchReg))
+}
+
+func (cg *CodeGenerator) emitWriteVRAM16AtAddrReg(addrReg, valueReg, scratchReg, ioReg uint8) {
+	cg.builder.AddInstruction(rom.EncodeMOV(1, ioReg, 0))
+	cg.builder.AddImmediate(0x800E)
+	cg.builder.AddInstruction(rom.EncodeMOV(0, scratchReg, addrReg))
+	cg.builder.AddInstruction(rom.EncodeAND(1, scratchReg, 0))
+	cg.builder.AddImmediate(0x00FF)
+	cg.builder.AddInstruction(rom.EncodeMOV(3, ioReg, scratchReg))
+
+	cg.builder.AddInstruction(rom.EncodeMOV(1, ioReg, 0))
+	cg.builder.AddImmediate(0x800F)
+	cg.builder.AddInstruction(rom.EncodeMOV(0, scratchReg, addrReg))
+	cg.builder.AddInstruction(rom.EncodeSHR(1, scratchReg, 0))
+	cg.builder.AddImmediate(8)
+	cg.builder.AddInstruction(rom.EncodeMOV(3, ioReg, scratchReg))
+
+	cg.builder.AddInstruction(rom.EncodeMOV(1, ioReg, 0))
+	cg.builder.AddImmediate(0x8010)
+	cg.builder.AddInstruction(rom.EncodeMOV(0, scratchReg, valueReg))
+	cg.builder.AddInstruction(rom.EncodeAND(1, scratchReg, 0))
+	cg.builder.AddImmediate(0x00FF)
+	cg.builder.AddInstruction(rom.EncodeMOV(3, ioReg, scratchReg))
+	cg.builder.AddInstruction(rom.EncodeMOV(0, scratchReg, valueReg))
+	cg.builder.AddInstruction(rom.EncodeSHR(1, scratchReg, 0))
+	cg.builder.AddImmediate(8)
+	cg.builder.AddInstruction(rom.EncodeMOV(3, ioReg, scratchReg))
+}
+
+func (cg *CodeGenerator) emitWriteVRAM8AtAddrReg(addrReg, valueReg, scratchReg, ioReg uint8) {
+	cg.builder.AddInstruction(rom.EncodeMOV(1, ioReg, 0))
+	cg.builder.AddImmediate(0x800E)
+	cg.builder.AddInstruction(rom.EncodeMOV(0, scratchReg, addrReg))
+	cg.builder.AddInstruction(rom.EncodeAND(1, scratchReg, 0))
+	cg.builder.AddImmediate(0x00FF)
+	cg.builder.AddInstruction(rom.EncodeMOV(3, ioReg, scratchReg))
+
+	cg.builder.AddInstruction(rom.EncodeMOV(1, ioReg, 0))
+	cg.builder.AddImmediate(0x800F)
+	cg.builder.AddInstruction(rom.EncodeMOV(0, scratchReg, addrReg))
+	cg.builder.AddInstruction(rom.EncodeSHR(1, scratchReg, 0))
+	cg.builder.AddImmediate(8)
+	cg.builder.AddInstruction(rom.EncodeMOV(3, ioReg, scratchReg))
+
+	cg.builder.AddInstruction(rom.EncodeMOV(1, ioReg, 0))
+	cg.builder.AddImmediate(0x8010)
+	cg.builder.AddInstruction(rom.EncodeMOV(0, scratchReg, valueReg))
+	cg.builder.AddInstruction(rom.EncodeAND(1, scratchReg, 0))
+	cg.builder.AddImmediate(0x00FF)
+	cg.builder.AddInstruction(rom.EncodeMOV(3, ioReg, scratchReg))
 }
 
 func (cg *CodeGenerator) generateMember(expr *MemberExpr, destReg uint8) error {

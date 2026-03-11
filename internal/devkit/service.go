@@ -74,6 +74,7 @@ type Backend interface {
 	BuildSource(source, sourcePath string) (*BuildResult, error)
 	LoadROMBytes(romBytes []byte) error
 	InstallRasterProgram(program emulator.RasterProgram) error
+	InstallMatrixPlaneProgram(program emulator.MatrixPlaneProgram) error
 	ClearRasterProgram() error
 	InstallRasterDemo(name string) error
 	Shutdown()
@@ -207,6 +208,15 @@ func (s *Service) InstallRasterProgram(program emulator.RasterProgram) error {
 		return fmt.Errorf("no ROM loaded")
 	}
 	return s.emu.InstallRasterProgram(program)
+}
+
+func (s *Service) InstallMatrixPlaneProgram(program emulator.MatrixPlaneProgram) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.emu == nil {
+		return fmt.Errorf("no ROM loaded")
+	}
+	return s.emu.InstallMatrixPlaneProgram(program)
 }
 
 func (s *Service) ClearRasterProgram() error {

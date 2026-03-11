@@ -304,9 +304,8 @@ func (a *Assembler) emitInstruction(b *rom.ROMBuilder, st statement) error {
 	} else if ok {
 		mode := uint8(1)
 		reg2 := uint8(0)
-		// CMP immediate encoding overlaps BEQ if reg1=R0 and reg2=0. Force a non-zero reg2 tag.
 		if m == "CMP" {
-			reg2 = 0xF
+			mode = 7
 		}
 		b.AddInstruction(encodeOpcodeModeRegs(opcode, mode, r1, reg2))
 		b.AddImmediate(uint16(imm))

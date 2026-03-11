@@ -51,9 +51,11 @@ jobs:
         run: |
           set -euo pipefail
           PKG_DIR="dist/nitrocoredx-${{ steps.meta.outputs.version }}-linux-amd64"
-          mkdir -p "$PKG_DIR"
+          mkdir -p "$PKG_DIR" "$PKG_DIR/roms"
           cp dist/nitrocoredx "$PKG_DIR/"
           cp LICENSE README.md "$PKG_DIR/"
+          cp roms/pong_ym2608_demo.rom "$PKG_DIR/roms/"
+          cp roms/matrix_floor_only_kart.rom "$PKG_DIR/roms/"
           cat > "$PKG_DIR/README_RELEASE.txt" <<'EOF'
           Nitro-Core-DX (Integrated App) - Linux amd64
 
@@ -64,6 +66,9 @@ jobs:
           - Built with no_sdl_ttf (SDL2_ttf not required).
           - SDL2 runtime libraries are still required on the host system.
           - Use "Emulator Focus" view for a play/test-focused layout.
+          - Bundled test ROMs are included in the `roms/` folder:
+            - `pong_ym2608_demo.rom`
+            - `matrix_floor_only_kart.rom`
           EOF
           tar -C dist -czf "dist/nitrocoredx-${{ steps.meta.outputs.version }}-linux-amd64.tar.gz" "$(basename "$PKG_DIR")"
 
@@ -168,9 +173,12 @@ jobs:
         run: |
           $pkgDir = "dist\nitrocoredx-${{ steps.meta.outputs.version }}-windows-amd64"
           New-Item -ItemType Directory -Force $pkgDir | Out-Null
+          New-Item -ItemType Directory -Force "$pkgDir\roms" | Out-Null
           Copy-Item dist\nitrocoredx.exe $pkgDir\
           Copy-Item dist\*SDL2*.dll $pkgDir\
           Copy-Item LICENSE, README.md $pkgDir\
+          Copy-Item roms\pong_ym2608_demo.rom "$pkgDir\roms\"
+          Copy-Item roms\matrix_floor_only_kart.rom "$pkgDir\roms\"
           @"
           Nitro-Core-DX (Integrated App) - Windows amd64
 
@@ -181,6 +189,9 @@ jobs:
           - SDL2.dll is included in this package.
           - Built with no_sdl_ttf (SDL2_ttf.dll not required).
           - Use "Emulator Focus" view for a play/test-focused layout.
+          - Bundled test ROMs are included in the `roms\` folder:
+            - `pong_ym2608_demo.rom`
+            - `matrix_floor_only_kart.rom`
           "@ | Set-Content -Path "$pkgDir\README_RELEASE.txt"
 
           $zipPath = "dist\nitrocoredx-${{ steps.meta.outputs.version }}-windows-amd64.zip"

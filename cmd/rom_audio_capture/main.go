@@ -70,27 +70,25 @@ func main() {
 	romPath := flag.String("rom", "", "Input ROM path")
 	outPath := flag.String("out", "rom_capture.wav", "Output WAV path")
 	frames := flag.Int("frames", 0, "Number of frames to run (0 = 4300)")
-	audioBackend := flag.String("audio-backend", "auto", "Audio backend: auto|ymfm|legacy")
+	audioBackend := flag.String("audio-backend", "ymfm", "Audio backend: ymfm")
 	flag.Parse()
 
 	if *romPath == "" {
-		fmt.Fprintln(os.Stderr, "usage: go run ./cmd/rom_audio_capture -rom <path.rom> [-out file.wav] [-frames N] [-audio-backend auto|ymfm|legacy]")
+		fmt.Fprintln(os.Stderr, "usage: go run ./cmd/rom_audio_capture -rom <path.rom> [-out file.wav] [-frames N] [-audio-backend ymfm]")
 		os.Exit(2)
 	}
 
 	mode := strings.ToLower(strings.TrimSpace(*audioBackend))
-	switch mode {
-	case "", "auto", "ymfm", "legacy":
-		if mode == "" {
-			mode = "auto"
-		}
-		if err := os.Setenv("NCDX_YM_BACKEND", mode); err != nil {
-			fmt.Fprintf(os.Stderr, "set NCDX_YM_BACKEND: %v\n", err)
-			os.Exit(1)
-		}
-	default:
-		fmt.Fprintf(os.Stderr, "invalid -audio-backend %q (expected auto|ymfm|legacy)\n", *audioBackend)
+	if mode == "" {
+		mode = "ymfm"
+	}
+	if mode != "ymfm" {
+		fmt.Fprintf(os.Stderr, "invalid -audio-backend %q (expected ymfm)\n", *audioBackend)
 		os.Exit(2)
+	}
+	if err := os.Setenv("NCDX_YM_BACKEND", mode); err != nil {
+		fmt.Fprintf(os.Stderr, "set NCDX_YM_BACKEND: %v\n", err)
+		os.Exit(1)
 	}
 
 	nFrames := *frames

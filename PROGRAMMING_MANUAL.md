@@ -459,6 +459,245 @@ oam.flush()
 - `oam.write(index, &sprite)` writes one sprite record
 - `oam.flush()` currently exists as the write-finalization call in CoreLX code patterns
 
+## 5. Matrix Planes (Dedicated Matrix Sources)
+
+Nitro-Core-DX now has a dedicated matrix-plane model in the emulator/runtime.
+
+This is separate from ordinary BG tilemap usage.
+
+Each matrix-capable layer can still bind to a transform channel, but that
+transform channel can now source from its own:
+
+- tilemap memory
+- pattern/tile graphics memory
+- size mode (`32x32`, `64x64`, `128x128`)
+
+This is the current path for building large affine planes that do not just
+borrow the ordinary BG tilemap.
+
+### Why This Exists
+
+The older approach was enough for small matrix demos, but not enough for the
+larger per-plane target we want from Nitro-Core-DX.
+
+The dedicated matrix-plane path is the first architecture that can scale toward:
+
+- SNES-class Mode 7 sized planes
+- larger pseudo-3D floors
+- dedicated transformed backgrounds
+
+### Current Matrix Plane Capabilities
+
+Today, each dedicated matrix plane supports:
+
+- independent tilemap backing
+- independent pattern memory backing
+- size mode:
+  - `32x32`
+  - `64x64`
+  - `128x128`
+- affine transform through the bound transform channel
+- outside behavior:
+  - wrap
+  - backdrop
+  - tile0
+  - clamp
+
+### Current Limits
+
+- Matrix planes are available at the PPU/MMIO level, through emulator/Dev Kit helper APIs, and through a baseline CoreLX surface.
+- Current CoreLX matrix-plane built-ins:
+  - `matrix_plane.enable(channel, size)`
+  - `matrix_plane.disable(channel)`
+  - `matrix_plane.load_tiles(asset, channel, base)`
+  - `matrix_plane.load_tilemap(asset, channel)`
+  - `matrix_plane.set_tile(channel, x, y, tile, attr)`
+  - `matrix_plane.fill_rect(channel, x, y, w, h, tile, attr)`
+  - `matrix_plane.clear(channel, tile, attr)`
+- This is now enough to author and upload useful dedicated planes directly from CoreLX without dropping to raw MMIO.
+- Reference ROMs:
+  - `test/roms/matrix_plane_showcase.corelx`
+  - `test/roms/matrix_plane_pipeline_showcase.corelx`
+
+### Recommended High-Level Programming Path (Current)
+
+For ROM-side content, use the CoreLX matrix-plane built-ins first.
+
+For tools, emulator-side tests, and Dev Kit experiments, use the matrix-plane builder when you need to generate or upload large planes efficiently.
+
+Go-side example:
+
+```go
+builder, _ := emulator.NewMatrixPlaneBuilder(0, ppu.TilemapSize128x128)
+
+builder.SetPatternTile8x8(0, redTileBytes)
+builder.SetPatternTile8x8(1, greenTileBytes)
+builder.FillRect(0, 0, 64, 128, 0, 0)
+builder.FillRect(64, 0, 64, 128, 1, 0)
+
+program := builder.Build()
+svc.InstallMatrixPlaneProgram(program)
+```
+
+The emulator-side builder remains useful because it:
+
+- validates the real matrix-plane model
+- avoids raw byte packing by hand
+- still compiles down to the real PPU programming surface
+
+### Low-Level MMIO Programming Path
+
+If you are writing low-level ROM code, the dedicated matrix-plane aperture is:
+
+- `0x8080` `MATRIX_PLANE_SELECT`
+- `0x8081` `MATRIX_PLANE_CONTROL`
+- `0x8082` `MATRIX_PLANE_ADDR_L`
+- `0x8083` `MATRIX_PLANE_ADDR_H`
+- `0x8084` `MATRIX_PLANE_DATA`
+- `0x8085` `MATRIX_PLANE_PATTERN_ADDR_L`
+- `0x8086` `MATRIX_PLANE_PATTERN_ADDR_H`
+- `0x8087` `MATRIX_PLANE_PATTERN_DATA`
+- `0x8088` `MATRIX_PLANE_BITMAP_ADDR_L`
+- `0x8089` `MATRIX_PLANE_BITMAP_ADDR_M`
+- `0x808A` `MATRIX_PLANE_BITMAP_ADDR_H`
+- `0x808B` `MATRIX_PLANE_BITMAP_DATA`
+
+#### Register Meanings
+
+- `MATRIX_PLANE_SELECT`
+  - selects plane `0-3`
+
+- `MATRIX_PLANE_CONTROL`
+  - bit `0` = enable
+  - bits `[2:1]` = size mode
+    - `0 = 32x32`
+    - `1 = 64x64`
+    - `2 = 128x128`
+  - bit `3` = source mode
+    - `0 = tilemap/pattern-backed plane`
+    - `1 = bitmap-backed plane`
+  - bits `[7:4]` = bitmap palette bank
+
+- `MATRIX_PLANE_ADDR_L/H`
+  - tilemap upload address
+
+- `MATRIX_PLANE_DATA`
+  - writes one byte into matrix-plane tilemap memory
+  - auto-increments address
+
+- `MATRIX_PLANE_PATTERN_ADDR_L/H`
+  - pattern upload address
+
+- `MATRIX_PLANE_PATTERN_DATA`
+  - writes one byte into matrix-plane pattern memory
+  - auto-increments address
+
+- `MATRIX_PLANE_BITMAP_ADDR_L/M/H`
+  - bitmap upload address for bitmap-backed matrix planes
+
+- `MATRIX_PLANE_BITMAP_DATA`
+  - writes one byte into dedicated matrix-plane bitmap memory
+  - auto-increments address
+
+### Typical Upload Sequence
+
+1. select the matrix plane
+2. configure its size and enable bit
+3. choose source type
+4. if tile-backed:
+   - upload tilemap bytes through `0x8082-0x8084`
+   - upload pattern bytes through `0x8085-0x8087`
+5. if bitmap-backed:
+   - upload bitmap bytes through `0x8088-0x808B`
+6. bind a visible layer to that transform channel
+7. enable matrix mode on that channel
+
+Pseudo-code:
+
+```text
+write8(0x8080, 0)      ; plane 0
+write8(0x8081, 0x05)   ; enable + 128x128
+
+write8(0x8082, 0x00)
+write8(0x8083, 0x00)
+for each tilemap byte
+    write8(0x8084, byte)
+
+write8(0x8085, 0x00)
+write8(0x8086, 0x00)
+for each pattern byte
+    write8(0x8087, byte)
+```
+
+Bitmap-backed upload:
+
+```text
+write8(0x8080, 0)      ; plane 0
+write8(0x8081, 0x1D)   ; enable + 128x128 + bitmap source + palette bank 1
+
+write8(0x8088, 0x00)
+write8(0x8089, 0x00)
+write8(0x808A, 0x00)
+for each packed bitmap byte
+    write8(0x808B, byte)
+```
+
+### Pattern Memory Format
+
+Pattern memory currently uses the same packed 4bpp tile format as normal tile data.
+
+- `8x8` tile = `32 bytes`
+- `16x16` tile = `128 bytes`
+
+The layer's tile-size setting still controls how the matrix renderer interprets the pattern data.
+
+So if BG0 is using `8x8`, your dedicated matrix plane patterns must be authored as `8x8` tiles.
+
+### Bitmap Plane Memory Format
+
+Bitmap-backed matrix planes use packed indexed 4bpp pixels:
+
+- two pixels per byte
+- high nibble = even pixel
+- low nibble = odd pixel
+- palette bank comes from `MATRIX_PLANE_CONTROL[7:4]`
+
+Bitmap-backed planes are now the direct validation path for large imported images that do not fit cleanly into the tile-backed plane's 256-tile index ceiling.
+
+### Tilemap Entry Format
+
+Each tilemap entry is still:
+
+- byte `0` = tile index
+- byte `1` = attributes
+
+Current attributes:
+
+- palette low bits
+- flip bits
+
+### Outside Behavior
+
+The transform channel's matrix-control register still defines outside behavior:
+
+- `0` = wrap
+- `1` = backdrop
+- `2` = tile0
+- `3` = clamp
+
+Use `clamp` when you want the edge of the plane to hold instead of repeating.
+
+Use `wrap` when you want classic repeating floor behavior.
+
+### Practical Advice
+
+- Use dedicated matrix planes for large rotated/scaled backgrounds.
+- Keep ordinary BG tilemaps for conventional HUD/background work.
+- Start with `128x128 @ 8x8` when you want a true `1024x1024` source plane.
+- Do not hand-pack tilemap/pattern uploads unless you are explicitly doing low-level hardware work.
+
+> **Watch Out:** CoreLX now exposes the practical dedicated matrix-plane path, including `fill_rect`, `clear`, and direct tilemap-asset upload. For very large or procedurally generated planes, the emulator/Dev Kit helper path is still the more efficient authoring route.
+
 ---
 
 ## Audio: Legacy APU First, FM Extension Next

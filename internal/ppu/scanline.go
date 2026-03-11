@@ -65,6 +65,70 @@ type scanlineCommandSet struct {
 	Layers [4]scanlineLayerCommand
 }
 
+func (p *PPU) prepareLiveFloorRow(channelIndex uint8, scanline int) bool {
+	if int(channelIndex) >= len(p.MatrixPlanes) || scanline < 0 || scanline >= VisibleScanlines {
+		return false
+	}
+	plane := &p.MatrixPlanes[channelIndex]
+	if !plane.Enabled || plane.SourceMode != MatrixPlaneSourceBitmap || !plane.LiveFloorEnabled {
+		p.MatrixFloorRows[channelIndex] = matrixFloorRowCache{}
+		return false
+	}
+	if scanline < int(plane.LiveFloorHorizon) {
+		p.MatrixFloorRows[channelIndex] = matrixFloorRowCache{}
+		return false
+	}
+	cache := &p.MatrixFloorRows[channelIndex]
+	if cache.valid && cache.scanline == scanline {
+		return true
+	}
+
+	row := int64(scanline-int(plane.LiveFloorHorizon)) + 1
+	headingX := int64(plane.LiveFloorHeadingX)
+	headingY := int64(plane.LiveFloorHeadingY)
+	if headingX == 0 && headingY == 0 {
+		headingY = -0x0100
+	}
+
+	cameraX16 := int64(plane.LiveFloorCameraX) << 16
+	cameraY16 := int64(plane.LiveFloorCameraY) << 16
+	headingX16 := headingX << 8
+	headingY16 := headingY << 8
+	rightX16 := -headingY16
+	rightY16 := headingX16
+
+	// These constants intentionally mirror the earlier ROM-side floor model, but
+	// move the work into the PPU so the ROM only updates camera state each frame.
+	forward16 := (int64(3072) << 16) / (row + 6)
+	step16 := (int64(104858) * 18) / (row + 18) // about 1.6 px at the near rows
+	if step16 < 5243 {
+		step16 = 5243 // about 0.08 px
+	}
+
+	rowCenterX16 := cameraX16 + int64((headingX16*forward16)>>16)
+	rowCenterY16 := cameraY16 + int64((headingY16*forward16)>>16)
+	stepX16 := int32((rightX16 * step16) >> 16)
+	stepY16 := int32((rightY16 * step16) >> 16)
+	startX16 := int32(rowCenterX16 - int64(stepX16*(ScreenWidth/2)))
+	startY16 := int32(rowCenterY16 - int64(stepY16*(ScreenWidth/2)))
+
+	*cache = matrixFloorRowCache{
+		valid:    true,
+		scanline: scanline,
+		startX:   startX16,
+		startY:   startY16,
+		stepX:    stepX16,
+		stepY:    stepY16,
+	}
+	return true
+}
+
+func (p *PPU) prepareLiveFloorRowsForScanline(scanline int) {
+	for channelIndex := range p.MatrixPlanes {
+		_ = p.prepareLiveFloorRow(uint8(channelIndex), scanline)
+	}
+}
+
 func (p *PPU) hdmaScanlineStride() uint32 {
 	stride := uint32(hdmaBaseScanlineBytes)
 	if (p.HDMAControl & hdmaRebindTablePresent) != 0 {
@@ -250,6 +314,7 @@ func (p *PPU) StepPPU(cycles uint64) error {
 		// Hardware-like sprite evaluation stage at scanline start.
 		if p.currentDot == 0 && p.currentScanline < VisibleScanlines {
 			p.evaluateSpritesForScanline(p.currentScanline)
+			p.prepareLiveFloorRowsForScanline(p.currentScanline)
 		}
 
 		// Calculate cycles until end of current scanline
@@ -789,7 +854,14 @@ func (p *PPU) renderDotBackgroundLayer(layerNum, x, y int) {
 		tileMask = 0x0F
 		tileBytesShift = 7 // 16*16/2 = 128 bytes
 	}
-	tilemapMask := (32 << tileShift) - 1 // 256 or 512 pixels
+	tilemapWidthTiles := 32
+	switch layer.TilemapSize {
+	case TilemapSize64x64:
+		tilemapWidthTiles = 64
+	case TilemapSize128x128:
+		tilemapWidthTiles = 128
+	}
+	tilemapMask := (tilemapWidthTiles << tileShift) - 1
 
 	// Wrap coordinates (tilemap repeats)
 	worldX &= tilemapMask
@@ -808,8 +880,7 @@ func (p *PPU) renderDotBackgroundLayer(layerNum, x, y int) {
 	if layer.TilemapBase != 0 {
 		tilemapBase = layer.TilemapBase
 	}
-	// tilemapWidth is fixed 32 tiles; each entry is 2 bytes.
-	tilemapOffset := uint16((tileY << 6) | (tileX << 1))
+	tilemapOffset := uint16((tileY*tilemapWidthTiles + tileX) * 2)
 	if uint32(tilemapBase)+uint32(tilemapOffset) >= 65536 {
 		return
 	}
@@ -917,42 +988,60 @@ func (p *PPU) renderDotMatrixMode(layerNum, x, y int) {
 	relX := int32(screenX) - int32(channel.CenterX)
 	relY := int32(screenY) - int32(channel.CenterY)
 
-	// Apply transformation matrix (8.8 fixed point multiplication)
-	// Matrix values are int16 (8.8 fixed point)
-	// Result needs to be divided by 256 (>> 8) to get integer result
-	worldX := (int32(channel.A)*relX + int32(channel.B)*relY) >> 8
-	worldY := (int32(channel.C)*relX + int32(channel.D)*relY) >> 8
+	// Apply transformation matrix using SNES-style origin semantics:
+	//   world = origin + M * (screen - origin) + scroll
+	// This preserves the source-space pivot instead of treating CenterX/Y as
+	// only a screen-space subtraction term.
+	worldX := int32(channel.CenterX) + ((int32(channel.A)*relX + int32(channel.B)*relY) >> 8)
+	worldY := int32(channel.CenterY) + ((int32(channel.C)*relX + int32(channel.D)*relY) >> 8)
 
-	// Add layer scroll offset
+	// Add layer scroll offset after the pivot-preserving transform.
 	worldX += int32(layer.ScrollX)
 	worldY += int32(layer.ScrollY)
 
-	// Tile size: 8x8 or 16x16
+	plane := p.getMatrixPlane(layer.TransformChannel)
+
+	if plane.Enabled && plane.SourceMode == MatrixPlaneSourceBitmap && plane.LiveFloorEnabled {
+		if !p.prepareLiveFloorRow(layer.TransformChannel, y) {
+			return
+		}
+		cache := &p.MatrixFloorRows[layer.TransformChannel]
+		worldX = int32((int64(cache.startX) + int64(cache.stepX)*int64(x)) >> 16)
+		worldY = int32((int64(cache.startY) + int64(cache.stepY)*int64(x)) >> 16)
+	}
+
+	// Handle outside-screen coordinates based on MatrixOutsideMode.
 	tileSize := 8
 	if layer.TileSize {
 		tileSize = 16
 	}
-
-	// Handle outside-screen coordinates based on MatrixOutsideMode
-	tilemapWidth := 32
-	tilemapPixelWidth := tilemapWidth * tileSize
-	tilemapPixelHeight := tilemapWidth * tileSize
+	sourcePixelWidth := tilemapWidthForSizeMode(layer.TilemapSize) * tileSize
+	sourcePixelHeight := sourcePixelWidth
+	if plane.Enabled {
+		if plane.SourceMode == MatrixPlaneSourceBitmap {
+			sourcePixelWidth = tilemapWidthForSizeMode(plane.Size) * 8
+			sourcePixelHeight = sourcePixelWidth
+		} else {
+			sourcePixelWidth = tilemapWidthForSizeMode(plane.Size) * tileSize
+			sourcePixelHeight = sourcePixelWidth
+		}
+	}
 
 	// Check if coordinates are outside tilemap bounds
-	worldXValid := worldX >= 0 && worldX < int32(tilemapPixelWidth)
-	worldYValid := worldY >= 0 && worldY < int32(tilemapPixelHeight)
+	worldXValid := worldX >= 0 && worldX < int32(sourcePixelWidth)
+	worldYValid := worldY >= 0 && worldY < int32(sourcePixelHeight)
 
 	if !worldXValid || !worldYValid {
 		// Outside screen bounds - handle based on mode
 		switch channel.OutsideMode {
 		case 0: // Repeat/wrap mode (default)
-			worldX = worldX % int32(tilemapPixelWidth)
+			worldX = worldX % int32(sourcePixelWidth)
 			if worldX < 0 {
-				worldX += int32(tilemapPixelWidth)
+				worldX += int32(sourcePixelWidth)
 			}
-			worldY = worldY % int32(tilemapPixelHeight)
+			worldY = worldY % int32(sourcePixelHeight)
 			if worldY < 0 {
-				worldY += int32(tilemapPixelHeight)
+				worldY += int32(sourcePixelHeight)
 			}
 		case 1: // Backdrop mode - render backdrop color
 			// Use backdrop color (CGRAM palette 0, color 0)
@@ -963,17 +1052,57 @@ func (p *PPU) renderDotMatrixMode(layerNum, x, y int) {
 			// Force tile index to 0
 			worldX = 0
 			worldY = 0
+		case 3: // Clamp mode - clamp to nearest edge pixel
+			if worldX < 0 {
+				worldX = 0
+			} else if worldX >= int32(sourcePixelWidth) {
+				worldX = int32(sourcePixelWidth - 1)
+			}
+			if worldY < 0 {
+				worldY = 0
+			} else if worldY >= int32(sourcePixelHeight) {
+				worldY = int32(sourcePixelHeight - 1)
+			}
 		default:
 			// Default to wrap
-			worldX = worldX % int32(tilemapPixelWidth)
+			worldX = worldX % int32(sourcePixelWidth)
 			if worldX < 0 {
-				worldX += int32(tilemapPixelWidth)
+				worldX += int32(sourcePixelWidth)
 			}
-			worldY = worldY % int32(tilemapPixelHeight)
+			worldY = worldY % int32(sourcePixelHeight)
 			if worldY < 0 {
-				worldY += int32(tilemapPixelHeight)
+				worldY += int32(sourcePixelHeight)
 			}
 		}
+	}
+
+	if plane.Enabled && plane.SourceMode == MatrixPlaneSourceBitmap {
+		pixelOffset := int(worldY)*sourcePixelWidth + int(worldX)
+		byteOffset := pixelOffset / 2
+		pixelInByte := pixelOffset % 2
+		if byteOffset < 0 || byteOffset >= len(plane.Bitmap) {
+			return
+		}
+		pixelByte := plane.Bitmap[byteOffset]
+		var colorIndex uint8
+		if pixelInByte == 0 {
+			colorIndex = (pixelByte >> 4) & 0x0F
+		} else {
+			colorIndex = pixelByte & 0x0F
+		}
+		if plane.Transparent0 && colorIndex == 0 {
+			return
+		}
+		color := p.getColorFromCGRAM(plane.BitmapPalette&0x0F, colorIndex)
+		if channel.DirectColor {
+			combined := (uint16(plane.BitmapPalette&0x0F) << 4) | uint16(colorIndex&0x0F)
+			r5 := uint32(combined&0x07) * 31 / 7
+			g5 := uint32((combined>>3)&0x07) * 31 / 7
+			b5 := uint32((combined>>6)&0x03) * 31 / 3
+			color = ((r5 * 255 / 31) << 16) | ((g5 * 255 / 31) << 8) | (b5 * 255 / 31)
+		}
+		p.OutputBuffer[y*320+x] = color
+		return
 	}
 
 	// Calculate which tile this pixel is in
@@ -985,19 +1114,10 @@ func (p *PPU) renderDotMatrixMode(layerNum, x, y int) {
 	pixelYInTile := int(worldY) % tileSize
 
 	// Read tilemap entry
-	tilemapBase := uint16(0x4000)
-	if layer.TilemapBase != 0 {
-		tilemapBase = layer.TilemapBase
-	}
-	tilemapOffset := uint16((tileY*tilemapWidth + tileX) * 2)
-	if uint32(tilemapBase)+uint32(tilemapOffset) >= 65536 {
+	tileIndex, attributes, ok := p.matrixTilemapEntry(layer, tileX, tileY)
+	if !ok {
 		return
 	}
-	tilemapEntryAddr := tilemapBase + tilemapOffset
-
-	// Read tile index and attributes
-	tileIndex := uint8(p.VRAM[tilemapEntryAddr])
-	attributes := uint8(p.VRAM[tilemapEntryAddr+1])
 	paletteIndex := attributes & 0x0F
 	flipX := (attributes & 0x10) != 0
 	flipY := (attributes & 0x20) != 0
@@ -1010,19 +1130,26 @@ func (p *PPU) renderDotMatrixMode(layerNum, x, y int) {
 		pixelYInTile = tileSize - 1 - pixelYInTile
 	}
 
-	// Read tile data
-	tileDataOffset := uint16(tileIndex) * uint16(tileSize*tileSize/2)
 	pixelOffsetInTile := pixelYInTile*tileSize + pixelXInTile
 	byteOffsetInTile := pixelOffsetInTile / 2
 	pixelInByte := pixelOffsetInTile % 2
-
-	if uint32(tileDataOffset)+uint32(byteOffsetInTile) >= 65536 {
-		return
+	tileByte := uint8(0)
+	if plane.Enabled {
+		tileDataOffset := uint32(tileIndex)*uint32(tileSize*tileSize/2) + uint32(byteOffsetInTile)
+		if tileDataOffset >= uint32(len(plane.Pattern)) {
+			return
+		}
+		tileByte = plane.Pattern[tileDataOffset]
+	} else {
+		tileDataOffset := uint16(tileIndex) * uint16(tileSize*tileSize/2)
+		if uint32(tileDataOffset)+uint32(byteOffsetInTile) >= 65536 {
+			return
+		}
+		tileDataAddr := tileDataOffset + uint16(byteOffsetInTile)
+		tileByte = p.VRAM[tileDataAddr]
 	}
-	tileDataAddr := tileDataOffset + uint16(byteOffsetInTile)
 
 	// Read pixel color index
-	tileByte := p.VRAM[tileDataAddr]
 	var colorIndex uint8
 	if pixelInByte == 0 {
 		colorIndex = (tileByte >> 4) & 0x0F

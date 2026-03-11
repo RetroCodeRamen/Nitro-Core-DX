@@ -4,12 +4,14 @@ import (
 	"fmt"
 
 	"nitro-core-dx/internal/emulator"
+	ppucore "nitro-core-dx/internal/ppu"
 )
 
 const (
 	RasterDemoSplitTilemap   = "split-tilemap"
 	RasterDemoRebindPriority = "rebind-priority"
 	RasterDemoScrollAffine   = "scroll-affine"
+	RasterDemoMatrixPlane    = "matrix-plane"
 )
 
 func (s *Service) InstallRasterDemo(name string) error {
@@ -26,6 +28,8 @@ func (s *Service) InstallRasterDemo(name string) error {
 		return installRebindPriorityRasterDemoLocked(s.emu)
 	case RasterDemoScrollAffine:
 		return installScrollAffineRasterDemoLocked(s.emu)
+	case RasterDemoMatrixPlane:
+		return installMatrixPlaneRasterDemoLocked(s.emu)
 	default:
 		return fmt.Errorf("unknown raster demo %q", name)
 	}
@@ -161,4 +165,65 @@ func installScrollAffineRasterDemoLocked(emu *emulator.Emulator) error {
 		return err
 	}
 	return emu.InstallRasterProgram(program)
+}
+
+func installMatrixPlaneRasterDemoLocked(emu *emulator.Emulator) error {
+	ppu := emu.PPU
+	ppu.BG0.Enabled = true
+	ppu.BG0.Priority = 0
+	ppu.BG0.TileSize = false
+	ppu.BG0.TilemapSize = ppucore.TilemapSize128x128
+	ppu.BG0.TransformChannel = 0
+	ppu.BG0.ScrollX = 256
+	ppu.BG0.ScrollY = 192
+
+	ppu.TransformChannels[0].Enabled = true
+	ppu.TransformChannels[0].A = 0x0100
+	ppu.TransformChannels[0].B = 0x0040
+	ppu.TransformChannels[0].C = -0x0040
+	ppu.TransformChannels[0].D = 0x0100
+	ppu.TransformChannels[0].CenterX = 160
+	ppu.TransformChannels[0].CenterY = 100
+	ppu.TransformChannels[0].OutsideMode = 0
+
+	ppu.CGRAM[0x01*2] = 0x00
+	ppu.CGRAM[0x01*2+1] = 0x7C // red
+	ppu.CGRAM[0x02*2] = 0xE0
+	ppu.CGRAM[0x02*2+1] = 0x03 // green
+	ppu.CGRAM[0x03*2] = 0x1F
+	ppu.CGRAM[0x03*2+1] = 0x00 // blue
+	ppu.CGRAM[0x04*2] = 0xFF
+	ppu.CGRAM[0x04*2+1] = 0x03 // yellow
+
+	pattern := make([]byte, 32*4)
+	for i := 0; i < 32; i++ {
+		pattern[0x00+uint16(i)] = 0x11
+		pattern[0x20+uint16(i)] = 0x22
+		pattern[0x40+uint16(i)] = 0x33
+		pattern[0x60+uint16(i)] = 0x44
+	}
+
+	tilemap := make([]byte, 128*128*2)
+	for y := 0; y < 128; y++ {
+		for x := 0; x < 128; x++ {
+			entry := (y*128 + x) * 2
+			tile := uint8(((x / 8) + (y / 8)) & 0x01)
+			if x >= 64 {
+				tile += 2
+			}
+			if (x+y)%29 == 0 {
+				tile = 3
+			}
+			tilemap[entry] = tile
+			tilemap[entry+1] = 0x00
+		}
+	}
+
+	return emu.InstallMatrixPlaneProgram(emulator.MatrixPlaneProgram{
+		Channel: 0,
+		Enabled: true,
+		Size:    ppucore.TilemapSize128x128,
+		Tilemap: tilemap,
+		Pattern: pattern,
+	})
 }

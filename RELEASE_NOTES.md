@@ -1,61 +1,77 @@
-# Nitro-Core-DX v0.1.8
+# Nitro-Core-DX v0.1.9
 
 ## What Changed (Plain-English)
 
-This release focuses on making the Dev Kit feel more reliable and more "real tool" than prototype.
+This release pushes the emulator baseline forward in the areas that actually matter for software development: audio, graphics, CoreLX control surface, and test content.
 
-### 1) The Code Editor Is More Stable
+### 1) YM2608 Is Now The Real Runtime Audio Path
 
-We started moving to a native editor foundation so typing and editing behavior is handled by one owner instead of a fragile hybrid path.
+The legacy FM fallback path is gone. The emulator and Dev Kit now run against the YMFM-backed YM2608 path directly.
 
 What that means for you:
-- better input consistency while typing
-- fewer weird cursor/selection edge cases
-- cleaner path for future editor upgrades (find/replace, symbol tools, richer diagnostics)
+- audio testing is now happening against the intended sound path
+- bundled demo ROMs exercise the current YM2608 runtime directly
+- release users are no longer testing a fallback audio stack by accident
 
-### 2) Sprite Lab Got Better for Real Work
+### 2) Matrix / Mode-7-Style Graphics Took A Big Step Forward
 
-Sprite Lab picked up practical workflow upgrades:
+The PPU now has a much more serious matrix-plane implementation than before:
 
-- **Wrap Shift Controls** for sprites (Up/Down/Left/Right)
-  - move all pixels one step and wrap at edges
-  - useful for quick animation/frame tweaks
-- **Palette RGB555 Slider + Full Hex Flow**
-  - easier color dialing with slider control
-  - hex value stays visible and synchronized
-- **Preview Aspect Fix**
-  - sprite preview now keeps correct proportions when resizing windows
-  - no more stretched/wide preview distortion
+- dedicated matrix-plane tilemap memory
+- dedicated matrix-plane pattern memory
+- bitmap-backed matrix planes in the emulator
+- explicit outside behavior, including clamp
+- larger source sizes aimed at SNES-class `1024x1024` floor/background use
 
-### 3) Native Window Behavior Was Locked Down
+What that means for you:
+- matrix planes are no longer just “small rotating tilemaps”
+- large floor/background experiments are now practical
+- the graphics pipeline is much closer to a real pseudo-3D baseline
 
-We cleaned up maximize/minimize behavior and added guardrails so window management regressions are less likely to come back.
+### 3) CoreLX Can Drive Matrix Planes Directly
 
-- system title-bar maximize/minimize remains the expected behavior
-- fullscreen remains distinct from maximize
-- guard test added to keep platform-specific hinting constrained
+CoreLX now has first-class helpers for matrix-plane setup and authored content:
 
-### 4) V1 Plan Direction Updated: YM2608
+- `matrix_plane.enable(...)`
+- `matrix_plane.disable(...)`
+- `matrix_plane.load_tiles(...)`
+- `matrix_plane.load_tilemap(...)`
+- `matrix_plane.set_tile(...)`
+- `matrix_plane.fill_rect(...)`
+- `matrix_plane.clear(...)`
 
-The V1 audio target is now **YM2608**.
+What that means for you:
+- you can author and load dedicated matrix-plane content without dropping to raw MMIO
+- the programming manual now documents the supported matrix-plane workflow
 
-This does **not** mean YM2608 is fully implemented in this release. It means the release plan has been updated so the final V1 sound target is clear.
+### 4) The Release Package Now Includes Test ROMs
 
-Execution order is now explicitly gated:
-1. finish Sprite Lab + Dev Kit stabilization
-2. complete required tilemap flow
-3. start Sound Studio
-4. then begin YM2608 implementation
+Both release archives now include two ROMs in `roms/`:
 
-## Why v0.1.8 Matters
+- `pong_ym2608_demo.rom`
+  - gameplay + YM2608 audio validation
+- `matrix_floor_only_kart.rom`
+  - dedicated matrix-floor validation using the kart image path
 
-v0.1.8 is less about flashy new subsystems and more about maturity:
-- stronger editor behavior
-- stronger art workflow
-- cleaner planning discipline for V1
-- fewer regressions in core UX
+What that means for you:
+- users can test the current audio/runtime path immediately
+- users can test the current matrix-floor path immediately
+
+## Why v0.1.9 Matters
+
+This release is about moving the emulator from “feature experiments” toward a usable software platform:
+
+- the audio path is cleaner and more intentional
+- the matrix-plane architecture is much stronger
+- the language surface is better aligned with the graphics hardware model
+- the release downloads now include real validation content, not just the app binary
 
 ## Downloads
 
-- **Linux:** `nitrocoredx-v0.1.8-linux-amd64.tar.gz`
-- **Windows:** `nitrocoredx-v0.1.8-windows-amd64.zip`
+- **Linux:** `nitrocoredx-v0.1.9-linux-amd64.tar.gz`
+- **Windows:** `nitrocoredx-v0.1.9-windows-amd64.zip`
+
+Both downloads include:
+- the integrated Nitro-Core-DX app
+- `roms/pong_ym2608_demo.rom`
+- `roms/matrix_floor_only_kart.rom`

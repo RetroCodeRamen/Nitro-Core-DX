@@ -8,6 +8,8 @@ This directory contains hardware specifications, pin definitions, FPGA documenta
   - Current evidence-based base hardware spec (CPU/PPU/APU/input/timing/registers)
 - `PPU_TRANSFORM_CHANNEL_ARCHITECTURE.md`
   - Stage 1 architecture baseline for the long-term PPU transform/raster model (multi-channel affine planes, raster command tables, emulator/FPGA target contract)
+- `PPU_MATRIX_PLANE_MEMORY_SPEC.md`
+  - Matrix-plane source-size and dedicated-memory baseline spec (minimum 1024x1024 per plane, outside behavior, emulator-first implementation direction)
 - `APU_FM_OPM_EXTENSION_SPEC.md`
   - Current FM extension runtime design + implementation status (YM2608-targeted host interface + backend selection/fallback model)
 - `CARTRIDGE_PIN_SPECIFICATION.md`

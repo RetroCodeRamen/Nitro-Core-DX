@@ -16,7 +16,7 @@ func main() {
 	romPath := flag.String("rom", "", "Path to ROM file")
 	unlimited := flag.Bool("unlimited", false, "Run at unlimited speed (no frame limit)")
 	scale := flag.Int("scale", 3, "Display scale (1-6)")
-	audioBackend := flag.String("audio-backend", "", "Audio backend override: auto|ymfm|legacy (default: auto with YMFM fallback)")
+	audioBackend := flag.String("audio-backend", "", "Audio backend override: ymfm (default: ymfm)")
 	enableLogging := flag.Bool("log", false, "Enable logging (disabled by default)")
 	cycleLogFile := flag.String("cyclelog", "", "Enable cycle-by-cycle logging to file (e.g., -cyclelog debug.log)")
 	maxCycles := flag.Uint64("maxcycles", 100000, "Maximum cycles to log (default: 100000, 0 = unlimited)")
@@ -28,7 +28,7 @@ func main() {
 		fmt.Println("  -rom <path>      Path to ROM file (.rom)")
 		fmt.Println("  -unlimited       Run at unlimited speed")
 		fmt.Println("  -scale <1-6>     Display scale (default: 3)")
-		fmt.Println("  -audio-backend   Audio backend override: auto|ymfm|legacy")
+		fmt.Println("  -audio-backend   Audio backend override: ymfm (default: ymfm)")
 		fmt.Println("  -log             Enable logging (disabled by default)")
 		fmt.Println("  -cyclelog <file> Enable cycle-by-cycle logging to file")
 		fmt.Println("  -maxcycles <N>   Maximum cycles to log (default: 100000, 0 = unlimited)")
@@ -138,23 +138,21 @@ func applyAudioBackendSetting(flagValue string) error {
 	mode := strings.ToLower(strings.TrimSpace(flagValue))
 	if mode == "" {
 		if strings.TrimSpace(os.Getenv("NCDX_YM_BACKEND")) == "" {
-			return os.Setenv("NCDX_YM_BACKEND", "auto")
+			return os.Setenv("NCDX_YM_BACKEND", "ymfm")
 		}
 		return nil
 	}
 
-	switch mode {
-	case "auto", "ymfm", "legacy":
-		return os.Setenv("NCDX_YM_BACKEND", mode)
-	default:
-		return fmt.Errorf("invalid -audio-backend %q (expected auto|ymfm|legacy)", flagValue)
+	if mode != "ymfm" {
+		return fmt.Errorf("invalid -audio-backend %q (expected ymfm)", flagValue)
 	}
+	return os.Setenv("NCDX_YM_BACKEND", mode)
 }
 
 func effectiveAudioBackendMode() string {
 	mode := strings.ToLower(strings.TrimSpace(os.Getenv("NCDX_YM_BACKEND")))
 	if mode == "" {
-		return "auto"
+		return "ymfm"
 	}
 	return mode
 }

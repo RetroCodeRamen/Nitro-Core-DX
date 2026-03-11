@@ -104,10 +104,10 @@ func (c *CPU) executeMOV(mode, reg1, reg2 uint8) error {
 		c.State.Cycles += 2 // Memory access
 		return nil
 
-	case 8: // Reserved - return error
-		// Mode 8 is reserved and not currently implemented
-		// Returning error to catch ROM bugs early
-		return fmt.Errorf("MOV mode 8 is reserved and not implemented (this indicates a ROM bug or invalid instruction encoding)")
+	case 8: // MOV DBR, R1 - Update data bank register from low byte of register
+		c.State.DBR = uint8(c.GetRegister(reg1) & 0x00FF)
+		c.State.Cycles++
+		return nil
 
 	case 9: // MOV R1, [R2+imm] - Indexed load
 		disp := int16(c.FetchImmediate())
@@ -176,7 +176,7 @@ func (c *CPU) executeMOV(mode, reg1, reg2 uint8) error {
 		return nil
 
 	default:
-		return fmt.Errorf("unknown MOV mode: %d (valid: 0-7, 9-12; reserved: 8, 13-15)", mode)
+		return fmt.Errorf("unknown MOV mode: %d (valid: 0-12; reserved: 13-15)", mode)
 	}
 }
 
@@ -518,41 +518,17 @@ func (c *CPU) executeSHR(mode, reg1, reg2 uint8) error {
 	return nil
 }
 
-// executeCMPAndBranches executes CMP and branch instructions
+// executeCMPAndBranches executes CMP and branch instructions.
+// Encoding contract:
+// - Mode 0: CMP R1, R2
+// - Mode 1: BEQ rel16
+// - Mode 2: BNE rel16
+// - Mode 3: BGT rel16
+// - Mode 4: BLT rel16
+// - Mode 5: BGE rel16
+// - Mode 6: BLE rel16
+// - Mode 7: CMP R1, #imm16
 func (c *CPU) executeCMPAndBranches(mode, reg1, reg2 uint8) error {
-	// Mode field encoding:
-	// - Mode 0: CMP R1, R2 (register mode)
-	// - Mode 1: CMP R1, #imm (immediate mode) OR BEQ (branch)
-	// - Mode 2-6: Branch instructions (BNE, BGT, BLT, BGE, BLE)
-	//
-	// To distinguish CMP immediate from BEQ, we check if reg2 is used:
-	// - CMP uses reg1 and reg2 (or immediate)
-	// - Branches don't use reg1/reg2 meaningfully (they're part of instruction encoding)
-	// Actually, looking at encoding: CMP immediate is mode=1 with immediate following
-	// BEQ is mode=1 but it's a branch instruction, not CMP
-	//
-	// The real distinction: CMP mode 0-1, branches mode 1-6
-	// But mode 1 overlaps! Let's check the instruction format:
-	// - 0xC000 = CMP reg (mode=0)
-	// - 0xC100 = BEQ (mode=1, but this is a branch, not CMP!)
-	// - 0xC1XX where XX has reg1/reg2 could be CMP immediate?
-	//
-	// Actually, based on ROM builder: EncodeCMP(mode=1, reg1, reg2) = 0xC100 | (reg1<<4) | reg2
-	// So 0xC100 with reg1=0, reg2=0 would be BEQ, but 0xC100 with reg1=1, reg2=0 would be CMP R1, #imm
-	//
-	// The issue: we can't distinguish CMP immediate from BEQ by mode alone!
-	// Solution: CMP immediate must use a different mode value, OR the instruction set doesn't support CMP immediate
-	//
-	// Let me check the spec: According to docs, CMP supports mode 0-1, where mode 1 is immediate
-	// But branches also use mode 1-6. This is a conflict!
-	//
-	// For now, let's assume: if mode == 0, it's CMP reg. If mode >= 1 and < 7, check if it's a branch first.
-	// If mode == 1 and it's not BEQ (reg1==0 && reg2==0), treat as CMP immediate.
-	// Actually, that's too complex. Let's use a simpler rule:
-	// - Mode 0: CMP reg
-	// - Mode 1: Check if reg1==0 && reg2==0 -> BEQ, else CMP immediate
-	// - Mode 2-6: Branch instructions
-
 	if mode == 0 {
 		// CMP R1, R2 (register mode)
 		value := c.GetRegister(reg2)
@@ -563,57 +539,8 @@ func (c *CPU) executeCMPAndBranches(mode, reg1, reg2 uint8) error {
 		return nil
 	}
 
-	// For mode >= 1, check if it's a branch instruction
-	// Branch instructions: mode 1-6 map to BEQ, BNE, BGT, BLT, BGE, BLE
-	// But CMP immediate also uses mode 1!
-	//
-	// Looking at the instruction encoding more carefully:
-	// The instruction word is: 0xC[mode][reg1][reg2]
-	// For branches, the standard encoding seems to be with reg1=0, reg2=0
-	// But CMP immediate would have reg1 set to the register being compared
-	//
-	// Let's use a heuristic: if mode >= 1 && mode <= 6, and the next word looks like a branch offset
-	// (signed 16-bit), treat as branch. Otherwise, if mode == 1, treat as CMP immediate.
-	//
-	// Actually, simpler: check the opcode pattern. Branches are 0xC1, 0xC2, etc. with reg1=reg2=0 typically.
-	// But CMP immediate is 0xC1 with reg1 set.
-	//
-	// For now, let's fix the immediate issue: if mode == 1 and we're not in branch context, it's CMP immediate
-	// But we need to distinguish somehow. Let's check: branches always fetch an offset. CMP immediate fetches an immediate value.
-	// They're the same! So we can't distinguish by what follows.
-	//
-	// The real solution: CMP immediate probably doesn't exist, OR it uses a different encoding.
-	// Let me check the test - it uses 0xC100 which would decode as mode=1, reg1=0, reg2=0 = BEQ!
-	//
-	// Wait, the test writes: 0xC100 = 0xC1, 0x00 = opcode=0xC, mode=0x1, reg1=0x0, reg2=0x0
-	// This is BEQ, not CMP immediate!
-	//
-	// So the test is wrong, OR CMP immediate uses a different encoding. Let me check if there's a CMP immediate instruction at all.
-	//
-	// Based on the ROM builder and docs, CMP should support mode 1 for immediate. But the encoding conflicts with BEQ.
-	// Solution: CMP immediate might not be supported, OR it uses a reserved mode value, OR the instruction set needs clarification.
-	//
-	// For now, let's implement what makes sense: if mode == 0, CMP reg. If mode == 1 and we want CMP immediate,
-	// we need a way to distinguish. Let's assume CMP immediate is not supported for now, and fix the test.
-	//
-	// Actually, re-reading the code comment: "CMP R1, #imm" - this suggests it should exist.
-	// Let me check: maybe CMP immediate uses mode 7 or higher? Or maybe it's encoded differently?
-	//
-	// For the purpose of this fix, let's assume: CMP immediate uses mode 1, but we distinguish it from BEQ
-	// by checking if it's actually a comparison (has a register operand). But BEQ doesn't use registers...
-	//
-	// I think the issue is that the instruction encoding is ambiguous. Let's use a simple rule:
-	// - Mode 0: CMP reg
-	// - Mode 1: Try CMP immediate first (fetch immediate), if that fails or doesn't make sense, treat as BEQ
-	// But that's not deterministic.
-	//
-	// Better solution: Check the instruction word more carefully. If mode=1 and the instruction looks like
-	// it has register operands (reg1 != 0 or reg2 != 0), it might be CMP immediate. But BEQ is 0xC100 which has reg1=0, reg2=0.
-	//
-	// So: if mode == 1 && (reg1 != 0 || reg2 != 0), treat as CMP immediate. Otherwise, BEQ.
-
-	if mode == 1 && (reg1 != 0 || reg2 != 0) {
-		// CMP R1, #imm (immediate mode) - distinguished from BEQ by having register operands
+	if mode == 7 {
+		// CMP R1, #imm16
 		value := c.FetchImmediate()
 		c.State.Cycles++
 		a := c.GetRegister(reg1)
@@ -623,25 +550,15 @@ func (c *CPU) executeCMPAndBranches(mode, reg1, reg2 uint8) error {
 		return nil
 	}
 
-	// Branch instructions (mode 1-6, where mode 1 = BEQ when reg1=reg2=0)
-	// Extract branch opcode: mode 1=BEQ, 2=BNE, 3=BGT, 4=BLT, 5=BGE, 6=BLE
-	branchOpcode := mode
-	if mode == 1 && reg1 == 0 && reg2 == 0 {
-		branchOpcode = 1 // BEQ
-	} else if mode >= 2 && mode <= 6 {
-		branchOpcode = mode
-	} else {
-		// Invalid - treat as error or CMP immediate fallback
-		// For now, if mode == 1 with registers, we already handled it above
-		// So this shouldn't happen, but let's handle it
-		return fmt.Errorf("invalid CMP/branch mode: %d (reg1=%d, reg2=%d)", mode, reg1, reg2)
+	if mode < 1 || mode > 6 {
+		return fmt.Errorf("invalid CMP/branch mode: %d", mode)
 	}
 
 	offset := int16(c.FetchImmediate())
 	c.State.Cycles++
 
 	var shouldBranch bool
-	switch branchOpcode {
+	switch mode {
 	case 0x1: // BEQ - Branch if equal
 		shouldBranch = c.GetFlag(FlagZ)
 	case 0x2: // BNE - Branch if not equal
@@ -659,7 +576,7 @@ func (c *CPU) executeCMPAndBranches(mode, reg1, reg2 uint8) error {
 		// BLE: Z || (N != V)
 		shouldBranch = c.GetFlag(FlagZ) || (c.GetFlag(FlagN) != c.GetFlag(FlagV))
 	default:
-		return fmt.Errorf("unknown branch opcode: 0x%X", branchOpcode)
+		return fmt.Errorf("unknown branch opcode: 0x%X", mode)
 	}
 
 	if shouldBranch {

@@ -70,10 +70,10 @@
    - Fix: Store InitialDuration, reload on loop
    - Location: `internal/apu/apu.go`
 
-4. **CMP Immediate Instruction Decoding** ✅ FIXED (2026-02-05)
-   - Issue: Ambiguity between CMP immediate (mode 1 with registers) and BEQ (mode 1 with reg1=reg2=0)
-   - Fix: CMP immediate now distinguished from BEQ by checking register operands
-   - Location: `internal/cpu/instructions.go:428-437`
+4. **CMP Immediate Instruction Decoding** ✅ FIXED (2026-03-10)
+   - Issue: Ambiguity between CMP immediate and BEQ when both used mode `1`
+   - Fix: `CMP immediate` now uses dedicated mode `7`; branch modes remain `1-6`
+   - Location: `internal/cpu/instructions.go`
 
 5. **Signed Branch Conditions** ✅ FIXED (2026-02-05)
    - Issue: Signed branch instructions didn't use overflow flag correctly
