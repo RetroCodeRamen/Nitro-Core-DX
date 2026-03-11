@@ -2,9 +2,23 @@
 
 ## What Changed (Plain-English)
 
-This release pushes the emulator baseline forward in the areas that actually matter for software development: audio, graphics, CoreLX control surface, and test content.
+This release pushes the emulator baseline forward in the areas that actually matter for software development: CPU contract cleanup, YM2608 audio, graphics/PPU capability, CoreLX control surface, and test content.
 
-### 1) YM2608 Is Now The Real Runtime Audio Path
+### 1) CPU ISA And Runtime Contract Were Tightened
+
+The CPU side is cleaner and easier to target than it was before.
+
+Key changes:
+- resolved the old `CMP immediate` / `BEQ` encoding ambiguity
+- kept the amped CPU extension path moving toward a cleaner documented contract
+- improved the emulator-side baseline for building more advanced software against the real instruction set
+
+What that means for you:
+- fewer “special case” instruction surprises in tools and ROM builders
+- a better base for future CoreLX/codegen work
+- cleaner documentation for the active CPU contract
+
+### 2) YM2608 Is Now The Real Runtime Audio Path
 
 The legacy FM fallback path is gone. The emulator and Dev Kit now run against the YMFM-backed YM2608 path directly.
 
@@ -12,8 +26,9 @@ What that means for you:
 - audio testing is now happening against the intended sound path
 - bundled demo ROMs exercise the current YM2608 runtime directly
 - release users are no longer testing a fallback audio stack by accident
+- the active Pong demo now uses a much smaller compact song storage path instead of bloated code-generated frame writes
 
-### 2) Matrix / Mode-7-Style Graphics Took A Big Step Forward
+### 3) Graphics / Matrix Mode Took A Big Step Forward
 
 The PPU now has a much more serious matrix-plane implementation than before:
 
@@ -27,8 +42,9 @@ What that means for you:
 - matrix planes are no longer just “small rotating tilemaps”
 - large floor/background experiments are now practical
 - the graphics pipeline is much closer to a real pseudo-3D baseline
+- the emulator now has a clearer path toward SNES-class Mode 7 behavior as a baseline rather than just generic affine rotation
 
-### 3) CoreLX Can Drive Matrix Planes Directly
+### 4) CoreLX Can Drive Matrix Planes Directly
 
 CoreLX now has first-class helpers for matrix-plane setup and authored content:
 
@@ -44,7 +60,7 @@ What that means for you:
 - you can author and load dedicated matrix-plane content without dropping to raw MMIO
 - the programming manual now documents the supported matrix-plane workflow
 
-### 4) The Release Package Now Includes Test ROMs
+### 5) The Release Package Now Includes Test ROMs
 
 Both release archives now include two ROMs in `roms/`:
 
@@ -61,6 +77,7 @@ What that means for you:
 
 This release is about moving the emulator from “feature experiments” toward a usable software platform:
 
+- the CPU contract is cleaner
 - the audio path is cleaner and more intentional
 - the matrix-plane architecture is much stronger
 - the language surface is better aligned with the graphics hardware model

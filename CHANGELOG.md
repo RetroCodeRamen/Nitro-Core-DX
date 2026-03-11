@@ -12,7 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Start 0.1.9 development cycle.
+- Start 0.1.10 development cycle.
+
+---
+
+## [0.1.9] - 2026-03-11
+
+### Added
 - **Dedicated Matrix Plane Architecture (Emulator Baseline)**
   - Added dedicated matrix-plane tilemap memory, dedicated matrix-plane pattern memory, bitmap-backed matrix planes, clamp outside mode, and matrix-plane upload MMIO/programming paths.
   - Added matrix-plane builder/service APIs and CoreLX matrix-plane helpers (`enable`, `load_tiles`, `load_tilemap`, `set_tile`, `fill_rect`, `clear`).
@@ -37,6 +43,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Compact Song Storage For YM2608 Demo ROMs**
   - Replaced code-generated per-frame YM write playback with compact banked song data + ROM playback driver for the active Pong demo path.
   - Why this changed: allow full-song playback and realistic multi-song cartridge budgeting.
+- **CPU Contract Cleanup**
+  - Resolved the old `CMP immediate` / `BEQ` encoding ambiguity and aligned assembler/runtime behavior around the cleaned-up encoding.
+  - Why this changed: remove heuristic ISA behavior and make the active CPU contract easier to target and document.
 
 ---
 
