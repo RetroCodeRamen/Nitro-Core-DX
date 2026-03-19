@@ -48,8 +48,8 @@ This document tracks the implementation status of all hardware features for the 
 - ✅ Sample generation at 44,100 Hz
 - ✅ PCM playback support (per-channel)
 - ✅ FM extension MMIO host interface (`0x9100-0x91FF`)
-- ✅ YM2608 runtime backend path operational (YMFM when available)
-- ✅ Runtime backend fallback controls (`NCDX_YM_BACKEND=auto|ymfm|legacy`)
+- ✅ YM2608 runtime backend path operational through YMFM-backed builds
+- ✅ cgo-backed entrypoints default `NCDX_YM_BACKEND` to `ymfm`
 
 ### Input System
 - ✅ Controller 1 & 2 support

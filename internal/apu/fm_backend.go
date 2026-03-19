@@ -1,9 +1,9 @@
 package apu
 
 // fmRuntimeBackend is an optional runtime backend for the FM extension host
-// interface. The in-tree OPM-lite model remains the default path; external
-// backends (for example YMFM OPNA) can be selected without changing APU MMIO
-// wiring.
+// interface. cgo builds currently use the YMFM OPNA path by default; builds
+// without that backend fall back to the in-tree OPM-lite model without changing
+// APU MMIO wiring.
 type fmRuntimeBackend interface {
 	Read8(offset uint16) uint8
 	Write8(offset uint16, value uint8)

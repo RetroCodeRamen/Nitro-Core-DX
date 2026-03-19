@@ -2,8 +2,6 @@ package apu
 
 import (
 	"math"
-	"os"
-	"strings"
 
 	"nitro-core-dx/internal/debug"
 )
@@ -132,13 +130,6 @@ func NewFMOPM(logger *debug.Logger) *FMOPM {
 		SampleRate: fmDefaultHz,
 	}
 
-	mode := strings.ToLower(strings.TrimSpace(os.Getenv("NCDX_YM_BACKEND")))
-	if mode == "" {
-		mode = fmBackendModeYMFM
-	}
-	if mode != fmBackendModeYMFM {
-		panic("NCDX_YM_BACKEND must be ymfm")
-	}
 	if b := newFMRuntimeBackend(logger, fm.SampleRate); b != nil {
 		fm.backend = b
 		fm.backendSampleRate = fm.SampleRate
@@ -146,8 +137,6 @@ func NewFMOPM(logger *debug.Logger) *FMOPM {
 		if logger != nil {
 			logger.LogAPUf(debug.LogLevelInfo, "FM backend selected: YMFM (OPNA)")
 		}
-	} else {
-		panic("YMFM backend unavailable; rebuild with -tags ymfm_cgo")
 	}
 	return fm
 }

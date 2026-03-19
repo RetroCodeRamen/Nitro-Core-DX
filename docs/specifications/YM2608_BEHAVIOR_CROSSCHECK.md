@@ -8,14 +8,16 @@ Track Nitro-Core-DX YM2608 implementation status against:
 Note: `Resources/fmopna_impl.h` is GPL-licensed reference material. It is used only for behavioral cross-checking guidance. No implementation code is copied.
 
 ## Current Runtime State
-- FM runtime backend is selectable via `NCDX_YM_BACKEND`:
-  - `auto` (default): YMFM OPNA backend when available, otherwise in-tree legacy backend
-  - `ymfm`: force YMFM
-  - `legacy`: force in-tree backend
-- Emulator/Dev Kit frontends expose `-audio-backend auto|ymfm|legacy`.
+- cgo-backed emulator/devkit entrypoints currently default `NCDX_YM_BACKEND` to `ymfm` and expose `-audio-backend ymfm`.
+- The in-tree OPM-lite model remains a code-level fallback when YMFM is unavailable, but it is not the primary user-facing runtime path.
 - YM2608 host MMIO path is active at `0x9100-0x91FF` with register/timer/status plumbing implemented.
+- Active port layout:
+  - `0x9100/0x9101` = port 0 address/data
+  - `0x9102` = shared host status
+  - `0x9103` = host control
+  - `0x9104/0x9105` = port 1 address/data
 - Song replay via YM write streams is operational in ROM diagnostics and in gameplay loops.
-- Legacy 4-channel APU behavior remains available as a fallback/runtime compatibility path.
+- Legacy 4-channel APU behavior remains available alongside the FM extension.
 
 ## Cross-Check Matrix
 
@@ -25,10 +27,11 @@ Manual expectation:
 - Separate status read paths (status 0 / status 1)
 
 Current:
-- Implemented host ports at `0x9100-0x9107` with addr/data for port0 and port1
-- Separate status0/status1 implemented
+- Implemented host ports at `0x9100/0x9101` and `0x9104/0x9105` for port0 and port1
+- Shared host status register exposed at `0x9102`
 
 Gap:
+- No dedicated `status1` mirror is currently exposed through the Nitro MMIO shell
 - Bus wait-state timing currently deterministic placeholder, not full timing table fidelity
 
 ### 2) Timer Model
@@ -67,7 +70,7 @@ Manual expectation:
 
 Current:
 - Operational runtime now includes a working YM2608 playback backend path (YMFM when available).
-- Deterministic scaffolding and conformance fixtures from earlier stages remain in-tree as regression infrastructure.
+- Deterministic ROM-driven capture/compare fixtures remain the main regression infrastructure.
 - Practical integration checks now include ROM-driven playback and in-game background music replay.
 
 Gap:
@@ -80,10 +83,10 @@ Manual expectation:
 - ADPCM and rhythm control/data flow
 
 Current:
-- Not implemented yet (intentional)
+- Backed by the underlying YMFM YM2608 core when software writes target those chip registers through the dual-port host window.
 
 Gap:
-- Full subsystem implementations and status coupling
+- Nitro-specific documentation and conformance coverage for these non-FM blocks are still much thinner than the FM/timer path
 
 ## Stage 3 (Execution Status)
 
@@ -108,7 +111,7 @@ Status: Complete
 Status: Operational baseline established; conformance refinement ongoing
 
 ## Risk Controls
-- Do not introduce SSG/ADPCM/rhythm behavior until FM envelope/phase core is stable.
+- Keep SSG/ADPCM/rhythm documentation and tests explicitly separated from FM/timer coverage so subsystem confidence stays reviewable.
 - Keep each subsystem in separate modules/interfaces to maintain FPGA portability.
 - Document every approximation in `YM2608_IMPLEMENTATION_NOTES.md` as it is introduced.
 - Keep extraction-manifest drift reviewable (diff summary) and provenance pin policy enforceable (optional strict commit-pin mode) before broadening audio-synthesis scope.

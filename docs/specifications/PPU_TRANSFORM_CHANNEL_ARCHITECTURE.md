@@ -1,17 +1,23 @@
 # Nitro-Core-DX PPU Transform Channel Architecture
 
-**Version 0.1 (Stage 1 Architectural Baseline)**  
-**Date:** March 10, 2026  
+**Version 0.2 (Stage 1 Architectural Baseline)**  
+**Date:** March 19, 2026  
 **Purpose:** Define the target PPU architecture for multi-plane affine rendering, raster-time reassignment, and future FPGA parity work.
 
-> **Stage 1 Scope:** This document is an architecture/specification pass only. It does not claim that the current Go emulator or in-tree FPGA RTL already implements the full model below.
+> **Stage 1 Scope:** The Go emulator now implements the transform-channel baseline described here, including four transform channels, four dedicated matrix planes, bitmap-backed planes, row tables, and the current generic projection primitives. The FPGA RTL still trails this contract.
 
 ## Why This Exists
 
 The current Go PPU already supports:
 - 4 independent background layers
 - 4 runtime transform channels bound to those layers
-- per-scanline command-table updates for scroll, transform, rebinding, priority, and tilemap base
+- 4 dedicated matrix planes, one per transform channel
+- tilemap/pattern-backed and bitmap-backed matrix-plane sources
+- per-scanline command-table updates for scroll, transform, rebinding, priority, tilemap base, and source mode
+- generic matrix-plane projection helpers:
+  - manual row tables
+  - perspective row projection
+  - vertical projected quad
 - sprite/background priority and blending
 
 That is enough for useful Mode-7-style visuals today, but it is not yet the full long-term architecture target.
@@ -28,7 +34,17 @@ For the per-plane matrix source-size and dedicated-memory baseline, see:
 
 Current Go PPU behavior:
 - Background layers `BG0`-`BG3` bind to dedicated runtime transform channels.
-- Scanline command tables can update scroll, transform coefficients, channel binding, explicit priority, and tilemap base at scanline boundaries.
+- Each transform channel owns a dedicated matrix plane with:
+  - size modes `32x32`, `64x64`, and `128x128`
+  - tilemap/pattern backing or bitmap backing
+  - wrap/backdrop/tile0/clamp outside handling
+  - transparent-index-0 and two-sided projection flags
+- Scanline command tables can update scroll, transform coefficients, channel binding, explicit priority, tilemap base, and source mode at scanline boundaries.
+- Matrix planes support:
+  - affine sampling through the bound transform channel
+  - per-scanline row tables
+  - generic perspective row projection
+  - generic vertical projected quad projection
 - Composition is done per pixel by priority-sorting active backgrounds and sprites.
 - Raster-time behavior is table-driven at scanline boundaries, not interrupt-driven beyond VBlank.
 
@@ -88,9 +104,9 @@ This enables:
 
 Stage 1 architectural contract supports two source classes:
 - `tilemap`
-- `bitmap` (future-capable; not required in current runtime)
+- `bitmap`
 
-Current implementation only uses tilemap-backed transformed layers. Bitmap source support is part of the target architecture and must be included in the register contract before implementation.
+Current implementation supports both source classes in the dedicated matrix-plane path. Visible-layer `SOURCE_MODE` registers still exist as part of the public contract, but transformed bitmap/tilemap selection is currently realized per matrix plane.
 
 ### Tooling / Asset Pipeline Requirements
 
@@ -111,7 +127,8 @@ For pseudo-3D use cases such as kart-racer floor planes, transformed source imag
 
 Implications:
 - transformed source size must not be assumed equal to current 32x32 tilemap visibility
-- future bitmap/tilemap source work needs explicit limits for:
+- the current runtime already exposes larger `64x64` and `128x128` matrix-plane source sizes
+- future bitmap/tilemap source work still needs explicit limits for:
   - source width/height
   - wrapping/clamping policy
   - streaming/cache strategy
@@ -241,10 +258,13 @@ These are not required for Stage 1, but the architecture must not block them.
 
 ### Emulator
 
-This target model is feasible in the emulator with moderate refactoring:
-- move transform state into dedicated channel objects
-- bind layers to channels
-- extend HDMA into a clearer scanline command format
+This target model is already the active emulator baseline:
+- transform state lives in dedicated channel objects
+- visible layers bind to channels
+- dedicated matrix planes back each channel
+- HDMA already supports scanline updates for scroll, transform, binding, priority, tilemap base, and source mode
+
+Remaining emulator work is refinement, documentation alignment, and validation coverage rather than core architectural bring-up.
 
 ### FPGA
 
@@ -266,10 +286,10 @@ The target is feasible; the current RTL is not yet close enough to claim parity.
 - define raster command-table direction
 - define register families
 
-### Stage 2: Emulator Refactor
-- separate layer state from transform-channel state
-- preserve current visible behavior where possible
-- keep tests green while moving to the new ownership model
+### Stage 2: Emulator Refinement
+- preserve and harden current visible behavior
+- keep documentation/register contracts aligned with implementation
+- continue adding regression coverage for matrix-plane and raster-control behavior
 
 ### Stage 3: Capability Expansion
 - channel rebinding

@@ -65,70 +65,6 @@ type scanlineCommandSet struct {
 	Layers [4]scanlineLayerCommand
 }
 
-func (p *PPU) prepareLiveFloorRow(channelIndex uint8, scanline int) bool {
-	if int(channelIndex) >= len(p.MatrixPlanes) || scanline < 0 || scanline >= VisibleScanlines {
-		return false
-	}
-	plane := &p.MatrixPlanes[channelIndex]
-	if !plane.Enabled || plane.SourceMode != MatrixPlaneSourceBitmap || !plane.LiveFloorEnabled {
-		p.MatrixFloorRows[channelIndex] = matrixFloorRowCache{}
-		return false
-	}
-	if scanline < int(plane.LiveFloorHorizon) {
-		p.MatrixFloorRows[channelIndex] = matrixFloorRowCache{}
-		return false
-	}
-	cache := &p.MatrixFloorRows[channelIndex]
-	if cache.valid && cache.scanline == scanline {
-		return true
-	}
-
-	row := int64(scanline-int(plane.LiveFloorHorizon)) + 1
-	headingX := int64(plane.LiveFloorHeadingX)
-	headingY := int64(plane.LiveFloorHeadingY)
-	if headingX == 0 && headingY == 0 {
-		headingY = -0x0100
-	}
-
-	cameraX16 := int64(plane.LiveFloorCameraX) << 16
-	cameraY16 := int64(plane.LiveFloorCameraY) << 16
-	headingX16 := headingX << 8
-	headingY16 := headingY << 8
-	rightX16 := -headingY16
-	rightY16 := headingX16
-
-	// These constants intentionally mirror the earlier ROM-side floor model, but
-	// move the work into the PPU so the ROM only updates camera state each frame.
-	forward16 := (int64(3072) << 16) / (row + 6)
-	step16 := (int64(104858) * 18) / (row + 18) // about 1.6 px at the near rows
-	if step16 < 5243 {
-		step16 = 5243 // about 0.08 px
-	}
-
-	rowCenterX16 := cameraX16 + int64((headingX16*forward16)>>16)
-	rowCenterY16 := cameraY16 + int64((headingY16*forward16)>>16)
-	stepX16 := int32((rightX16 * step16) >> 16)
-	stepY16 := int32((rightY16 * step16) >> 16)
-	startX16 := int32(rowCenterX16 - int64(stepX16*(ScreenWidth/2)))
-	startY16 := int32(rowCenterY16 - int64(stepY16*(ScreenWidth/2)))
-
-	*cache = matrixFloorRowCache{
-		valid:    true,
-		scanline: scanline,
-		startX:   startX16,
-		startY:   startY16,
-		stepX:    stepX16,
-		stepY:    stepY16,
-	}
-	return true
-}
-
-func (p *PPU) prepareLiveFloorRowsForScanline(scanline int) {
-	for channelIndex := range p.MatrixPlanes {
-		_ = p.prepareLiveFloorRow(uint8(channelIndex), scanline)
-	}
-}
-
 func (p *PPU) hdmaScanlineStride() uint32 {
 	stride := uint32(hdmaBaseScanlineBytes)
 	if (p.HDMAControl & hdmaRebindTablePresent) != 0 {
@@ -246,7 +182,7 @@ func (p *PPU) applyScanlineCommands(scanline int, commands scanlineCommandSet) {
 		}
 
 		if command.ApplyRebind {
-			layer.TransformChannel = command.TransformBinding & 0x03
+			layer.TransformChannel = command.TransformBinding % NumTransformChannels
 		}
 		if command.ApplyPriority {
 			layer.Priority = command.Priority & 0x03
@@ -314,7 +250,7 @@ func (p *PPU) StepPPU(cycles uint64) error {
 		// Hardware-like sprite evaluation stage at scanline start.
 		if p.currentDot == 0 && p.currentScanline < VisibleScanlines {
 			p.evaluateSpritesForScanline(p.currentScanline)
-			p.prepareLiveFloorRowsForScanline(p.currentScanline)
+			p.fillResolvedLayerChannelCache()
 		}
 
 		// Calculate cycles until end of current scanline
@@ -384,6 +320,14 @@ func (p *PPU) StepPPU(cycles uint64) error {
 				p.endFrame()
 				p.currentScanline = 0
 				p.frameStarted = false
+				// Start the next frame immediately only when this StepPPU call will
+				// actually render into it. If we finished exactly on a frame boundary,
+				// leave the completed frame intact and let the next call perform the
+				// normal startFrame() transition once.
+				if cyclesRemaining > 0 {
+					p.startFrame()
+					p.frameStarted = true
+				}
 			}
 		}
 	}
@@ -503,42 +447,22 @@ func (p *PPU) renderDot(scanline, dot int) {
 	x := dot
 	y := scanline
 
-	// Collect all renderable elements (backgrounds and sprites) with their priorities.
-	// Reuse scratch storage to avoid per-pixel allocations.
-	elements := p.renderElementScratch[:0]
+	spriteCount := p.collectSpritesAtPixel(x, y, p.spriteScratch[:])
 
-	// Add background layers with their explicit layer priority.
+	// Build element list: BGs first (reuse scratch to avoid allocs).
+	elements := p.renderElementScratch[:0]
 	if p.BG3.Enabled {
-		elements = append(elements, renderElement{
-			priority:    p.BG3.Priority,
-			elementType: 0,
-			layerNum:    3,
-		})
+		elements = append(elements, renderElement{priority: p.BG3.Priority, elementType: 0, layerNum: 3})
 	}
 	if p.BG2.Enabled {
-		elements = append(elements, renderElement{
-			priority:    p.BG2.Priority,
-			elementType: 0,
-			layerNum:    2,
-		})
+		elements = append(elements, renderElement{priority: p.BG2.Priority, elementType: 0, layerNum: 2})
 	}
 	if p.BG1.Enabled {
-		elements = append(elements, renderElement{
-			priority:    p.BG1.Priority,
-			elementType: 0,
-			layerNum:    1,
-		})
+		elements = append(elements, renderElement{priority: p.BG1.Priority, elementType: 0, layerNum: 1})
 	}
 	if p.BG0.Enabled {
-		elements = append(elements, renderElement{
-			priority:    p.BG0.Priority,
-			elementType: 0,
-			layerNum:    0,
-		})
+		elements = append(elements, renderElement{priority: p.BG0.Priority, elementType: 0, layerNum: 0})
 	}
-
-	// Collect sprites that overlap this pixel
-	spriteCount := p.collectSpritesAtPixel(x, y, p.spriteScratch[:])
 	for i := 0; i < spriteCount; i++ {
 		elements = append(elements, renderElement{
 			priority:    p.spriteScratch[i].priority,
@@ -547,17 +471,15 @@ func (p *PPU) renderDot(scanline, dot int) {
 		})
 	}
 
-	// Sort by priority (lower priority = render first, so higher priority renders on top)
-	// Within same priority, backgrounds render before sprites, and lower sprite index renders first
+	// Sort by priority (lower = render first). Same priority: BGs before sprites, lower sprite index first.
 	for i := 0; i < len(elements); i++ {
 		for j := i + 1; j < len(elements); j++ {
 			swap := false
 			if elements[i].priority > elements[j].priority {
 				swap = true
 			} else if elements[i].priority == elements[j].priority {
-				// Same priority: backgrounds before sprites, lower sprite index first
 				if elements[i].elementType == 1 && elements[j].elementType == 0 {
-					swap = true // sprite should render after background
+					swap = true
 				} else if elements[i].elementType == 1 && elements[j].elementType == 1 {
 					if p.spriteScratch[elements[i].spriteIndex].index > p.spriteScratch[elements[j].spriteIndex].index {
 						swap = true
@@ -570,23 +492,19 @@ func (p *PPU) renderDot(scanline, dot int) {
 		}
 	}
 
-	// Render elements in sorted order
 	for _, elem := range elements {
 		if elem.elementType == 0 {
-			// Render background layer
 			layerNum := elem.layerNum
-			layer, channel := p.resolveLayerTransformChannel(layerNum)
+			layer, channel := p.getResolvedLayerChannel(layerNum)
 			if layer == nil || channel == nil {
 				continue
 			}
-
 			if channel.Enabled {
 				p.renderDotMatrixMode(layerNum, x, y)
 			} else {
 				p.renderDotBackgroundLayer(layerNum, x, y)
 			}
 		} else {
-			// Render sprite
 			p.renderDotSpritePixel(x, y, &p.spriteScratch[elem.spriteIndex])
 		}
 	}
@@ -951,6 +869,161 @@ func (p *PPU) renderDotBackgroundLayer(layerNum, x, y int) {
 	p.OutputBuffer[y*320+x] = color
 }
 
+func (p *PPU) matrixPlaneSourceDimensions(layer *BackgroundLayer, plane *MatrixPlane) (width, height, tileSize int) {
+	tileSize = 8
+	if layer != nil && layer.TileSize {
+		tileSize = 16
+	}
+	width = tilemapWidthForSizeMode(TilemapSize32x32) * tileSize
+	height = width
+	if layer != nil {
+		width = tilemapWidthForSizeMode(layer.TilemapSize) * tileSize
+		height = width
+	}
+	if plane != nil && plane.Enabled {
+		if plane.SourceMode == MatrixPlaneSourceBitmap {
+			width = tilemapWidthForSizeMode(plane.Size) * 8
+			height = width
+			tileSize = 8
+		} else {
+			width = tilemapWidthForSizeMode(plane.Size) * tileSize
+			height = width
+		}
+	}
+	return width, height, tileSize
+}
+
+// getMatrixPlaneSourceDimensionsCached returns dimensions for the given layer/plane, cached per scanline.
+// layerNum must be 0–3. Call from render path when currentScanline is set.
+// If cache is cold (e.g. test calling renderDotMatrixMode without StepPPU), falls back to uncached.
+func (p *PPU) getMatrixPlaneSourceDimensionsCached(layerNum int, layer *BackgroundLayer, plane *MatrixPlane) (width, height, tileSize int) {
+	if layerNum < 0 || layerNum > 3 {
+		return p.matrixPlaneSourceDimensions(layer, plane)
+	}
+	c := &p.matrixDimensionsCache[layerNum]
+	// Cache is valid only when we've run at least one scanline (scanline >= 0 and matching).
+	// Use -1 as sentinel so zero-valued cache is never used.
+	if c.scanline != p.currentScanline || c.scanline < 0 {
+		c.width, c.height, c.tileSize = p.matrixPlaneSourceDimensions(layer, plane)
+		c.scanline = p.currentScanline
+	}
+	return c.width, c.height, c.tileSize
+}
+
+func (p *PPU) sampleMatrixPlaneSourcePixel(layerNum int, layer *BackgroundLayer, channel *TransformChannel, plane *MatrixPlane, sourceX, sourceY int32) (uint32, bool) {
+	sourcePixelWidth, sourcePixelHeight, tileSize := p.getMatrixPlaneSourceDimensionsCached(layerNum, layer, plane)
+	if sourceX < 0 || sourceX >= int32(sourcePixelWidth) || sourceY < 0 || sourceY >= int32(sourcePixelHeight) {
+		return 0, false
+	}
+
+	if plane.Enabled && plane.SourceMode == MatrixPlaneSourceBitmap {
+		pixelOffset := int(sourceY)*sourcePixelWidth + int(sourceX)
+		byteOffset := pixelOffset / 2
+		pixelInByte := pixelOffset % 2
+		if byteOffset < 0 || byteOffset >= len(plane.Bitmap) {
+			return 0, false
+		}
+		pixelByte := plane.Bitmap[byteOffset]
+		var colorIndex uint8
+		if pixelInByte == 0 {
+			colorIndex = (pixelByte >> 4) & 0x0F
+		} else {
+			colorIndex = pixelByte & 0x0F
+		}
+		if plane.Transparent0 && colorIndex == 0 {
+			return 0, false
+		}
+		color := p.getColorFromCGRAM(plane.BitmapPalette&0x0F, colorIndex)
+		if channel.DirectColor {
+			combined := (uint16(plane.BitmapPalette&0x0F) << 4) | uint16(colorIndex&0x0F)
+			r5 := uint32(combined&0x07) * 31 / 7
+			g5 := uint32((combined>>3)&0x07) * 31 / 7
+			b5 := uint32((combined>>6)&0x03) * 31 / 3
+			color = ((r5 * 255 / 31) << 16) | ((g5 * 255 / 31) << 8) | (b5 * 255 / 31)
+		}
+		return color, true
+	}
+
+	tileX := int(sourceX) / tileSize
+	tileY := int(sourceY) / tileSize
+	pixelXInTile := int(sourceX) % tileSize
+	pixelYInTile := int(sourceY) % tileSize
+	tileIndex, attributes, ok := p.matrixTilemapEntry(layer, tileX, tileY)
+	if !ok {
+		return 0, false
+	}
+	paletteIndex := attributes & 0x0F
+	flipX := (attributes & 0x10) != 0
+	flipY := (attributes & 0x20) != 0
+	if flipX {
+		pixelXInTile = tileSize - 1 - pixelXInTile
+	}
+	if flipY {
+		pixelYInTile = tileSize - 1 - pixelYInTile
+	}
+	pixelOffsetInTile := pixelYInTile*tileSize + pixelXInTile
+	byteOffsetInTile := pixelOffsetInTile / 2
+	pixelInByte := pixelOffsetInTile % 2
+
+	var tileByte uint8
+	if plane.Enabled {
+		tileDataOffset := uint32(tileIndex)*uint32(tileSize*tileSize/2) + uint32(byteOffsetInTile)
+		if tileDataOffset >= uint32(len(plane.Pattern)) {
+			return 0, false
+		}
+		tileByte = plane.Pattern[tileDataOffset]
+	} else {
+		tileDataOffset := uint16(tileIndex) * uint16(tileSize*tileSize/2)
+		if uint32(tileDataOffset)+uint32(byteOffsetInTile) >= 65536 {
+			return 0, false
+		}
+		tileByte = p.VRAM[tileDataOffset+uint16(byteOffsetInTile)]
+	}
+
+	var colorIndex uint8
+	if pixelInByte == 0 {
+		colorIndex = (tileByte >> 4) & 0x0F
+	} else {
+		colorIndex = tileByte & 0x0F
+	}
+	color := p.getColorFromCGRAM(paletteIndex, colorIndex)
+	if channel.DirectColor {
+		combined := (uint16(paletteIndex&0x0F) << 4) | uint16(colorIndex&0x0F)
+		r5 := uint32(combined&0x07) * 31 / 7
+		g5 := uint32((combined>>3)&0x07) * 31 / 7
+		b5 := uint32((combined>>6)&0x03) * 31 / 3
+		color = ((r5 * 255 / 31) << 16) | ((g5 * 255 / 31) << 8) | (b5 * 255 / 31)
+	}
+	return color, true
+}
+
+func (p *PPU) projectMatrixPlanePoint(plane *MatrixPlane, worldX, worldY, worldZ int32) (screenX, screenY, depth int32, ok bool) {
+	camX := int32(plane.CameraX)
+	camY := int32(plane.CameraY)
+	forwardX := int32(plane.HeadingX)
+	forwardY := int32(plane.HeadingY)
+	if forwardX == 0 && forwardY == 0 {
+		forwardY = -0x0100
+	}
+	rightX := -forwardY
+	rightY := forwardX
+	relX := (worldX << 8) - (camX << 8)
+	relY := (worldY << 8) - (camY << 8)
+	lateral := ((relX * rightX) + (relY * rightY)) >> 8
+	depth = ((relX * forwardX) + (relY * forwardY)) >> 8
+	if depth <= 0 {
+		return 0, 0, depth, false
+	}
+	focal := int32(plane.FocalLength)
+	if focal <= 0 {
+		focal = 1
+	}
+	cameraHeight := int32(plane.BaseDistance)
+	screenX = int32(ScreenWidth/2) + (((lateral * focal) / depth) >> 8)
+	screenY = int32(plane.Horizon) + ((((cameraHeight - worldZ) * focal) / depth) >> 8)
+	return screenX, screenY, depth, true
+}
+
 // renderDotMatrixMode renders a single dot for Matrix Mode on a specific layer
 // Implements Mode 7-style affine transformation
 // layerNum: 0=BG0, 1=BG1, 2=BG2, 3=BG3
@@ -1001,31 +1074,190 @@ func (p *PPU) renderDotMatrixMode(layerNum, x, y int) {
 
 	plane := p.getMatrixPlane(layer.TransformChannel)
 
-	if plane.Enabled && plane.SourceMode == MatrixPlaneSourceBitmap && plane.LiveFloorEnabled {
-		if !p.prepareLiveFloorRow(layer.TransformChannel, y) {
+	if plane.Enabled && plane.RowModeEnabled {
+		// Per-pixel use of this scanline's row params (no software cache).
+		// FPGA equivalent: row params for current scanline are in registers,
+		// typically loaded once at scanline start from the row table.
+		row := &plane.Rows[y]
+		worldX = int32((int64(row.StartX) + int64(row.StepX)*int64(x)) >> 16)
+		worldY = int32((int64(row.StartY) + int64(row.StepY)*int64(x)) >> 16)
+	} else if plane.Enabled && plane.ProjectionMode == MatrixPlaneProjectionPerspective {
+		if y < int(plane.Horizon) {
 			return
 		}
-		cache := &p.MatrixFloorRows[layer.TransformChannel]
-		worldX = int32((int64(cache.startX) + int64(cache.stepX)*int64(x)) >> 16)
-		worldY = int32((int64(cache.startY) + int64(cache.stepY)*int64(x)) >> 16)
+		dy := int32(y - int(plane.Horizon) + 1)
+		if dy <= 0 {
+			return
+		}
+		screenDX := int32(x - ScreenWidth/2)
+		// Keep all perspective math in 8.8 fixed point so the horizontal
+		// offset term stays in the same scale as the camera/center position.
+		camX := int32(plane.CameraX) << 8
+		camY := int32(plane.CameraY) << 8
+
+		// Perspective depth model (Mode-7/pinhole style):
+		//
+		// We solve for the depth on the floor plane that corresponds to the
+		// current screen-space Y.
+		//
+		// floor mapping:
+		//   dy ~= ((cameraHeight * focal) / depth)  (in fixed-point terms)
+		// => depth ~= (cameraHeight * focal) / dy
+		//
+		// cameraHeight and focal are 8.8 fixed; dy is in pixels.
+		// To keep fixed-point consistent we use: depth = (cameraHeight*focal)/(dy<<8).
+		cameraHeight := int64(plane.BaseDistance) // 8.8
+		focal := int64(plane.FocalLength)         // 8.8
+		if focal <= 0 {
+			focal = 1
+		}
+
+		// Near-plane clamp: when dy is tiny near the horizon, depth tends to
+		// explode and can cause severe curvature/aliasing.
+		if dy < 2 {
+			dy = 2
+		}
+
+		forwardDepth := int32((cameraHeight * focal) / int64(dy<<8)) // 8.8 fixed depth
+		if forwardDepth <= 0 {
+			forwardDepth = 1
+		}
+
+		// Horizontal span scales with the depth term driving the forward
+		// sample. Keep the existing relation structure but with corrected depth.
+		horizStep := (int64(forwardDepth) * int64(plane.WidthScale)) / focal
+		if horizStep <= 0 {
+			horizStep = 1
+		}
+		if horizStep <= 0 {
+			horizStep = 1
+		}
+		rightX := -int32(plane.HeadingY)
+		rightY := int32(plane.HeadingX)
+		centerX := camX + ((int32(plane.HeadingX) * forwardDepth) >> 8)
+		centerY := camY + ((int32(plane.HeadingY) * forwardDepth) >> 8)
+		worldX = int32((int64(centerX) + ((int64(rightX) * int64(horizStep) * int64(screenDX)) >> 8)) >> 8)
+		worldY = int32((int64(centerY) + ((int64(rightY) * int64(horizStep) * int64(screenDX)) >> 8)) >> 8)
+	} else if plane.Enabled && plane.ProjectionMode == MatrixPlaneProjectionVertical {
+		facingX := int32(plane.FacingX)
+		facingY := int32(plane.FacingY)
+		if facingX == 0 && facingY == 0 {
+			facingY = -0x0100
+		}
+		tangentX := -facingY
+		tangentY := facingX
+		widthHalf := int32(plane.WidthScale) / 2
+		heightScale := int32(plane.HeightScale)
+		originX := int32(plane.OriginX)
+		originY := int32(plane.OriginY)
+
+		leftBottomX := originX - ((tangentX * widthHalf) >> 8)
+		leftBottomY := originY - ((tangentY * widthHalf) >> 8)
+		rightBottomX := originX + ((tangentX * widthHalf) >> 8)
+		rightBottomY := originY + ((tangentY * widthHalf) >> 8)
+
+		lx0, ly0, leftDepth, leftOK := p.projectMatrixPlanePoint(plane, leftBottomX, leftBottomY, 0)
+		rx0, ry0, rightDepth, rightOK := p.projectMatrixPlanePoint(plane, rightBottomX, rightBottomY, 0)
+		if !leftOK && !rightOK {
+			return
+		}
+		if (leftDepth <= 0 || rightDepth <= 0) && !plane.TwoSided {
+			return
+		}
+		lx1, ly1, _, leftTopOK := p.projectMatrixPlanePoint(plane, leftBottomX, leftBottomY, heightScale)
+		rx1, ry1, _, rightTopOK := p.projectMatrixPlanePoint(plane, rightBottomX, rightBottomY, heightScale)
+		if !leftTopOK && !rightTopOK {
+			return
+		}
+
+		topMin := ly0
+		if ly1 < topMin {
+			topMin = ly1
+		}
+		if ry0 < topMin {
+			topMin = ry0
+		}
+		if ry1 < topMin {
+			topMin = ry1
+		}
+		bottomMax := ly0
+		if ly1 > bottomMax {
+			bottomMax = ly1
+		}
+		if ry0 > bottomMax {
+			bottomMax = ry0
+		}
+		if ry1 > bottomMax {
+			bottomMax = ry1
+		}
+		if int32(y) < topMin || int32(y) > bottomMax {
+			return
+		}
+
+		denomLeft := ly0 - ly1
+		if denomLeft == 0 {
+			denomLeft = 1
+		}
+		denomRight := ry0 - ry1
+		if denomRight == 0 {
+			denomRight = 1
+		}
+		tLeft := ((int32(y) - ly1) << 16) / denomLeft
+		tRight := ((int32(y) - ry1) << 16) / denomRight
+		if tLeft < 0 || tLeft > 0x10000 || tRight < 0 || tRight > 0x10000 {
+			return
+		}
+
+		xLeft := lx1 + int32((int64(lx0-lx1)*int64(tLeft))>>16)
+		xRight := rx1 + int32((int64(rx0-rx1)*int64(tRight))>>16)
+		if xLeft == xRight {
+			return
+		}
+
+		minX := xLeft
+		maxX := xRight
+		if minX > maxX {
+			minX, maxX = maxX, minX
+		}
+		if int32(x) < minX || int32(x) > maxX {
+			return
+		}
+
+		var u int32
+		if xLeft < xRight {
+			u = ((int32(x) - xLeft) << 16) / (xRight - xLeft)
+		} else {
+			u = ((xLeft - int32(x)) << 16) / (xLeft - xRight)
+		}
+		if u < 0 {
+			u = 0
+		} else if u > 0x10000 {
+			u = 0x10000
+		}
+		v := (tLeft + tRight) / 2
+		if v < 0 {
+			v = 0
+		} else if v > 0x10000 {
+			v = 0x10000
+		}
+
+		sourcePixelWidth, sourcePixelHeight, _ := p.getMatrixPlaneSourceDimensionsCached(layerNum, layer, plane)
+		sourceX := int32((int64(u) * int64(sourcePixelWidth-1)) >> 16)
+		sourceY := int32((int64(v) * int64(sourcePixelHeight-1)) >> 16)
+		if leftDepth <= 0 || rightDepth <= 0 {
+			sourceX = int32(sourcePixelWidth-1) - sourceX
+		}
+
+		color, ok := p.sampleMatrixPlaneSourcePixel(layerNum, layer, channel, plane, sourceX, sourceY)
+		if !ok {
+			return
+		}
+		p.OutputBuffer[y*320+x] = color
+		return
 	}
 
 	// Handle outside-screen coordinates based on MatrixOutsideMode.
-	tileSize := 8
-	if layer.TileSize {
-		tileSize = 16
-	}
-	sourcePixelWidth := tilemapWidthForSizeMode(layer.TilemapSize) * tileSize
-	sourcePixelHeight := sourcePixelWidth
-	if plane.Enabled {
-		if plane.SourceMode == MatrixPlaneSourceBitmap {
-			sourcePixelWidth = tilemapWidthForSizeMode(plane.Size) * 8
-			sourcePixelHeight = sourcePixelWidth
-		} else {
-			sourcePixelWidth = tilemapWidthForSizeMode(plane.Size) * tileSize
-			sourcePixelHeight = sourcePixelWidth
-		}
-	}
+	sourcePixelWidth, sourcePixelHeight, _ := p.getMatrixPlaneSourceDimensionsCached(layerNum, layer, plane)
 
 	// Check if coordinates are outside tilemap bounds
 	worldXValid := worldX >= 0 && worldX < int32(sourcePixelWidth)
@@ -1076,96 +1308,9 @@ func (p *PPU) renderDotMatrixMode(layerNum, x, y int) {
 		}
 	}
 
-	if plane.Enabled && plane.SourceMode == MatrixPlaneSourceBitmap {
-		pixelOffset := int(worldY)*sourcePixelWidth + int(worldX)
-		byteOffset := pixelOffset / 2
-		pixelInByte := pixelOffset % 2
-		if byteOffset < 0 || byteOffset >= len(plane.Bitmap) {
-			return
-		}
-		pixelByte := plane.Bitmap[byteOffset]
-		var colorIndex uint8
-		if pixelInByte == 0 {
-			colorIndex = (pixelByte >> 4) & 0x0F
-		} else {
-			colorIndex = pixelByte & 0x0F
-		}
-		if plane.Transparent0 && colorIndex == 0 {
-			return
-		}
-		color := p.getColorFromCGRAM(plane.BitmapPalette&0x0F, colorIndex)
-		if channel.DirectColor {
-			combined := (uint16(plane.BitmapPalette&0x0F) << 4) | uint16(colorIndex&0x0F)
-			r5 := uint32(combined&0x07) * 31 / 7
-			g5 := uint32((combined>>3)&0x07) * 31 / 7
-			b5 := uint32((combined>>6)&0x03) * 31 / 3
-			color = ((r5 * 255 / 31) << 16) | ((g5 * 255 / 31) << 8) | (b5 * 255 / 31)
-		}
-		p.OutputBuffer[y*320+x] = color
-		return
-	}
-
-	// Calculate which tile this pixel is in
-	tileX := int(worldX) / tileSize
-	tileY := int(worldY) / tileSize
-
-	// Calculate pixel position within tile
-	pixelXInTile := int(worldX) % tileSize
-	pixelYInTile := int(worldY) % tileSize
-
-	// Read tilemap entry
-	tileIndex, attributes, ok := p.matrixTilemapEntry(layer, tileX, tileY)
+	color, ok := p.sampleMatrixPlaneSourcePixel(layerNum, layer, channel, plane, worldX, worldY)
 	if !ok {
 		return
-	}
-	paletteIndex := attributes & 0x0F
-	flipX := (attributes & 0x10) != 0
-	flipY := (attributes & 0x20) != 0
-
-	// Apply flip
-	if flipX {
-		pixelXInTile = tileSize - 1 - pixelXInTile
-	}
-	if flipY {
-		pixelYInTile = tileSize - 1 - pixelYInTile
-	}
-
-	pixelOffsetInTile := pixelYInTile*tileSize + pixelXInTile
-	byteOffsetInTile := pixelOffsetInTile / 2
-	pixelInByte := pixelOffsetInTile % 2
-	tileByte := uint8(0)
-	if plane.Enabled {
-		tileDataOffset := uint32(tileIndex)*uint32(tileSize*tileSize/2) + uint32(byteOffsetInTile)
-		if tileDataOffset >= uint32(len(plane.Pattern)) {
-			return
-		}
-		tileByte = plane.Pattern[tileDataOffset]
-	} else {
-		tileDataOffset := uint16(tileIndex) * uint16(tileSize*tileSize/2)
-		if uint32(tileDataOffset)+uint32(byteOffsetInTile) >= 65536 {
-			return
-		}
-		tileDataAddr := tileDataOffset + uint16(byteOffsetInTile)
-		tileByte = p.VRAM[tileDataAddr]
-	}
-
-	// Read pixel color index
-	var colorIndex uint8
-	if pixelInByte == 0 {
-		colorIndex = (tileByte >> 4) & 0x0F
-	} else {
-		colorIndex = tileByte & 0x0F
-	}
-
-	// Look up color in CGRAM, or synthesize direct color if enabled.
-	color := p.getColorFromCGRAM(paletteIndex, colorIndex)
-	if channel.DirectColor {
-		// Synthesize RGB from palette+pixel index to bypass CGRAM.
-		combined := (uint16(paletteIndex&0x0F) << 4) | uint16(colorIndex&0x0F)
-		r5 := uint32(combined&0x07) * 31 / 7
-		g5 := uint32((combined>>3)&0x07) * 31 / 7
-		b5 := uint32((combined>>6)&0x03) * 31 / 3
-		color = ((r5 * 255 / 31) << 16) | ((g5 * 255 / 31) << 8) | (b5 * 255 / 31)
 	}
 
 	// Apply mosaic effect if enabled

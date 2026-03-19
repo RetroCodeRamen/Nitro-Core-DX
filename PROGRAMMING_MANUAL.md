@@ -492,6 +492,11 @@ Today, each dedicated matrix plane supports:
 
 - independent tilemap backing
 - independent pattern memory backing
+- independent bitmap backing
+- independent per-scanline row parameters
+- generic per-plane projection modes
+  - perspective row projection
+  - vertical projected quad
 - size mode:
   - `32x32`
   - `64x64`
@@ -518,6 +523,33 @@ Today, each dedicated matrix plane supports:
 - Reference ROMs:
   - `test/roms/matrix_plane_showcase.corelx`
   - `test/roms/matrix_plane_pipeline_showcase.corelx`
+  - `test/roms/build_matrix_rowmode_showcase.go`
+
+### Row Mode (Generic Per-Scanline Projection)
+
+The PPU now exposes a generic row-mode path for dedicated matrix planes.
+
+This is the reusable hardware primitive for:
+
+- floor-style perspective views
+- road-style scanline projection
+- flat row-stepped views
+- ROM-side fisheye or custom distortion
+
+Each visible scanline stores four `16.16` fixed-point values:
+
+- `StartX`
+- `StartY`
+- `StepX`
+- `StepY`
+
+For each screen pixel on that row, the plane samples:
+
+- `worldX = StartX + StepX * screenX`
+- `worldY = StartY + StepY * screenX`
+
+This keeps the PPU generic. ROM/CoreLX/tooling owns the camera and projection
+math; the PPU just executes the row parameters.
 
 ### Recommended High-Level Programming Path (Current)
 
@@ -561,6 +593,37 @@ If you are writing low-level ROM code, the dedicated matrix-plane aperture is:
 - `0x8089` `MATRIX_PLANE_BITMAP_ADDR_M`
 - `0x808A` `MATRIX_PLANE_BITMAP_ADDR_H`
 - `0x808B` `MATRIX_PLANE_BITMAP_DATA`
+- `0x808C` `MATRIX_PLANE_FLAGS`
+- `0x808D` `MATRIX_PLANE_ROW_CONTROL`
+- `0x808E` `MATRIX_PLANE_ROW_ADDR_L`
+- `0x808F` `MATRIX_PLANE_ROW_ADDR_H`
+- `0x8090` `MATRIX_PLANE_ROW_DATA`
+- `0x8091` `MATRIX_PLANE_PROJECTION_CONTROL`
+- `0x8092` `MATRIX_PLANE_HORIZON`
+- `0x8093` `MATRIX_PLANE_CAMERA_X_L`
+- `0x8094` `MATRIX_PLANE_CAMERA_X_H`
+- `0x8095` `MATRIX_PLANE_CAMERA_Y_L`
+- `0x8096` `MATRIX_PLANE_CAMERA_Y_H`
+- `0x8097` `MATRIX_PLANE_HEADING_X_L`
+- `0x8098` `MATRIX_PLANE_HEADING_X_H`
+- `0x8099` `MATRIX_PLANE_HEADING_Y_L`
+- `0x809A` `MATRIX_PLANE_HEADING_Y_H`
+- `0x809B` `MATRIX_PLANE_BASE_DISTANCE_L`
+- `0x809C` `MATRIX_PLANE_BASE_DISTANCE_H`
+- `0x809D` `MATRIX_PLANE_FOCAL_LENGTH_L`
+- `0x809E` `MATRIX_PLANE_FOCAL_LENGTH_H`
+- `0x809F` `MATRIX_PLANE_WIDTH_SCALE_L`
+- `0x80A0` `MATRIX_PLANE_WIDTH_SCALE_H`
+- `0x80A1` `MATRIX_PLANE_ORIGIN_X_L`
+- `0x80A2` `MATRIX_PLANE_ORIGIN_X_H`
+- `0x80A3` `MATRIX_PLANE_ORIGIN_Y_L`
+- `0x80A4` `MATRIX_PLANE_ORIGIN_Y_H`
+- `0x80A5` `MATRIX_PLANE_FACING_X_L`
+- `0x80A6` `MATRIX_PLANE_FACING_X_H`
+- `0x80A7` `MATRIX_PLANE_FACING_Y_L`
+- `0x80A8` `MATRIX_PLANE_FACING_Y_H`
+- `0x80A9` `MATRIX_PLANE_HEIGHT_SCALE_L`
+- `0x80AA` `MATRIX_PLANE_HEIGHT_SCALE_H`
 
 #### Register Meanings
 
@@ -599,6 +662,64 @@ If you are writing low-level ROM code, the dedicated matrix-plane aperture is:
   - writes one byte into dedicated matrix-plane bitmap memory
   - auto-increments address
 
+- `MATRIX_PLANE_FLAGS`
+  - bit `0` = bitmap palette index `0` is transparent
+  - bit `1` = projection stays visible from both sides
+
+- `MATRIX_PLANE_ROW_CONTROL`
+  - bit `0` = row mode enabled
+
+- `MATRIX_PLANE_ROW_ADDR_L/H`
+  - selects a byte address inside the per-plane row table
+
+- `MATRIX_PLANE_ROW_DATA`
+  - writes one byte into row-parameter memory
+  - auto-increments address
+
+- `MATRIX_PLANE_PROJECTION_CONTROL`
+  - generic per-plane projection primitive selector
+  - `0 = none/manual rows`
+  - `1 = perspective row projection`
+  - `2 = vertical projected quad`
+
+- `MATRIX_PLANE_HORIZON`
+  - screen-space horizon line for generic perspective projection
+
+- `MATRIX_PLANE_CAMERA_*`
+  - source-space camera position in pixels
+
+- `MATRIX_PLANE_HEADING_*`
+  - `8.8` fixed-point forward vector
+
+- `MATRIX_PLANE_BASE_DISTANCE`
+  - base depth term for the projection
+
+- `MATRIX_PLANE_FOCAL_LENGTH`
+  - projection focal-length term
+
+- `MATRIX_PLANE_WIDTH_SCALE`
+  - horizontal span scale
+
+- `MATRIX_PLANE_ORIGIN_*`
+  - world/source anchor used by vertical projected quads
+
+- `MATRIX_PLANE_FACING_*`
+  - `8.8` fixed-point facing/normal vector for vertical projected quads
+
+- `MATRIX_PLANE_HEIGHT_SCALE`
+  - vertical size term for projected quads
+
+#### Row Table Layout
+
+Each visible scanline has a 16-byte row record:
+
+- bytes `0-3` = `StartX`
+- bytes `4-7` = `StartY`
+- bytes `8-11` = `StepX`
+- bytes `12-15` = `StepY`
+
+There are `200` visible scanlines, so one plane's row table is `3200` bytes.
+
 ### Typical Upload Sequence
 
 1. select the matrix plane
@@ -609,8 +730,10 @@ If you are writing low-level ROM code, the dedicated matrix-plane aperture is:
    - upload pattern bytes through `0x8085-0x8087`
 5. if bitmap-backed:
    - upload bitmap bytes through `0x8088-0x808B`
-6. bind a visible layer to that transform channel
-7. enable matrix mode on that channel
+6. if row-driven:
+   - upload row parameters through `0x808E-0x8090`
+7. bind a visible layer to that transform channel
+8. enable matrix mode on that channel
 
 Pseudo-code:
 
@@ -642,6 +765,18 @@ for each packed bitmap byte
     write8(0x808B, byte)
 ```
 
+Row-mode upload:
+
+```text
+write8(0x8080, 0)      ; plane 0
+write8(0x808D, 0x01)   ; row mode enabled
+
+write8(0x808E, 0x00)
+write8(0x808F, 0x00)
+for each row-table byte
+    write8(0x8090, byte)
+```
+
 ### Pattern Memory Format
 
 Pattern memory currently uses the same packed 4bpp tile format as normal tile data.
@@ -663,6 +798,31 @@ Bitmap-backed matrix planes use packed indexed 4bpp pixels:
 - palette bank comes from `MATRIX_PLANE_CONTROL[7:4]`
 
 Bitmap-backed planes are now the direct validation path for large imported images that do not fit cleanly into the tile-backed plane's 256-tile index ceiling.
+
+### ROM-Side Responsibility
+
+The PPU now owns only the generic plane, source, transform, and row-parameter
+features.
+
+Generic per-plane projection is also part of the PPU contract when used through
+the `0x8091-0x80AA` register block. This is a reusable hardware feature, not a
+demo-specific mode.
+
+ROM/CoreLX/tooling should own:
+
+- camera movement
+- track following
+- floor-table generation
+- billboard/object placement
+- fisheye or other custom projection styles
+
+The rule is:
+
+- the PPU provides generic per-plane primitives
+- ROM/CoreLX decides how to drive them for a particular game
+
+That keeps the PPU reusable and hardware-shaped instead of baking one demo into
+the chip.
 
 ### Tilemap Entry Format
 
@@ -727,13 +887,14 @@ The emulator currently includes an in-progress **FM extension block** at the har
 
 - host MMIO interface
 - timer/status/IRQ behavior (deterministic placeholder timing model)
-- audible OPM-lite FM synthesis path (software emulation, transitional)
+- YM2608/OPNA playback path through the YMFM-backed runtime
+- in-tree OPM-lite path retained only as a compatibility fallback when YMFM is unavailable
 
 Current constraints:
 
 - `fm.*` CoreLX APIs are **not finalized yet**
 - advanced FM programming is currently best done through assembly or low-level ROM code
-- the V1 release audio target is now **YM2608**, so the current OPM-lite path should be treated as a bridge state while Sound Studio and audio migration gates are completed
+- the V1 release audio target is **YM2608/OPNA**, and current frontends default to the `ymfm` backend
 
 > **Why This Matters:** This lets us keep CoreLX simple for beginners while still building toward richer, FPGA-friendly FM audio.
 

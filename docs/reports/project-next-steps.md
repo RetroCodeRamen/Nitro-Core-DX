@@ -30,7 +30,7 @@ The original high-priority cleanup items from this report have already been exec
 1. **PPU legacy matrix:** Keep indefinitely for compatibility, or set a release-bound deprecation/removal plan now that BG0 reconciliation is explicit?
 2. **PPU legacy frame/DMA APIs:** Keep `RenderFrame()` / `executeDMA()` as compatibility-only shims, or schedule hard removal after one deprecation window?
 3. **FPGA PPU:** Confirm target is “four matrix engines + configurable tilemap base” to match Go; document as the intended FPGA roadmap before RTL work continues.
-4. **Savestates:** PPU legacy matrix and APU float phase compatibility are now known savestate concerns. Decide whether to preserve indefinitely or version the save format before removal.
+4. **Savestates:** Save states are now versioned; current work moved the format to v2 so matrix-plane/MMIO state can round-trip cleanly. Future deprecated-field removals should still go through an explicit migration step.
 
 ---
 

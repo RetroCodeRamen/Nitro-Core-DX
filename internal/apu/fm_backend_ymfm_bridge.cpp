@@ -1,4 +1,4 @@
-//go:build ymfm_cgo
+//go:build cgo
 
 #include "fm_backend_ymfm_bridge.h"
 

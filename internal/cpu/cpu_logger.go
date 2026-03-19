@@ -9,21 +9,21 @@ import (
 type CPULogLevel int
 
 const (
-	CPULogNone CPULogLevel = iota // No CPU logging
-	CPULogErrors                  // Only errors
-	CPULogBranches                // Branches and jumps
-	CPULogMemory                  // Memory access (reads/writes)
-	CPULogRegisters               // Register changes
-	CPULogInstructions            // All instructions
-	CPULogTrace                   // Full trace (every cycle)
+	CPULogNone         CPULogLevel = iota // No CPU logging
+	CPULogErrors                          // Only errors
+	CPULogBranches                        // Branches and jumps
+	CPULogMemory                          // Memory access (reads/writes)
+	CPULogRegisters                       // Register changes
+	CPULogInstructions                    // All instructions
+	CPULogTrace                           // Full trace (every cycle)
 )
 
 // CPULoggerAdapter adapts the debug.Logger to the CPU's LoggerInterface
 type CPULoggerAdapter struct {
-	logger     *debug.Logger
-	level      CPULogLevel
-	enabled    bool
-	lastState  CPUState // Track state changes for register logging
+	logger    *debug.Logger
+	level     CPULogLevel
+	enabled   bool
+	lastState CPUState // Track state changes for register logging
 }
 
 // NewCPULoggerAdapter creates a new CPU logger adapter
@@ -208,18 +208,18 @@ func (a *CPULoggerAdapter) formatOperands(opcode, mode, reg1, reg2 uint8) string
 // getStateData extracts state data for logging
 func (a *CPULoggerAdapter) getStateData(state CPUState, cycles uint32) map[string]interface{} {
 	return map[string]interface{}{
-		"pc":      fmt.Sprintf("%02X:%04X", state.PCBank, state.PCOffset),
-		"cycles":  cycles,
-		"r0":      state.R0,
-		"r1":      state.R1,
-		"r2":      state.R2,
-		"r3":      state.R3,
-		"r4":      state.R4,
-		"r5":      state.R5,
-		"r6":      state.R6,
-		"r7":      state.R7,
-		"sp":      state.SP,
-		"flags":   fmt.Sprintf("%08b", state.Flags),
+		"pc":     fmt.Sprintf("%02X:%04X", state.PCBank, state.PCOffset),
+		"cycles": cycles,
+		"r0":     state.R0,
+		"r1":     state.R1,
+		"r2":     state.R2,
+		"r3":     state.R3,
+		"r4":     state.R4,
+		"r5":     state.R5,
+		"r6":     state.R6,
+		"r7":     state.R7,
+		"sp":     state.SP,
+		"flags":  fmt.Sprintf("%08b", state.Flags),
 	}
 }
 
@@ -236,6 +236,3 @@ func (a *CPULoggerAdapter) detectRegisterChange(state CPUState) bool {
 		state.SP != a.lastState.SP ||
 		state.Flags != a.lastState.Flags
 }
-
-
-

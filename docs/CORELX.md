@@ -338,7 +338,7 @@ For setup order, tile indices, palettes, and multiple sprites, see **docs/guides
 
 ## Audio (APU)
 
-Note: CoreLX currently exposes the legacy 4-channel APU built-ins documented below. The FM extension exists in the emulator/APU (`0x9100-0x91FF`) but does not yet have stable CoreLX language-level APIs. Runtime FM backend selection is controlled by `NCDX_YM_BACKEND` (`auto|ymfm|legacy`), with `auto` preferring YMFM when available. The V1 release target is YM2608.
+Note: CoreLX currently exposes the legacy 4-channel APU built-ins documented below. The FM extension exists in the emulator/APU (`0x9100-0x91FF`) but does not yet have stable CoreLX language-level APIs. Current cgo-backed entrypoints default `NCDX_YM_BACKEND` to `ymfm`, and the V1 release target is YM2608/OPNA.
 
 ### Enabling APU
 
@@ -536,6 +536,16 @@ Reference demo ROM:
 ### Input
 
 - `input.read(controller) -> u16` - Read controller state
+
+### Memory
+
+- `mem.read(addr) -> u8` - Read one byte from CPU-visible memory/MMIO and return it zero-extended in the destination register
+- `mem.write(addr, value)` - Write the low byte of `value` to CPU-visible memory/MMIO
+
+`mem.read` / `mem.write` are the current CoreLX-safe path for byte-addressed
+MMIO work. If you need explicit 16-bit memory traffic today, use assembly or a
+purpose-built higher-level helper instead of assuming these built-ins perform
+word reads/writes.
 
 ### Sprite Helpers
 

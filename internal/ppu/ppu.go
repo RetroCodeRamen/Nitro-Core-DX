@@ -4,6 +4,9 @@ import (
 	"nitro-core-dx/internal/debug"
 )
 
+// NumTransformChannels is the number of affine/matrix transform engines.
+const NumTransformChannels = 4
+
 type textCmd struct {
 	x, y  int
 	color uint32
@@ -28,16 +31,10 @@ type PPU struct {
 	// Background layers (each has its own matrix transformation)
 	BG0, BG1, BG2, BG3 BackgroundLayer
 	// Transform channels are the runtime matrix engines bound to visible layers.
-	// Stage 2 keeps layer-owned matrix fields for compatibility, but rendering and
-	// HDMA now resolve matrix state through these channels.
-	TransformChannels [4]TransformChannel
-	// Dedicated matrix-plane source backing. This is emulator-first but hardware-shaped:
-	// each transform channel can source tilemap data from its own plane memory instead
-	// of implicitly borrowing ordinary BG tilemap storage.
-	MatrixPlanes [4]MatrixPlane
-	// Per-plane row caches for live bitmap-floor sampling. These are derived state,
-	// not programmer-visible memory, and avoid recomputing row origins/steps per pixel.
-	MatrixFloorRows [4]matrixFloorRowCache
+	// NumTransformChannels (currently 4) limits how many layers can have distinct matrix state.
+	TransformChannels [NumTransformChannels]TransformChannel
+	// Dedicated matrix-plane source backing, one per transform channel.
+	MatrixPlanes [NumTransformChannels]MatrixPlane
 
 	// Windowing
 	Window0, Window1 Window
@@ -90,12 +87,13 @@ type PPU struct {
 	MatrixPlaneAddr        uint16
 	MatrixPlanePatternAddr uint16
 	MatrixPlaneBitmapAddr  uint32
+	MatrixPlaneRowAddr     uint16
 
 	// DMA (Direct Memory Access)
 	DMAEnabled      bool
 	DMASourceBank   uint8
 	DMASourceOffset uint16
-	DMADestType     uint8 // 0=VRAM, 1=CGRAM, 2=OAM, 3=matrix tilemap, 4=matrix pattern, 5=matrix bitmap
+	DMADestType     uint8 // 0=VRAM, 1=CGRAM, 2=OAM, 3=matrix tilemap, 4=matrix pattern, 5=matrix bitmap, 6=matrix row params
 	DMADestAddr     uint16
 	DMALength       uint16
 	DMAMode         uint8  // 0=copy, 1=fill
@@ -127,6 +125,17 @@ type PPU struct {
 	// PPU rendering is single-threaded, so reusing these buffers is safe.
 	spriteScratch        [128]spriteInfo
 	renderElementScratch [132]renderElement
+	// Cache matrix plane source dimensions per scanline/layer (avoids 128k+ calls/frame).
+	matrixDimensionsCache [4]struct {
+		width, height, tileSize int
+		scanline                int
+	}
+	// Resolved layer+channel per scanline (avoids 128k+ resolveLayerTransformChannel/reconcile calls per frame).
+	resolvedLayerChannelCache [4]struct {
+		layer    *BackgroundLayer
+		channel  *TransformChannel
+		scanline int
+	}
 	// Hardware-like sprite evaluation cache: sprites active on the current scanline.
 	// Evaluated once at scanline start, consumed by per-pixel rendering.
 	activeScanlineSprites     [128]spriteInfo
@@ -197,29 +206,41 @@ type TransformChannel struct {
 // channel. It stores both tilemap entries and dedicated pattern memory for a
 // single tile-backed plane, decoupled from ordinary BG tilemap/tile storage.
 type MatrixPlane struct {
-	Enabled       bool
-	Size          uint8 // 0 = 32x32, 1 = 64x64, 2 = 128x128
-	SourceMode    uint8 // 0 = tilemap/pattern, 1 = bitmap
-	BitmapPalette uint8 // palette bank used for bitmap-backed planes
-	Transparent0  bool  // bitmap palette index 0 is transparent when set
-	LiveFloorEnabled  bool
-	LiveFloorHorizon  uint8
-	LiveFloorCameraX  int16
-	LiveFloorCameraY  int16
-	LiveFloorHeadingX int16 // 8.8 fixed point
-	LiveFloorHeadingY int16 // 8.8 fixed point
-	Tilemap       [128 * 128 * 2]uint8
-	Pattern       [32 * 1024]uint8
-	Bitmap        [1024 * 1024 / 2]uint8 // 4bpp indexed bitmap backing, max 1024x1024
+	Enabled        bool
+	Size           uint8 // 0 = 32x32, 1 = 64x64, 2 = 128x128
+	SourceMode     uint8 // 0 = tilemap/pattern, 1 = bitmap
+	BitmapPalette  uint8 // palette bank used for bitmap-backed planes
+	Transparent0   bool  // bitmap palette index 0 is transparent when set
+	TwoSided       bool  // projection modes render from both sides when set
+	RowModeEnabled bool
+	// ProjectionMode selects a generic projection primitive for this plane.
+	// The PPU does not assign domain-specific meaning (floor, billboard, track);
+	// ROM/CoreLX code chooses how to use these primitives.
+	ProjectionMode uint8 // 0 = none/manual rows, 1 = perspective row projection, 2 = vertical projected quad
+	Horizon        uint8
+	CameraX        int16  // source-space position in pixels
+	CameraY        int16  // source-space position in pixels
+	HeadingX       int16  // 8.8 fixed point forward vector X
+	HeadingY       int16  // 8.8 fixed point forward vector Y
+	BaseDistance   uint16 // 8.8 fixed point
+	FocalLength    uint16 // 8.8 fixed point
+	WidthScale     uint16 // 8.8 fixed point
+	OriginX        int16  // source/world-space anchor in pixels
+	OriginY        int16  // source/world-space anchor in pixels
+	FacingX        int16  // 8.8 fixed point facing/normal vector X
+	FacingY        int16  // 8.8 fixed point facing/normal vector Y
+	HeightScale    uint16 // 8.8 fixed point vertical size
+	Tilemap        [128 * 128 * 2]uint8
+	Pattern        [32 * 1024]uint8
+	Bitmap         [1024 * 1024 / 2]uint8 // 4bpp indexed bitmap backing, max 1024x1024
+	Rows           [VisibleScanlines]MatrixPlaneRowParams
 }
 
-type matrixFloorRowCache struct {
-	valid   bool
-	scanline int
-	startX  int32 // 16.16 fixed point
-	startY  int32 // 16.16 fixed point
-	stepX   int32 // 16.16 fixed point
-	stepY   int32 // 16.16 fixed point
+type MatrixPlaneRowParams struct {
+	StartX int32 // 16.16 fixed point
+	StartY int32 // 16.16 fixed point
+	StepX  int32 // 16.16 fixed point
+	StepY  int32 // 16.16 fixed point
 }
 
 const (
@@ -229,6 +250,10 @@ const (
 
 	MatrixPlaneSourceTilemap uint8 = 0
 	MatrixPlaneSourceBitmap  uint8 = 1
+
+	MatrixPlaneProjectionNone        uint8 = 0
+	MatrixPlaneProjectionPerspective uint8 = 1
+	MatrixPlaneProjectionVertical    uint8 = 2
 )
 
 // Window represents a window
@@ -248,6 +273,12 @@ func NewPPU(logger *debug.Logger) *PPU {
 		Logger:          logger,
 		activeScanlineY: -1,
 	}
+	for i := range p.matrixDimensionsCache {
+		p.matrixDimensionsCache[i].scanline = -1
+	}
+	for i := range p.resolvedLayerChannelCache {
+		p.resolvedLayerChannelCache[i].scanline = -1
+	}
 	p.initializeDefaultTransformBindings()
 	return p
 }
@@ -263,27 +294,33 @@ func (p *PPU) initializeDefaultTransformBindings() {
 	p.BG3.TransformChannel = 3
 	for i := range p.MatrixPlanes {
 		p.MatrixPlanes[i].Size = TilemapSize32x32
+		p.MatrixPlanes[i].BaseDistance = 0x0100
+		p.MatrixPlanes[i].FocalLength = 0x3000
+		p.MatrixPlanes[i].WidthScale = 0x0100
+		p.MatrixPlanes[i].HeightScale = 0x0200
+		p.MatrixPlanes[i].HeadingY = -0x0100
+		p.MatrixPlanes[i].FacingY = -0x0100
 	}
 }
 
 func (p *PPU) reconcileTransformBindings() {
-	// Old save states decode missing uint8 fields as zero, so treat the all-zero
-	// BG1/BG2/BG3 binding pattern as "uninitialized defaults".
+	maxCh := uint8(NumTransformChannels - 1)
+	// Old save states: treat all-zero BG1/BG2/BG3 as uninitialized.
 	if p.BG1.TransformChannel == 0 && p.BG2.TransformChannel == 0 && p.BG3.TransformChannel == 0 {
 		p.BG1.TransformChannel = 1
 		p.BG2.TransformChannel = 2
 		p.BG3.TransformChannel = 3
 	}
-	if p.BG0.TransformChannel > 3 {
+	if p.BG0.TransformChannel > maxCh {
 		p.BG0.TransformChannel = 0
 	}
-	if p.BG1.TransformChannel > 3 {
+	if p.BG1.TransformChannel > maxCh {
 		p.BG1.TransformChannel = 1
 	}
-	if p.BG2.TransformChannel > 3 {
+	if p.BG2.TransformChannel > maxCh {
 		p.BG2.TransformChannel = 2
 	}
-	if p.BG3.TransformChannel > 3 {
+	if p.BG3.TransformChannel > maxCh {
 		p.BG3.TransformChannel = 3
 	}
 }
@@ -291,6 +328,22 @@ func (p *PPU) reconcileTransformBindings() {
 // SyncTransformBindingsForStateLoad restores default bindings for older states.
 func (p *PPU) SyncTransformBindingsForStateLoad() {
 	p.reconcileTransformBindings()
+}
+
+// ResetDerivedRuntimeCachesForStateLoad clears software-only caches that should
+// never survive a save/load boundary.
+func (p *PPU) ResetDerivedRuntimeCachesForStateLoad() {
+	for i := range p.cgramCacheValid {
+		p.cgramCacheValid[i] = false
+	}
+	for i := range p.matrixDimensionsCache {
+		p.matrixDimensionsCache[i].scanline = -1
+	}
+	for i := range p.resolvedLayerChannelCache {
+		p.resolvedLayerChannelCache[i].scanline = -1
+	}
+	p.activeScanlineY = -1
+	p.activeScanlineSpriteCount = 0
 }
 
 func (p *PPU) getBackgroundLayer(layerNum int) *BackgroundLayer {
@@ -360,7 +413,7 @@ func (p *PPU) applyLayerTransformBindRegister(layerNum int, value uint8) {
 	if layer == nil {
 		return
 	}
-	layer.TransformChannel = value & 0x03
+	layer.TransformChannel = value % NumTransformChannels
 }
 
 func (p *PPU) readLayerTransformBindRegister(layerNum int) uint8 {
@@ -368,7 +421,7 @@ func (p *PPU) readLayerTransformBindRegister(layerNum int) uint8 {
 	if layer == nil {
 		return 0
 	}
-	return layer.TransformChannel & 0x03
+	return layer.TransformChannel % NumTransformChannels
 }
 
 func (p *PPU) writeLayerTilemapBaseLow(layerNum int, value uint8) {
@@ -404,8 +457,8 @@ func (p *PPU) readLayerTilemapBaseHigh(layerNum int) uint8 {
 }
 
 func (p *PPU) getTransformChannel(index uint8) *TransformChannel {
-	if index > 3 {
-		return &p.TransformChannels[0]
+	if index >= NumTransformChannels {
+		index = index % NumTransformChannels
 	}
 	return &p.TransformChannels[index]
 }
@@ -427,11 +480,39 @@ func (p *PPU) resolveLayerTransformChannel(layerNum int) (*BackgroundLayer, *Tra
 	return layer, p.getTransformChannel(layer.TransformChannel)
 }
 
-func (p *PPU) getMatrixPlane(channelIndex uint8) *MatrixPlane {
-	if channelIndex >= uint8(len(p.MatrixPlanes)) {
-		return &p.MatrixPlanes[0]
+// fillResolvedLayerChannelCache fills the per-scanline cache of resolved layer+channel.
+// Call once at scanline start (after HDMA) so renderDot can use getResolvedLayerChannel without calling reconcile.
+func (p *PPU) fillResolvedLayerChannelCache() {
+	p.reconcileTransformBindings()
+	for i := 0; i < 4; i++ {
+		layer := p.getBackgroundLayer(i)
+		if layer == nil {
+			p.resolvedLayerChannelCache[i].layer = nil
+			p.resolvedLayerChannelCache[i].channel = nil
+		} else {
+			p.resolvedLayerChannelCache[i].layer = layer
+			p.resolvedLayerChannelCache[i].channel = p.getTransformChannel(layer.TransformChannel)
+		}
+		p.resolvedLayerChannelCache[i].scanline = p.currentScanline
 	}
-	return &p.MatrixPlanes[channelIndex]
+}
+
+// getResolvedLayerChannel returns the resolved layer and channel for the given layer number.
+// Uses per-scanline cache when valid (filled at scanline start in StepPPU); otherwise falls back to resolve.
+func (p *PPU) getResolvedLayerChannel(layerNum int) (*BackgroundLayer, *TransformChannel) {
+	if layerNum < 0 || layerNum > 3 {
+		return p.resolveLayerTransformChannel(layerNum)
+	}
+	c := &p.resolvedLayerChannelCache[layerNum]
+	if c.scanline == p.currentScanline {
+		return c.layer, c.channel
+	}
+	return p.resolveLayerTransformChannel(layerNum)
+}
+
+func (p *PPU) getMatrixPlane(channelIndex uint8) *MatrixPlane {
+	idx := int(channelIndex) % NumTransformChannels
+	return &p.MatrixPlanes[idx]
 }
 
 func (p *PPU) getSelectedMatrixPlane() *MatrixPlane {
@@ -475,6 +556,7 @@ func (p *PPU) readSelectedMatrixPlaneControl() uint8 {
 func (p *PPU) applySelectedMatrixPlaneFlags(value uint8) {
 	plane := p.getSelectedMatrixPlane()
 	plane.Transparent0 = (value & 0x01) != 0
+	plane.TwoSided = (value & 0x02) != 0
 }
 
 func (p *PPU) readSelectedMatrixPlaneFlags() uint8 {
@@ -483,118 +565,118 @@ func (p *PPU) readSelectedMatrixPlaneFlags() uint8 {
 	if plane.Transparent0 {
 		value |= 0x01
 	}
+	if plane.TwoSided {
+		value |= 0x02
+	}
 	return value
 }
 
-func (p *PPU) invalidateSelectedMatrixFloorRowCache() {
-	if int(p.MatrixPlaneSelect) < len(p.MatrixFloorRows) {
-		p.MatrixFloorRows[p.MatrixPlaneSelect] = matrixFloorRowCache{}
+func matrixPlaneRowByteLength() int {
+	return VisibleScanlines * 16
+}
+
+func readInt32Byte(value int32, byteIndex int) uint8 {
+	shift := uint(byteIndex * 8)
+	return uint8((uint32(value) >> shift) & 0xFF)
+}
+
+func writeInt32Byte(value *int32, byteIndex int, data uint8) {
+	shift := uint(byteIndex * 8)
+	mask := ^(uint32(0xFF) << shift)
+	raw := (uint32(*value) & mask) | (uint32(data) << shift)
+	*value = int32(raw)
+}
+
+func (plane *MatrixPlane) readRowByte(addr int) uint8 {
+	if addr < 0 || addr >= matrixPlaneRowByteLength() {
+		return 0
+	}
+	rowIndex := addr / 16
+	byteIndex := addr % 16
+	row := &plane.Rows[rowIndex]
+	switch {
+	case byteIndex < 4:
+		return readInt32Byte(row.StartX, byteIndex)
+	case byteIndex < 8:
+		return readInt32Byte(row.StartY, byteIndex-4)
+	case byteIndex < 12:
+		return readInt32Byte(row.StepX, byteIndex-8)
+	default:
+		return readInt32Byte(row.StepY, byteIndex-12)
 	}
 }
 
-func (p *PPU) applySelectedMatrixPlaneLiveFloorControl(value uint8) {
-	plane := p.getSelectedMatrixPlane()
-	plane.LiveFloorEnabled = (value & 0x01) != 0
-	p.invalidateSelectedMatrixFloorRowCache()
+func (plane *MatrixPlane) writeRowByte(addr int, data uint8) {
+	if addr < 0 || addr >= matrixPlaneRowByteLength() {
+		return
+	}
+	rowIndex := addr / 16
+	byteIndex := addr % 16
+	row := &plane.Rows[rowIndex]
+	switch {
+	case byteIndex < 4:
+		writeInt32Byte(&row.StartX, byteIndex, data)
+	case byteIndex < 8:
+		writeInt32Byte(&row.StartY, byteIndex-4, data)
+	case byteIndex < 12:
+		writeInt32Byte(&row.StepX, byteIndex-8, data)
+	default:
+		writeInt32Byte(&row.StepY, byteIndex-12, data)
+	}
 }
 
-func (p *PPU) readSelectedMatrixPlaneLiveFloorControl() uint8 {
+func (p *PPU) applySelectedMatrixPlaneRowControl(value uint8) {
+	plane := p.getSelectedMatrixPlane()
+	plane.RowModeEnabled = (value & 0x01) != 0
+}
+
+func (p *PPU) readSelectedMatrixPlaneRowControl() uint8 {
 	plane := p.getSelectedMatrixPlane()
 	var value uint8
-	if plane.LiveFloorEnabled {
+	if plane.RowModeEnabled {
 		value |= 0x01
 	}
 	return value
 }
 
-func (p *PPU) writeSelectedMatrixPlaneLiveFloorHorizon(value uint8) {
+func (p *PPU) readSelectedMatrixPlaneRowAddrLow() uint8 {
+	return uint8(p.MatrixPlaneRowAddr & 0x00FF)
+}
+
+func (p *PPU) readSelectedMatrixPlaneRowAddrHigh() uint8 {
+	return uint8((p.MatrixPlaneRowAddr >> 8) & 0x0F)
+}
+
+func (p *PPU) writeSelectedMatrixPlaneRowAddrLow(value uint8) {
+	p.MatrixPlaneRowAddr = (p.MatrixPlaneRowAddr & 0xFF00) | uint16(value)
+}
+
+func (p *PPU) writeSelectedMatrixPlaneRowAddrHigh(value uint8) {
+	p.MatrixPlaneRowAddr = (p.MatrixPlaneRowAddr & 0x00FF) | (uint16(value&0x0F) << 8)
+}
+
+func (p *PPU) readSelectedMatrixPlaneRowData() uint8 {
 	plane := p.getSelectedMatrixPlane()
-	plane.LiveFloorHorizon = value
-	p.invalidateSelectedMatrixFloorRowCache()
+	addr := int(p.MatrixPlaneRowAddr) % matrixPlaneRowByteLength()
+	value := plane.readRowByte(addr)
+	p.MatrixPlaneRowAddr = uint16((addr + 1) % matrixPlaneRowByteLength())
+	return value
 }
 
-func (p *PPU) readSelectedMatrixPlaneLiveFloorHorizon() uint8 {
-	return p.getSelectedMatrixPlane().LiveFloorHorizon
-}
-
-func (p *PPU) writeSelectedMatrixPlaneLiveFloorCameraXLow(value uint8) {
+func (p *PPU) writeSelectedMatrixPlaneRowData(value uint8) {
 	plane := p.getSelectedMatrixPlane()
-	plane.LiveFloorCameraX = int16((uint16(plane.LiveFloorCameraX) & 0xFF00) | uint16(value))
-	p.invalidateSelectedMatrixFloorRowCache()
+	addr := int(p.MatrixPlaneRowAddr) % matrixPlaneRowByteLength()
+	plane.writeRowByte(addr, value)
+	p.MatrixPlaneRowAddr = uint16((addr + 1) % matrixPlaneRowByteLength())
 }
 
-func (p *PPU) writeSelectedMatrixPlaneLiveFloorCameraXHigh(value uint8) {
+func (p *PPU) applySelectedMatrixPlaneProjectionControl(value uint8) {
 	plane := p.getSelectedMatrixPlane()
-	plane.LiveFloorCameraX = int16((uint16(plane.LiveFloorCameraX) & 0x00FF) | (uint16(value) << 8))
-	p.invalidateSelectedMatrixFloorRowCache()
+	plane.ProjectionMode = value & 0x03
 }
 
-func (p *PPU) readSelectedMatrixPlaneLiveFloorCameraXLow() uint8 {
-	return uint8(uint16(p.getSelectedMatrixPlane().LiveFloorCameraX) & 0x00FF)
-}
-
-func (p *PPU) readSelectedMatrixPlaneLiveFloorCameraXHigh() uint8 {
-	return uint8((uint16(p.getSelectedMatrixPlane().LiveFloorCameraX) >> 8) & 0x00FF)
-}
-
-func (p *PPU) writeSelectedMatrixPlaneLiveFloorCameraYLow(value uint8) {
-	plane := p.getSelectedMatrixPlane()
-	plane.LiveFloorCameraY = int16((uint16(plane.LiveFloorCameraY) & 0xFF00) | uint16(value))
-	p.invalidateSelectedMatrixFloorRowCache()
-}
-
-func (p *PPU) writeSelectedMatrixPlaneLiveFloorCameraYHigh(value uint8) {
-	plane := p.getSelectedMatrixPlane()
-	plane.LiveFloorCameraY = int16((uint16(plane.LiveFloorCameraY) & 0x00FF) | (uint16(value) << 8))
-	p.invalidateSelectedMatrixFloorRowCache()
-}
-
-func (p *PPU) readSelectedMatrixPlaneLiveFloorCameraYLow() uint8 {
-	return uint8(uint16(p.getSelectedMatrixPlane().LiveFloorCameraY) & 0x00FF)
-}
-
-func (p *PPU) readSelectedMatrixPlaneLiveFloorCameraYHigh() uint8 {
-	return uint8((uint16(p.getSelectedMatrixPlane().LiveFloorCameraY) >> 8) & 0x00FF)
-}
-
-func (p *PPU) writeSelectedMatrixPlaneLiveFloorHeadingXLow(value uint8) {
-	plane := p.getSelectedMatrixPlane()
-	plane.LiveFloorHeadingX = int16((uint16(plane.LiveFloorHeadingX) & 0xFF00) | uint16(value))
-	p.invalidateSelectedMatrixFloorRowCache()
-}
-
-func (p *PPU) writeSelectedMatrixPlaneLiveFloorHeadingXHigh(value uint8) {
-	plane := p.getSelectedMatrixPlane()
-	plane.LiveFloorHeadingX = int16((uint16(plane.LiveFloorHeadingX) & 0x00FF) | (uint16(value) << 8))
-	p.invalidateSelectedMatrixFloorRowCache()
-}
-
-func (p *PPU) readSelectedMatrixPlaneLiveFloorHeadingXLow() uint8 {
-	return uint8(uint16(p.getSelectedMatrixPlane().LiveFloorHeadingX) & 0x00FF)
-}
-
-func (p *PPU) readSelectedMatrixPlaneLiveFloorHeadingXHigh() uint8 {
-	return uint8((uint16(p.getSelectedMatrixPlane().LiveFloorHeadingX) >> 8) & 0x00FF)
-}
-
-func (p *PPU) writeSelectedMatrixPlaneLiveFloorHeadingYLow(value uint8) {
-	plane := p.getSelectedMatrixPlane()
-	plane.LiveFloorHeadingY = int16((uint16(plane.LiveFloorHeadingY) & 0xFF00) | uint16(value))
-	p.invalidateSelectedMatrixFloorRowCache()
-}
-
-func (p *PPU) writeSelectedMatrixPlaneLiveFloorHeadingYHigh(value uint8) {
-	plane := p.getSelectedMatrixPlane()
-	plane.LiveFloorHeadingY = int16((uint16(plane.LiveFloorHeadingY) & 0x00FF) | (uint16(value) << 8))
-	p.invalidateSelectedMatrixFloorRowCache()
-}
-
-func (p *PPU) readSelectedMatrixPlaneLiveFloorHeadingYLow() uint8 {
-	return uint8(uint16(p.getSelectedMatrixPlane().LiveFloorHeadingY) & 0x00FF)
-}
-
-func (p *PPU) readSelectedMatrixPlaneLiveFloorHeadingYHigh() uint8 {
-	return uint8((uint16(p.getSelectedMatrixPlane().LiveFloorHeadingY) >> 8) & 0x00FF)
+func (p *PPU) readSelectedMatrixPlaneProjectionControl() uint8 {
+	return p.getSelectedMatrixPlane().ProjectionMode & 0x03
 }
 
 func (p *PPU) readSelectedMatrixPlanePatternAddrLow() uint8 {
@@ -753,26 +835,66 @@ func (p *PPU) Read8(offset uint16) uint8 {
 		return value
 	case 0x8C: // MATRIX_PLANE_FLAGS
 		return p.readSelectedMatrixPlaneFlags()
-	case 0x8D: // MATRIX_PLANE_LIVE_FLOOR_CONTROL
-		return p.readSelectedMatrixPlaneLiveFloorControl()
-	case 0x8E: // MATRIX_PLANE_LIVE_FLOOR_HORIZON
-		return p.readSelectedMatrixPlaneLiveFloorHorizon()
-	case 0x8F: // MATRIX_PLANE_LIVE_FLOOR_CAMERA_X_L
-		return p.readSelectedMatrixPlaneLiveFloorCameraXLow()
-	case 0x90: // MATRIX_PLANE_LIVE_FLOOR_CAMERA_X_H
-		return p.readSelectedMatrixPlaneLiveFloorCameraXHigh()
-	case 0x91: // MATRIX_PLANE_LIVE_FLOOR_CAMERA_Y_L
-		return p.readSelectedMatrixPlaneLiveFloorCameraYLow()
-	case 0x92: // MATRIX_PLANE_LIVE_FLOOR_CAMERA_Y_H
-		return p.readSelectedMatrixPlaneLiveFloorCameraYHigh()
-	case 0x93: // MATRIX_PLANE_LIVE_FLOOR_HEADING_X_L
-		return p.readSelectedMatrixPlaneLiveFloorHeadingXLow()
-	case 0x94: // MATRIX_PLANE_LIVE_FLOOR_HEADING_X_H
-		return p.readSelectedMatrixPlaneLiveFloorHeadingXHigh()
-	case 0x95: // MATRIX_PLANE_LIVE_FLOOR_HEADING_Y_L
-		return p.readSelectedMatrixPlaneLiveFloorHeadingYLow()
-	case 0x96: // MATRIX_PLANE_LIVE_FLOOR_HEADING_Y_H
-		return p.readSelectedMatrixPlaneLiveFloorHeadingYHigh()
+	case 0x8D: // MATRIX_PLANE_ROW_CONTROL
+		return p.readSelectedMatrixPlaneRowControl()
+	case 0x8E: // MATRIX_PLANE_ROW_ADDR_L
+		return p.readSelectedMatrixPlaneRowAddrLow()
+	case 0x8F: // MATRIX_PLANE_ROW_ADDR_H
+		return p.readSelectedMatrixPlaneRowAddrHigh()
+	case 0x90: // MATRIX_PLANE_ROW_DATA
+		return p.readSelectedMatrixPlaneRowData()
+	case 0x91: // MATRIX_PLANE_PROJECTION_CONTROL
+		return p.readSelectedMatrixPlaneProjectionControl()
+	case 0x92: // MATRIX_PLANE_HORIZON
+		return p.getSelectedMatrixPlane().Horizon
+	case 0x93: // MATRIX_PLANE_CAMERA_X_L
+		return uint8(p.getSelectedMatrixPlane().CameraX & 0xFF)
+	case 0x94: // MATRIX_PLANE_CAMERA_X_H
+		return uint8((uint16(p.getSelectedMatrixPlane().CameraX) >> 8) & 0xFF)
+	case 0x95: // MATRIX_PLANE_CAMERA_Y_L
+		return uint8(p.getSelectedMatrixPlane().CameraY & 0xFF)
+	case 0x96: // MATRIX_PLANE_CAMERA_Y_H
+		return uint8((uint16(p.getSelectedMatrixPlane().CameraY) >> 8) & 0xFF)
+	case 0x97: // MATRIX_PLANE_HEADING_X_L
+		return uint8(p.getSelectedMatrixPlane().HeadingX & 0xFF)
+	case 0x98: // MATRIX_PLANE_HEADING_X_H
+		return uint8((uint16(p.getSelectedMatrixPlane().HeadingX) >> 8) & 0xFF)
+	case 0x99: // MATRIX_PLANE_HEADING_Y_L
+		return uint8(p.getSelectedMatrixPlane().HeadingY & 0xFF)
+	case 0x9A: // MATRIX_PLANE_HEADING_Y_H
+		return uint8((uint16(p.getSelectedMatrixPlane().HeadingY) >> 8) & 0xFF)
+	case 0x9B: // MATRIX_PLANE_BASE_DISTANCE_L
+		return uint8(p.getSelectedMatrixPlane().BaseDistance & 0xFF)
+	case 0x9C: // MATRIX_PLANE_BASE_DISTANCE_H
+		return uint8((p.getSelectedMatrixPlane().BaseDistance >> 8) & 0xFF)
+	case 0x9D: // MATRIX_PLANE_FOCAL_LENGTH_L
+		return uint8(p.getSelectedMatrixPlane().FocalLength & 0xFF)
+	case 0x9E: // MATRIX_PLANE_FOCAL_LENGTH_H
+		return uint8((p.getSelectedMatrixPlane().FocalLength >> 8) & 0xFF)
+	case 0x9F: // MATRIX_PLANE_WIDTH_SCALE_L
+		return uint8(p.getSelectedMatrixPlane().WidthScale & 0xFF)
+	case 0xA0: // MATRIX_PLANE_WIDTH_SCALE_H
+		return uint8((p.getSelectedMatrixPlane().WidthScale >> 8) & 0xFF)
+	case 0xA1: // MATRIX_PLANE_ORIGIN_X_L
+		return uint8(p.getSelectedMatrixPlane().OriginX & 0xFF)
+	case 0xA2: // MATRIX_PLANE_ORIGIN_X_H
+		return uint8((uint16(p.getSelectedMatrixPlane().OriginX) >> 8) & 0xFF)
+	case 0xA3: // MATRIX_PLANE_ORIGIN_Y_L
+		return uint8(p.getSelectedMatrixPlane().OriginY & 0xFF)
+	case 0xA4: // MATRIX_PLANE_ORIGIN_Y_H
+		return uint8((uint16(p.getSelectedMatrixPlane().OriginY) >> 8) & 0xFF)
+	case 0xA5: // MATRIX_PLANE_FACING_X_L
+		return uint8(p.getSelectedMatrixPlane().FacingX & 0xFF)
+	case 0xA6: // MATRIX_PLANE_FACING_X_H
+		return uint8((uint16(p.getSelectedMatrixPlane().FacingX) >> 8) & 0xFF)
+	case 0xA7: // MATRIX_PLANE_FACING_Y_L
+		return uint8(p.getSelectedMatrixPlane().FacingY & 0xFF)
+	case 0xA8: // MATRIX_PLANE_FACING_Y_H
+		return uint8((uint16(p.getSelectedMatrixPlane().FacingY) >> 8) & 0xFF)
+	case 0xA9: // MATRIX_PLANE_HEIGHT_SCALE_L
+		return uint8(p.getSelectedMatrixPlane().HeightScale & 0xFF)
+	case 0xAA: // MATRIX_PLANE_HEIGHT_SCALE_H
+		return uint8((p.getSelectedMatrixPlane().HeightScale >> 8) & 0xFF)
 	case 0x18: // MATRIX_CONTROL (BG0)
 		channel := p.getLayerBoundTransformChannel(0)
 		var value uint8
@@ -1441,27 +1563,116 @@ func (p *PPU) Write8(offset uint16, value uint8) {
 		p.MatrixPlaneBitmapAddr = uint32((addr + 1) & (len(plane.Bitmap) - 1))
 	case 0x8C: // MATRIX_PLANE_FLAGS
 		// Bit 0: bitmap palette index 0 is transparent
+		// Bit 1: render both faces for vertical projected quads
 		p.applySelectedMatrixPlaneFlags(value)
-	case 0x8D: // MATRIX_PLANE_LIVE_FLOOR_CONTROL
-		p.applySelectedMatrixPlaneLiveFloorControl(value)
-	case 0x8E: // MATRIX_PLANE_LIVE_FLOOR_HORIZON
-		p.writeSelectedMatrixPlaneLiveFloorHorizon(value)
-	case 0x8F: // MATRIX_PLANE_LIVE_FLOOR_CAMERA_X_L
-		p.writeSelectedMatrixPlaneLiveFloorCameraXLow(value)
-	case 0x90: // MATRIX_PLANE_LIVE_FLOOR_CAMERA_X_H
-		p.writeSelectedMatrixPlaneLiveFloorCameraXHigh(value)
-	case 0x91: // MATRIX_PLANE_LIVE_FLOOR_CAMERA_Y_L
-		p.writeSelectedMatrixPlaneLiveFloorCameraYLow(value)
-	case 0x92: // MATRIX_PLANE_LIVE_FLOOR_CAMERA_Y_H
-		p.writeSelectedMatrixPlaneLiveFloorCameraYHigh(value)
-	case 0x93: // MATRIX_PLANE_LIVE_FLOOR_HEADING_X_L
-		p.writeSelectedMatrixPlaneLiveFloorHeadingXLow(value)
-	case 0x94: // MATRIX_PLANE_LIVE_FLOOR_HEADING_X_H
-		p.writeSelectedMatrixPlaneLiveFloorHeadingXHigh(value)
-	case 0x95: // MATRIX_PLANE_LIVE_FLOOR_HEADING_Y_L
-		p.writeSelectedMatrixPlaneLiveFloorHeadingYLow(value)
-	case 0x96: // MATRIX_PLANE_LIVE_FLOOR_HEADING_Y_H
-		p.writeSelectedMatrixPlaneLiveFloorHeadingYHigh(value)
+	case 0x8D: // MATRIX_PLANE_ROW_CONTROL
+		p.applySelectedMatrixPlaneRowControl(value)
+	case 0x8E: // MATRIX_PLANE_ROW_ADDR_L
+		p.writeSelectedMatrixPlaneRowAddrLow(value)
+	case 0x8F: // MATRIX_PLANE_ROW_ADDR_H
+		p.writeSelectedMatrixPlaneRowAddrHigh(value)
+	case 0x90: // MATRIX_PLANE_ROW_DATA
+		p.writeSelectedMatrixPlaneRowData(value)
+	case 0x91: // MATRIX_PLANE_PROJECTION_CONTROL
+		p.applySelectedMatrixPlaneProjectionControl(value)
+	case 0x92: // MATRIX_PLANE_HORIZON
+		p.getSelectedMatrixPlane().Horizon = value
+	case 0x93: // MATRIX_PLANE_CAMERA_X_L
+		plane := p.getSelectedMatrixPlane()
+		plane.CameraX = int16((uint16(plane.CameraX) & 0xFF00) | uint16(value))
+		if p.Logger != nil {
+			p.Logger.LogPPUf(debug.LogLevelDebug, "PPU MMIO: plane %d CAMERA_X_L=0x%02X -> CameraX=%d", p.MatrixPlaneSelect&0x03, value, plane.CameraX)
+		}
+	case 0x94: // MATRIX_PLANE_CAMERA_X_H
+		plane := p.getSelectedMatrixPlane()
+		plane.CameraX = int16((uint16(plane.CameraX) & 0x00FF) | (uint16(value) << 8))
+		if p.Logger != nil {
+			p.Logger.LogPPUf(debug.LogLevelDebug, "PPU MMIO: plane %d CAMERA_X_H=0x%02X -> CameraX=%d", p.MatrixPlaneSelect&0x03, value, plane.CameraX)
+		}
+	case 0x95: // MATRIX_PLANE_CAMERA_Y_L
+		plane := p.getSelectedMatrixPlane()
+		plane.CameraY = int16((uint16(plane.CameraY) & 0xFF00) | uint16(value))
+		if p.Logger != nil {
+			p.Logger.LogPPUf(debug.LogLevelDebug, "PPU MMIO: plane %d CAMERA_Y_L=0x%02X -> CameraY=%d", p.MatrixPlaneSelect&0x03, value, plane.CameraY)
+		}
+	case 0x96: // MATRIX_PLANE_CAMERA_Y_H
+		plane := p.getSelectedMatrixPlane()
+		plane.CameraY = int16((uint16(plane.CameraY) & 0x00FF) | (uint16(value) << 8))
+		if p.Logger != nil {
+			p.Logger.LogPPUf(debug.LogLevelDebug, "PPU MMIO: plane %d CAMERA_Y_H=0x%02X -> CameraY=%d", p.MatrixPlaneSelect&0x03, value, plane.CameraY)
+		}
+	case 0x97: // MATRIX_PLANE_HEADING_X_L
+		plane := p.getSelectedMatrixPlane()
+		plane.HeadingX = int16((uint16(plane.HeadingX) & 0xFF00) | uint16(value))
+		if p.Logger != nil {
+			p.Logger.LogPPUf(debug.LogLevelDebug, "PPU MMIO: plane %d HEADING_X_L=0x%02X -> HeadingX=%d", p.MatrixPlaneSelect&0x03, value, plane.HeadingX)
+		}
+	case 0x98: // MATRIX_PLANE_HEADING_X_H
+		plane := p.getSelectedMatrixPlane()
+		plane.HeadingX = int16((uint16(plane.HeadingX) & 0x00FF) | (uint16(value) << 8))
+		if p.Logger != nil {
+			p.Logger.LogPPUf(debug.LogLevelDebug, "PPU MMIO: plane %d HEADING_X_H=0x%02X -> HeadingX=%d", p.MatrixPlaneSelect&0x03, value, plane.HeadingX)
+		}
+	case 0x99: // MATRIX_PLANE_HEADING_Y_L
+		plane := p.getSelectedMatrixPlane()
+		plane.HeadingY = int16((uint16(plane.HeadingY) & 0xFF00) | uint16(value))
+		if p.Logger != nil {
+			p.Logger.LogPPUf(debug.LogLevelDebug, "PPU MMIO: plane %d HEADING_Y_L=0x%02X -> HeadingY=%d", p.MatrixPlaneSelect&0x03, value, plane.HeadingY)
+		}
+	case 0x9A: // MATRIX_PLANE_HEADING_Y_H
+		plane := p.getSelectedMatrixPlane()
+		plane.HeadingY = int16((uint16(plane.HeadingY) & 0x00FF) | (uint16(value) << 8))
+		if p.Logger != nil {
+			p.Logger.LogPPUf(debug.LogLevelDebug, "PPU MMIO: plane %d HEADING_Y_H=0x%02X -> HeadingY=%d", p.MatrixPlaneSelect&0x03, value, plane.HeadingY)
+		}
+	case 0x9B: // MATRIX_PLANE_BASE_DISTANCE_L
+		plane := p.getSelectedMatrixPlane()
+		plane.BaseDistance = (plane.BaseDistance & 0xFF00) | uint16(value)
+	case 0x9C: // MATRIX_PLANE_BASE_DISTANCE_H
+		plane := p.getSelectedMatrixPlane()
+		plane.BaseDistance = (plane.BaseDistance & 0x00FF) | (uint16(value) << 8)
+	case 0x9D: // MATRIX_PLANE_FOCAL_LENGTH_L
+		plane := p.getSelectedMatrixPlane()
+		plane.FocalLength = (plane.FocalLength & 0xFF00) | uint16(value)
+	case 0x9E: // MATRIX_PLANE_FOCAL_LENGTH_H
+		plane := p.getSelectedMatrixPlane()
+		plane.FocalLength = (plane.FocalLength & 0x00FF) | (uint16(value) << 8)
+	case 0x9F: // MATRIX_PLANE_WIDTH_SCALE_L
+		plane := p.getSelectedMatrixPlane()
+		plane.WidthScale = (plane.WidthScale & 0xFF00) | uint16(value)
+	case 0xA0: // MATRIX_PLANE_WIDTH_SCALE_H
+		plane := p.getSelectedMatrixPlane()
+		plane.WidthScale = (plane.WidthScale & 0x00FF) | (uint16(value) << 8)
+	case 0xA1: // MATRIX_PLANE_ORIGIN_X_L
+		plane := p.getSelectedMatrixPlane()
+		plane.OriginX = int16((uint16(plane.OriginX) & 0xFF00) | uint16(value))
+	case 0xA2: // MATRIX_PLANE_ORIGIN_X_H
+		plane := p.getSelectedMatrixPlane()
+		plane.OriginX = int16((uint16(plane.OriginX) & 0x00FF) | (uint16(value) << 8))
+	case 0xA3: // MATRIX_PLANE_ORIGIN_Y_L
+		plane := p.getSelectedMatrixPlane()
+		plane.OriginY = int16((uint16(plane.OriginY) & 0xFF00) | uint16(value))
+	case 0xA4: // MATRIX_PLANE_ORIGIN_Y_H
+		plane := p.getSelectedMatrixPlane()
+		plane.OriginY = int16((uint16(plane.OriginY) & 0x00FF) | (uint16(value) << 8))
+	case 0xA5: // MATRIX_PLANE_FACING_X_L
+		plane := p.getSelectedMatrixPlane()
+		plane.FacingX = int16((uint16(plane.FacingX) & 0xFF00) | uint16(value))
+	case 0xA6: // MATRIX_PLANE_FACING_X_H
+		plane := p.getSelectedMatrixPlane()
+		plane.FacingX = int16((uint16(plane.FacingX) & 0x00FF) | (uint16(value) << 8))
+	case 0xA7: // MATRIX_PLANE_FACING_Y_L
+		plane := p.getSelectedMatrixPlane()
+		plane.FacingY = int16((uint16(plane.FacingY) & 0xFF00) | uint16(value))
+	case 0xA8: // MATRIX_PLANE_FACING_Y_H
+		plane := p.getSelectedMatrixPlane()
+		plane.FacingY = int16((uint16(plane.FacingY) & 0x00FF) | (uint16(value) << 8))
+	case 0xA9: // MATRIX_PLANE_HEIGHT_SCALE_L
+		plane := p.getSelectedMatrixPlane()
+		plane.HeightScale = (plane.HeightScale & 0xFF00) | uint16(value)
+	case 0xAA: // MATRIX_PLANE_HEIGHT_SCALE_H
+		plane := p.getSelectedMatrixPlane()
+		plane.HeightScale = (plane.HeightScale & 0x00FF) | (uint16(value) << 8)
 
 	// Text rendering registers (0x70-0x76)
 	case 0x70: // TEXT_X_L
@@ -1565,6 +1776,8 @@ func (p *PPU) stepDMA() {
 		addr := int(p.MatrixPlaneBitmapAddr) & (len(plane.Bitmap) - 1)
 		plane.Bitmap[addr] = data
 		p.MatrixPlaneBitmapAddr = uint32((addr + 1) & (len(plane.Bitmap) - 1))
+	case 6: // Dedicated matrix-plane row params
+		p.writeSelectedMatrixPlaneRowData(data)
 	}
 
 	// Advance progress

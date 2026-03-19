@@ -1,29 +1,31 @@
 # Nitro-Core-DX APU FM Extension Specification (Transitional Reference)
 
-**Version 0.3 (Draft, Transitional)**  
-**Date:** March 9, 2026  
-**Purpose:** Document FM host-interface evolution and compatibility constraints during YM2608 migration.
+**Version 0.4 (Draft, Transitional)**  
+**Date:** March 19, 2026  
+**Purpose:** Document the current FM host interface and compatibility constraints during YM2608 migration.
 
-> **Design Direction:** Preserve stable legacy behavior while driving runtime FM through a YM2608-capable backend path with explicit fallback controls.
+> **Design Direction:** Preserve stable legacy APU behavior while driving runtime FM through a YM2608/OPNA backend path. Older OPM-oriented naming remains only where the host MMIO shell still depends on it.
 
-> **Planning Update (2026-03-09):**
-> - V1 release audio target is **YM2608**.
-> - Runtime backend mode is selected via `NCDX_YM_BACKEND=auto|ymfm|legacy` (`auto` default).
-> - YMFM is used when available; in-tree legacy path remains fallback/compatibility mode.
+> **Planning Update (2026-03-19):**
+> - V1 release audio target is **YM2608/OPNA**.
+> - Emulator/devkit frontends currently default to YMFM and only expose `-audio-backend ymfm`.
+> - `NCDX_YM_BACKEND` is still used internally; cgo entrypoints set it to `ymfm` by default.
+> - The in-tree OPM-lite model remains a code-level fallback for non-YMFM builds, but it is no longer the primary documented runtime target.
 > - Use `docs/planning/V1_CHARTER.md` and `docs/planning/V1_ACCEPTANCE.md` for release-target scope and gates.
 
-> **Implementation Snapshot (2026-03-09):**
+> **Implementation Snapshot (2026-03-19):**
 > - FM host MMIO interface at `0x9100-0x91FF` is implemented in the emulator/APU.
+> - Active YM2608 path uses `0x9100/0x9101` for port 0, `0x9102` for shared host status, `0x9103` for control, and `0x9104/0x9105` for port 1 (legacy aliases `FM_MIX_L/R`).
 > - `FM_STATUS` timer/busy/IRQ flags and FM timer IRQ bridge are implemented (deterministic placeholder timing model).
-> - YM2608-capable runtime playback path is operational through YMFM backend builds.
-> - Legacy in-tree path is retained as controlled fallback and compatibility mode.
+> - YM2608 runtime playback path is operational through YMFM-backed builds.
+> - Legacy in-tree path is retained as a compatibility fallback when YMFM is unavailable.
 > - The active emulator runtime uses fixed-point sample generation; legacy floating-point phase/sample helpers remain compatibility-only and are not the primary clock-driven path.
 
 ---
 
 ## Goals
 
-- Add a **YM2151/OPM-compatible FM synthesis extension** as an APU subsystem
+- Add a **YM2608/OPNA-targeted FM synthesis extension** as an APU subsystem while preserving compatibility with older OPM-oriented tooling where practical
 - Preserve existing `0x9000+` APU behavior and ROM compatibility
 - Provide a **software emulator implementation first** for validation and tooling
 - Keep the design **FPGA-implementable** and suitable for future hardware integration
@@ -33,7 +35,7 @@
 
 - Replacing the current APU/PSG+PCM path
 - Audio “sound design polish” features unrelated to hardware behavior
-- Finalizing every YM2151 analog/output characteristic in the first pass
+- Finalizing every YM2608 analog/output characteristic in the first pass
 - Building the FPGA implementation immediately (this doc defines the path)
 
 ---
@@ -45,7 +47,7 @@
 The Nitro-Core-DX audio subsystem evolves into a mixed architecture:
 
 - **APU Core (existing):** Simple PSG/PCM-style channels (developer-friendly)
-- **FM Extension (new):** OPM/YM2151-compatible register interface + FM synthesis engine
+- **FM Extension (new):** YM2608/OPNA-oriented dual-port host interface + FM synthesis engine
 - **Mixer (new/expanded):** Combines legacy APU output + FM output into a unified stream
 
 ```
@@ -53,7 +55,7 @@ CPU writes audio regs
     │
     ├── Legacy APU regs (0x9000-0x90FF) ──► Existing APU (PSG/PCM)
     │
-    └── FM OPM regs   (new range)       ──► FM Extension (YM2151-compatible model)
+    └── FM host regs  (new range)       ──► FM Extension (YM2608/OPNA-oriented model)
                                              │
                              Legacy APU out ─┼─► Unified Mixer ─► Audio backend
                                    FM out ───┘
@@ -79,20 +81,21 @@ CPU writes audio regs
 - `0x9100 - 0x91FF` : FM extension host interface + status
 - `0x9200 - 0x92FF` : Optional mirror/debug windows (phase 2, optional)
 
-### FM Host Interface (Draft)
+### FM Host Interface (Current Runtime Contract)
 
-This wraps the OPM/YM2151-style register bus in a CPU-friendly MMIO shell:
+This wraps the YM2608/OPNA dual-port register bus in a CPU-friendly MMIO shell:
 
-- `0x9100` `FM_ADDR` (write): OPM register address select
-- `0x9101` `FM_DATA` (write/read): OPM register data port
-- `0x9102` `FM_STATUS` (read): Busy / timer flags / IRQ pending
-- `0x9103` `FM_CONTROL` (write): Enable/mute/reset/debug options
-- `0x9104` `FM_MIX_L` (write): FM contribution to left mix (phase 2 if stereo)
-- `0x9105` `FM_MIX_R` (write): FM contribution to right mix (phase 2 if stereo)
+- `0x9100` `FM_ADDR` (write/read): Port 0 register address select
+- `0x9101` `FM_DATA` (write/read): Port 0 data port
+- `0x9102` `FM_STATUS` (read): Shared busy / timer flags / IRQ pending
+- `0x9103` `FM_CONTROL` (write/read): Enable/mute/reset/debug options
+- `0x9104` `FM_PORT1_ADDR` (`FM_MIX_L` legacy alias) (write/read): Port 1 register address select
+- `0x9105` `FM_PORT1_DATA` (`FM_MIX_R` legacy alias) (write/read): Port 1 data port
 
 Notes:
-- OPM compatibility should be implemented primarily through the `FM_ADDR/FM_DATA` register pair.
-- `FM_STATUS` should expose timer/IRQ behavior in a Nitro-friendly way while remaining OPM-accurate enough for software compatibility.
+- The active YMFM backend treats `0x9104/0x9105` as YM2608 upper-port address/data, not just abstract mix-gain bytes.
+- `FM_STATUS` is the current Nitro host-status register; a dedicated `status1` mirror is not presently exposed.
+- Timer-oriented OPM-style host writes (`0x10/0x11/0x12/0x14`) are translated to the YM2608 timer register set in the active backend.
 
 ---
 
@@ -100,13 +103,13 @@ Notes:
 
 ### Target Compatibility
 
-- **Behavioral compatibility:** YM2151/OPM register behavior sufficient for music drivers and patch programming
-- **Software compatibility:** Register-level workflows modeled after YM2151 (timers, key on/off, operator/channel params)
-- **FPGA compatibility:** Design maps cleanly to a hardware FM core (AURA/OPM-style)
+- **Behavioral compatibility:** YM2608/OPNA register behavior sufficient for ROM playback, music drivers, and chip-facing diagnostics
+- **Software compatibility:** Preserve the existing host MMIO shell and OPM-style timer/control expectations where older tooling depends on them
+- **FPGA compatibility:** Design maps cleanly to a hardware FM core plus a Nitro bus wrapper
 
 ### Explicit Compatibility Scope (Phase 1)
 
-- Register write/read behavior
+- Dual-port host write/read behavior
 - Key on/off behavior
 - Channel/operator parameter updates
 - Timer behavior and status flags
@@ -310,11 +313,11 @@ Using an FPGA OPM-compatible approach (AURA-style direction) supports:
 - ✅ Status/busy/timer smoke tests
 - ✅ Mixer integration hooks
 
-### Phase 2: YM2608 Runtime Bring-Up 🚧 (In Progress)
+### Phase 2: YM2608 Runtime Baseline 🚧 (Operational, Conformance Ongoing)
 
 - ✅ Timer/status behavior (deterministic placeholder timing model)
 - ✅ FM timer IRQ bridge to CPU interrupt system
-- ✅ YM2608-capable runtime backend path operational (YMFM when available)
+- ✅ YM2608 runtime backend path operational through YMFM-backed builds
 - ✅ Test ROM coverage for FM MMIO/timer and audible demos
 - ❌ Full conformance parity across expanded YM2608 reference vectors
 - ❌ Final envelope/timbre model and polish

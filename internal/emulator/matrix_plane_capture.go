@@ -81,7 +81,8 @@ func RenderBitmapMatrixPlanePhase(asset *MatrixPlaneBitmapAsset, phase MatrixPla
 	ppu.BG0.ScrollX = phase.ScrollX
 	ppu.BG0.ScrollY = phase.ScrollY
 
-	channel := &ppu.TransformChannels[asset.Program.Channel]
+	chIdx := int(asset.Program.Channel) % ppucore.NumTransformChannels
+	channel := &ppu.TransformChannels[chIdx]
 	channel.Enabled = true
 	channel.A = phase.A
 	channel.B = phase.B

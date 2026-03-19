@@ -1,11 +1,10 @@
-//go:build ymfm_cgo
+//go:build cgo
 
 package apu
 
 import "testing"
 
 func TestYMFMBackendDefault(t *testing.T) {
-	t.Setenv("NCDX_YM_BACKEND", "")
 	fm := NewFMOPM(nil)
 	if fm.backend == nil {
 		t.Fatalf("expected YMFM backend when using default YMFM mode under ymfm_cgo build")
@@ -13,7 +12,6 @@ func TestYMFMBackendDefault(t *testing.T) {
 }
 
 func TestYMFMBackendSelectionViaEnv(t *testing.T) {
-	t.Setenv("NCDX_YM_BACKEND", "ymfm")
 	fm := NewFMOPM(nil)
 	if fm.backend == nil {
 		t.Fatalf("expected YMFM backend when NCDX_YM_BACKEND=ymfm")
@@ -28,7 +26,6 @@ func TestYMFMBackendSelectionViaEnv(t *testing.T) {
 }
 
 func TestYMFMBackendUpperPortViaMixRegisters(t *testing.T) {
-	t.Setenv("NCDX_YM_BACKEND", "ymfm")
 	fm := NewFMOPM(nil)
 	if fm.backend == nil {
 		t.Fatalf("expected YMFM backend when NCDX_YM_BACKEND=ymfm")
@@ -45,11 +42,6 @@ func TestYMFMBackendUpperPortViaMixRegisters(t *testing.T) {
 }
 
 func TestYMFMBackendRejectsNonYMFMMode(t *testing.T) {
-	t.Setenv("NCDX_YM_BACKEND", "legacy")
-	defer func() {
-		if recover() == nil {
-			t.Fatalf("expected panic when NCDX_YM_BACKEND is not ymfm")
-		}
-	}()
-	_ = NewFMOPM(nil)
+	// Environment-based selection has been removed; YMFM is now always-on.
+	// This test is kept as a stub to preserve file structure.
 }

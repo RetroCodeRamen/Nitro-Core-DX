@@ -101,6 +101,14 @@ func put16LE(buf []byte, value int16) {
 	buf[1] = byte(u >> 8)
 }
 
+func put32LE(buf []byte, value int32) {
+	u := uint32(value)
+	buf[0] = byte(u)
+	buf[1] = byte(u >> 8)
+	buf[2] = byte(u >> 16)
+	buf[3] = byte(u >> 24)
+}
+
 type trackPoint struct {
 	x float64
 	y float64
@@ -329,6 +337,96 @@ func buildPerspectiveFloorTables(phaseCount int, path []trackPoint) [][]byte {
 	return tables
 }
 
+func buildPerspectiveRowTable(phaseCount int, path []trackPoint, idx int) []byte {
+	const (
+		horizonY = 92
+		screenCX = 160.0
+		stride   = 16
+		sourceCX = 512.0
+		sourceCY = 512.0
+		orbitRX  = 340.0
+		orbitRY  = 300.0
+	)
+	table := make([]byte, ppucore.VisibleScanlines*stride)
+	phase := (2.0 * math.Pi * float64(idx)) / float64(phaseCount)
+	cameraX := sourceCX + orbitRX*math.Cos(phase)
+	cameraY := sourceCY + orbitRY*math.Sin(phase)
+	tangentX := -math.Sin(phase)
+	tangentY := math.Cos(phase)
+	if len(path) > 0 {
+		curr := path[idx%len(path)]
+		prev := path[(idx-1+len(path))%len(path)]
+		next := path[(idx+1)%len(path)]
+		cameraX = curr.x
+		cameraY = curr.y
+		tangentX = next.x - prev.x
+		tangentY = next.y - prev.y
+	}
+
+	inwardX := sourceCX - cameraX
+	inwardY := sourceCY - cameraY
+	inwardLen := math.Hypot(inwardX, inwardY)
+	if inwardLen != 0 {
+		inwardX /= inwardLen
+		inwardY /= inwardLen
+	}
+	forwardX := tangentX*0.92 + inwardX*0.28
+	forwardY := tangentY*0.92 + inwardY*0.28
+	forwardLen := math.Hypot(forwardX, forwardY)
+	if forwardLen != 0 {
+		forwardX /= forwardLen
+		forwardY /= forwardLen
+	}
+	rightX := forwardY
+	rightY := -forwardX
+
+	for y := 0; y < ppucore.VisibleScanlines; y++ {
+		base := y * stride
+		startX := int32(-1 << 16)
+		startY := int32(0)
+		stepX := int32(0)
+		stepY := int32(0)
+
+		if y >= horizonY {
+			line := float64(y-horizonY) + 1.0
+			step := 1.6 / (1.0 + line/18.0)
+			if step < 0.08 {
+				step = 0.08
+			}
+			if step > 1.6 {
+				step = 1.6
+			}
+			forward := 3072.0 / (line + 6.0)
+
+			du := rightX * step
+			dv := rightY * step
+			rowCenterX := cameraX + forwardX*forward
+			rowCenterY := cameraY + forwardY*forward
+			rowStartX := rowCenterX - screenCX*du
+			rowStartY := rowCenterY - screenCX*dv
+
+			startX = int32(math.Round(rowStartX * 65536.0))
+			startY = int32(math.Round(rowStartY * 65536.0))
+			stepX = int32(math.Round(du * 65536.0))
+			stepY = int32(math.Round(dv * 65536.0))
+		}
+
+		put32LE(table[base+0:base+4], startX)
+		put32LE(table[base+4:base+8], startY)
+		put32LE(table[base+8:base+12], stepX)
+		put32LE(table[base+12:base+16], stepY)
+	}
+	return table
+}
+
+func buildPerspectiveRowTables(phaseCount int, path []trackPoint) [][]byte {
+	tables := make([][]byte, phaseCount)
+	for i := 0; i < phaseCount; i++ {
+		tables[i] = buildPerspectiveRowTable(phaseCount, path, i)
+	}
+	return tables
+}
+
 func loadPNG(path string) (image.Image, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -384,15 +482,14 @@ func makeSkyOverlayCanvas(canvasPixels int) image.Image {
 	return dst
 }
 
-func buildMatrixBitmapShowcaseROM(img image.Image, outPath string) error {
+func buildMatrixRowModeShowcaseROM(img image.Image, outPath string) error {
 	const (
 		codeBank          = 1
 		dataStartBank     = 2
 		wramLastFrame     = 0x0200
 		wramTrigTableBase = 0x0300
 		trigSteps         = 32
-		hdmaTableBase     = 0x0000
-		floorPhaseCount   = 128
+		floorPhaseCount   = 64
 		floorPhaseShift   = 4
 		matrixPlane0Ctl   = 0x1D // enabled, 128x128, bitmap, palette bank 1
 		matrixPlane1Ctl   = 0x2D // enabled, 128x128, bitmap, palette bank 2
@@ -417,7 +514,7 @@ func buildMatrixBitmapShowcaseROM(img image.Image, outPath string) error {
 		return err
 	}
 	floorPath := extractTrackPath(img, floorPhaseCount)
-	floorTables := buildPerspectiveFloorTables(floorPhaseCount, floorPath)
+	rowTables := buildPerspectiveRowTables(floorPhaseCount, floorPath)
 
 	a := newASM(codeBank)
 	uploadRoutine := "upload_bytes"
@@ -536,9 +633,9 @@ func buildMatrixBitmapShowcaseROM(img image.Image, outPath string) error {
 	floorRef, cursor := allocateROMData(0, floorAsset.Program.Bitmap)
 	skyRef, cursor := allocateROMData(cursor, skyAsset.Program.Bitmap)
 	side2Ref, cursor := allocateROMData(cursor, sideAsset2.Program.Bitmap)
-	floorTableRefs := make([]romDataRef, floorPhaseCount)
-	for i := range floorTables {
-		floorTableRefs[i], cursor = allocateROMData(cursor, floorTables[i])
+	rowTableRefs := make([]romDataRef, floorPhaseCount)
+	for i := range rowTables {
+		rowTableRefs[i], cursor = allocateROMData(cursor, rowTables[i])
 	}
 	_ = cursor
 
@@ -595,7 +692,7 @@ func buildMatrixBitmapShowcaseROM(img image.Image, outPath string) error {
 	write8(a, 0x808A, 0x00)
 	emitMatrixBitmapDMAChunks(a, 0x02, side2Ref)
 
-	emitVRAMDMAChunks(a, hdmaTableBase, floorTableRefs[0])
+	emitMatrixRowDMAChunks(a, 0x00, rowTableRefs[0])
 
 	emitInitTrigTable(a, wramTrigTableBase, trigSteps)
 
@@ -607,33 +704,32 @@ func buildMatrixBitmapShowcaseROM(img image.Image, outPath string) error {
 	a.mark("main_loop")
 	emitWaitOneFrame(a, wramLastFrame)
 
-	// Floor plane: upload one fine-grained perspective table every frame.
+	// Floor plane: upload one fine-grained row-parameter table every frame.
 	a.movImm(4, 0x803F)
 	a.movLoad(0, 4)
 	a.shrImm(0, floorPhaseShift)
 	a.andImm(0, floorPhaseCount-1)
-	labelAfterFloorTable := a.uniq("after_floor_table")
+	labelAfterFloorTable := a.uniq("after_row_table")
 	phaseLabels := make([]string, floorPhaseCount)
 	for i := 0; i < floorPhaseCount; i++ {
-		phaseLabels[i] = a.uniq(fmt.Sprintf("floor_table_%02d", i))
+		phaseLabels[i] = a.uniq(fmt.Sprintf("row_table_%02d", i))
 	}
 	for i := 0; i < floorPhaseCount; i++ {
 		a.cmpImm(0, uint16(i))
 		a.beq(phaseLabels[i])
 	}
-	emitVRAMDMAChunks(a, hdmaTableBase, floorTableRefs[floorPhaseCount-1])
+	emitMatrixRowDMAChunks(a, 0x00, rowTableRefs[floorPhaseCount-1])
 	a.jmp(labelAfterFloorTable)
 	for i := 0; i < floorPhaseCount; i++ {
 		a.mark(phaseLabels[i])
-		emitVRAMDMAChunks(a, hdmaTableBase, floorTableRefs[i])
+		emitMatrixRowDMAChunks(a, 0x00, rowTableRefs[i])
 		if i != floorPhaseCount-1 {
 			a.jmp(labelAfterFloorTable)
 		}
 	}
 	a.mark(labelAfterFloorTable)
-	write16(a, 0x805E, hdmaTableBase)
-	write8(a, 0x805D, 0x03) // enable HDMA, BG0 only
-	write8(a, 0x807F, 0x00)
+	write8(a, 0x8080, 0x00)
+	write8(a, 0x808D, 0x01)
 	write8(a, 0x8018, 0x01) // BG0 matrix mode enabled, wrap outside behavior
 
 	// Full-screen sky/horizon overlay: identity transform, clamp.
@@ -653,7 +749,7 @@ func buildMatrixBitmapShowcaseROM(img image.Image, outPath string) error {
 	emitWriteMatrixRegs(a, 0x8038, 0x8039, 0x803B, 0x803D, 0x803F, 0x8041, 0x8043, 0x19, 2, 3, 6, 2, 264, 76)
 
 	emitText(a, 8, 8, 0xF8, 0xF8, 0xF8, "LOWER HALF FLOOR DEMO")
-	emitText(a, 8, 20, 0xB0, 0xE0, 0xFF, "BG0 FLOOR  BG1 SKY  BG2 SIDE")
+	emitText(a, 8, 20, 0xB0, 0xE0, 0xFF, "BG0 ROW FLOOR  BG1 SKY  BG2 SIDE")
 
 	a.jmp("main_loop")
 
@@ -666,8 +762,8 @@ func buildMatrixBitmapShowcaseROM(img image.Image, outPath string) error {
 	payload := append([]byte{}, floorAsset.Program.Bitmap...)
 	payload = append(payload, skyAsset.Program.Bitmap...)
 	payload = append(payload, sideAsset2.Program.Bitmap...)
-	for i := range floorTables {
-		payload = append(payload, floorTables[i]...)
+	for i := range rowTables {
+		payload = append(payload, rowTables[i]...)
 	}
 	if err := appendDataBlob(a.B, dataStartBank, payload); err != nil {
 		return err
@@ -677,8 +773,8 @@ func buildMatrixBitmapShowcaseROM(img image.Image, outPath string) error {
 }
 
 func main() {
-	inPath := flag.String("in", "/home/aj/Downloads/Test.png", "input PNG image")
-	outPath := flag.String("out", "roms/matrix_floor_bitmap_showcase.rom", "output ROM path")
+	inPath := flag.String("in", "Resources/kart.png", "input PNG image")
+	outPath := flag.String("out", "roms/matrix_rowmode_showcase.rom", "output ROM path")
 	flag.Parse()
 
 	img, err := loadPNG(*inPath)
@@ -686,7 +782,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "load %s: %v\n", *inPath, err)
 		os.Exit(1)
 	}
-	if err := buildMatrixBitmapShowcaseROM(img, *outPath); err != nil {
+	if err := buildMatrixRowModeShowcaseROM(img, *outPath); err != nil {
 		fmt.Fprintf(os.Stderr, "build ROM: %v\n", err)
 		os.Exit(1)
 	}

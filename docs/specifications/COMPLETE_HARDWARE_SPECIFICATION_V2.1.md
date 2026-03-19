@@ -1,7 +1,7 @@
 # Nitro-Core-DX Complete Hardware Specification
 
 **Version 2.1**  
-**Last Updated: February 24, 2026**  
+**Last Updated: March 19, 2026**  
 **Purpose: FPGA-implementable hardware specification based on emulator source code evidence**
 
 > **📌 Evidence-Based**: This specification is derived directly from the emulator source code. Every behavior, register, and timing specification is backed by code evidence. Unverified or inferred behaviors are explicitly marked.
@@ -42,7 +42,7 @@
 | **Tile Size** | 8×8 or 16×16 pixels (configurable per layer) | `internal/ppu/ppu.go:123, 839-842` |
 | **Max Sprites** | 128 sprites | `internal/ppu/ppu.go:17, 328` |
 | **Background Layers** | 4 independent layers (BG0, BG1, BG2, BG3) | `internal/ppu/ppu.go:20` |
-| **Matrix Mode** | Mode 7-style effects with per-layer support | `internal/ppu/ppu.go:127-135, 647-827` |
+| **Matrix Mode** | 4 transform channels + 4 dedicated matrix planes with affine, row, and generic projection support | `internal/ppu/ppu.go:127-135, 647-827` |
 | **Audio Channels** | 4 channels (sine, square, saw, noise waveforms) | `internal/apu/apu.go:19, 56-87` |
 | **Audio Sample Rate** | 44,100 Hz | `internal/emulator/emulator.go:76, 116` |
 | **CPU Speed** | ~7.67 MHz (127,820 cycles per frame at 60 FPS) | `internal/emulator/emulator.go:114, 147` |
@@ -73,7 +73,7 @@
 │  ├─ OAM (768 bytes, 128 sprites)                       │
 │  ├─ 4 Background Layers (BG0-BG3)                     │
 │  ├─ 128 Sprites                                        │
-│  ├─ Matrix Mode (Mode 7-style, per-layer)             │
+│  ├─ 4 Transform Channels + 4 Matrix Planes            │
 │  ├─ Windowing System                                   │
 │  └─ HDMA (per-scanline scroll/matrix)                 │
 ├─────────────────────────────────────────────────────────┤
@@ -442,7 +442,7 @@ All instructions are 16-bit words:
 - **Priority**: Explicit per-layer priority field (0-3, higher number = higher priority)
 - **Scroll**: Per-layer X/Y scroll registers (16-bit signed)
 - **Tilemap Base**: Configurable per layer (default 0x4000) (`ppu.go:580-583`)
-- **Tilemap Size**: 32×32 tiles (`ppu.go:844-846`)
+- **Tilemap Size**: 32×32, 64×64, or 128×128 tiles
 
 ### Sprites
 
@@ -459,12 +459,14 @@ All instructions are 16-bit words:
 
 **Evidence:** `internal/ppu/ppu.go:127-135, 647-827`
 
-- **Mode 7-style Effects**: Layer-bound use of dedicated runtime transform channels
-- **Transformations**: Rotation, scaling, perspective
+- **Mode 7-style Effects**: Layer-bound use of dedicated runtime transform channels with dedicated matrix-plane backing
+- **Transform Channels**: 4 runtime transform engines, independently bindable to BG0-BG3
+- **Matrix Planes**: 4 dedicated transform sources with tilemap/pattern or bitmap backing
+- **Transformations**: Affine matrix sampling, row-table projection, perspective row projection, vertical projected quad
 - **Matrix Format**: 8.8 fixed point (int16, 1.0 = 0x0100)
 - **Matrix Parameters**: A, B, C, D (transformation matrix), CenterX, CenterY
 - **Mirroring**: Horizontal and/or vertical mirroring
-- **Outside Mode**: 0=repeat/wrap, 1=backdrop, 2=character #0
+- **Outside Mode**: 0=repeat/wrap, 1=backdrop, 2=character #0, 3=clamp
 - **Direct Color**: Bypass CGRAM, use direct RGB (bit 5 of matrix control)
 
 ### Rendering Pipeline
@@ -505,7 +507,7 @@ All instructions are 16-bit words:
 - **Sample Rate**: 44,100 Hz (`emulator.go:76`)
 - **Output**: Mono (single channel, can be mixed to stereo by host)
 - **PCM Support**: Per-channel PCM playback mode (shared channel slots)
-- **FM Extension**: Experimental FM/OPM-style extension via `0x9100-0x91FF` (documented below)
+- **FM Extension**: YM2608/OPNA-oriented FM host interface via `0x9100-0x91FF` (documented below)
 
 ### Channel Parameters
 
@@ -621,10 +623,10 @@ All instructions are 16-bit words:
 | 0x8009 | BG1_CONTROL | 8-bit | Bit 0=enable, bit 1=tile size, bits [3:2]=priority, bits [5:4]=tilemap size | `ppu.go` |
 | 0x8021 | BG2_CONTROL | 8-bit | Bit 0=enable, bit 1=tile size, bits [3:2]=priority, bits [5:4]=tilemap size | `ppu.go` |
 | 0x8026 | BG3_CONTROL | 8-bit | Bit 0=enable, bit 1=tile size, bits [3:2]=priority, bits [5:4]=tilemap size | `ppu.go` |
-| 0x8068 | BG0_SOURCE_MODE | 8-bit | Bit 0=source mode (0=tilemap, 1=bitmap reserved) | `ppu.go` |
-| 0x8069 | BG1_SOURCE_MODE | 8-bit | Bit 0=source mode (0=tilemap, 1=bitmap reserved) | `ppu.go` |
-| 0x806A | BG2_SOURCE_MODE | 8-bit | Bit 0=source mode (0=tilemap, 1=bitmap reserved) | `ppu.go` |
-| 0x806B | BG3_SOURCE_MODE | 8-bit | Bit 0=source mode (0=tilemap, 1=bitmap reserved) | `ppu.go` |
+| 0x8068 | BG0_SOURCE_MODE | 8-bit | Bit 0=visible-layer source mode latch (`0=tilemap`, `1=bitmap`). Current transformed runtime source selection is realized per dedicated matrix plane. | `ppu.go` |
+| 0x8069 | BG1_SOURCE_MODE | 8-bit | Bit 0=visible-layer source mode latch (`0=tilemap`, `1=bitmap`). Current transformed runtime source selection is realized per dedicated matrix plane. | `ppu.go` |
+| 0x806A | BG2_SOURCE_MODE | 8-bit | Bit 0=visible-layer source mode latch (`0=tilemap`, `1=bitmap`). Current transformed runtime source selection is realized per dedicated matrix plane. | `ppu.go` |
+| 0x806B | BG3_SOURCE_MODE | 8-bit | Bit 0=visible-layer source mode latch (`0=tilemap`, `1=bitmap`). Current transformed runtime source selection is realized per dedicated matrix plane. | `ppu.go` |
 | 0x806C | BG0_TRANSFORM_BIND | 8-bit | Bits [1:0]=bound transform channel | `ppu.go` |
 | 0x806D | BG1_TRANSFORM_BIND | 8-bit | Bits [1:0]=bound transform channel | `ppu.go` |
 | 0x806E | BG2_TRANSFORM_BIND | 8-bit | Bits [1:0]=bound transform channel | `ppu.go` |
@@ -725,6 +727,37 @@ All instructions are 16-bit words:
 | 0x8089 | MATRIX_PLANE_BITMAP_ADDR_M | 8-bit | Dedicated matrix plane bitmap address middle byte | `ppu.go` |
 | 0x808A | MATRIX_PLANE_BITMAP_ADDR_H | 8-bit | Dedicated matrix plane bitmap address high bits (`0-7`) | `ppu.go` |
 | 0x808B | MATRIX_PLANE_BITMAP_DATA | 8-bit | Dedicated matrix plane bitmap data (auto-increments address) | `ppu.go` |
+| 0x808C | MATRIX_PLANE_FLAGS | 8-bit | Bit 0=bitmap index 0 transparent, bit 1=two-sided projection | `ppu.go` |
+| 0x808D | MATRIX_PLANE_ROW_CONTROL | 8-bit | Bit 0=row-mode enable | `ppu.go` |
+| 0x808E | MATRIX_PLANE_ROW_ADDR_L | 8-bit | Row-table byte address low byte | `ppu.go` |
+| 0x808F | MATRIX_PLANE_ROW_ADDR_H | 8-bit | Row-table byte address high nibble | `ppu.go` |
+| 0x8090 | MATRIX_PLANE_ROW_DATA | 8-bit | Row-table byte data (auto-increments address) | `ppu.go` |
+| 0x8091 | MATRIX_PLANE_PROJECTION_CONTROL | 8-bit | Bits [1:0]=projection mode (`0=none/manual rows`, `1=perspective row projection`, `2=vertical projected quad`) | `ppu.go` |
+| 0x8092 | MATRIX_PLANE_HORIZON | 8-bit | Perspective horizon scanline | `ppu.go` |
+| 0x8093 | MATRIX_PLANE_CAMERA_X_L | 8-bit | Camera X low byte | `ppu.go` |
+| 0x8094 | MATRIX_PLANE_CAMERA_X_H | 8-bit | Camera X high byte | `ppu.go` |
+| 0x8095 | MATRIX_PLANE_CAMERA_Y_L | 8-bit | Camera Y low byte | `ppu.go` |
+| 0x8096 | MATRIX_PLANE_CAMERA_Y_H | 8-bit | Camera Y high byte | `ppu.go` |
+| 0x8097 | MATRIX_PLANE_HEADING_X_L | 8-bit | Heading vector X low byte (`8.8`) | `ppu.go` |
+| 0x8098 | MATRIX_PLANE_HEADING_X_H | 8-bit | Heading vector X high byte | `ppu.go` |
+| 0x8099 | MATRIX_PLANE_HEADING_Y_L | 8-bit | Heading vector Y low byte (`8.8`) | `ppu.go` |
+| 0x809A | MATRIX_PLANE_HEADING_Y_H | 8-bit | Heading vector Y high byte | `ppu.go` |
+| 0x809B | MATRIX_PLANE_BASE_DISTANCE_L | 8-bit | Base distance / camera height low byte (`8.8`) | `ppu.go` |
+| 0x809C | MATRIX_PLANE_BASE_DISTANCE_H | 8-bit | Base distance / camera height high byte | `ppu.go` |
+| 0x809D | MATRIX_PLANE_FOCAL_LENGTH_L | 8-bit | Focal length low byte (`8.8`) | `ppu.go` |
+| 0x809E | MATRIX_PLANE_FOCAL_LENGTH_H | 8-bit | Focal length high byte | `ppu.go` |
+| 0x809F | MATRIX_PLANE_WIDTH_SCALE_L | 8-bit | Width scale low byte (`8.8`) | `ppu.go` |
+| 0x80A0 | MATRIX_PLANE_WIDTH_SCALE_H | 8-bit | Width scale high byte | `ppu.go` |
+| 0x80A1 | MATRIX_PLANE_ORIGIN_X_L | 8-bit | Vertical-quad origin X low byte | `ppu.go` |
+| 0x80A2 | MATRIX_PLANE_ORIGIN_X_H | 8-bit | Vertical-quad origin X high byte | `ppu.go` |
+| 0x80A3 | MATRIX_PLANE_ORIGIN_Y_L | 8-bit | Vertical-quad origin Y low byte | `ppu.go` |
+| 0x80A4 | MATRIX_PLANE_ORIGIN_Y_H | 8-bit | Vertical-quad origin Y high byte | `ppu.go` |
+| 0x80A5 | MATRIX_PLANE_FACING_X_L | 8-bit | Facing/normal X low byte (`8.8`) | `ppu.go` |
+| 0x80A6 | MATRIX_PLANE_FACING_X_H | 8-bit | Facing/normal X high byte | `ppu.go` |
+| 0x80A7 | MATRIX_PLANE_FACING_Y_L | 8-bit | Facing/normal Y low byte (`8.8`) | `ppu.go` |
+| 0x80A8 | MATRIX_PLANE_FACING_Y_H | 8-bit | Facing/normal Y high byte | `ppu.go` |
+| 0x80A9 | MATRIX_PLANE_HEIGHT_SCALE_L | 8-bit | Vertical-quad height scale low byte (`8.8`) | `ppu.go` |
+| 0x80AA | MATRIX_PLANE_HEIGHT_SCALE_H | 8-bit | Vertical-quad height scale high byte | `ppu.go` |
 
 #### DMA Registers
 
@@ -743,7 +776,7 @@ All instructions are 16-bit words:
 **DMA Behavior (Evidence: `ppu.go:652-717, scanline.go:66-93`):**
 - Mode 0: Copy (read from source, write to destination)
 - Mode 1: Fill (read fill value once, write to all destinations)
-- Destination types: 0=VRAM, 1=CGRAM, 2=OAM
+- Destination types: 0=VRAM, 1=CGRAM, 2=OAM, 3=matrix tilemap, 4=matrix pattern, 5=matrix bitmap, 6=matrix row params
 - **Cycle-Accurate**: DMA executes one byte per cycle via `stepDMA()` during `StepPPU()` (`scanline.go:67, 81, 93`)
 - **Timing**: One byte transferred per CPU/PPU cycle (~7.67 MHz)
 - **Status**: DMA_STATUS (0x8060 read) returns 0x01 when active, 0x00 when idle
@@ -787,12 +820,12 @@ The FM extension is implemented as an APU sub-block. The memory bus already rout
 
 | Address | Name | Size | Description |
 |---------|------|------|-------------|
-| 0x9100 | FM_ADDR | 8-bit | FM register address select (YM2608-capable backend path) |
-| 0x9101 | FM_DATA | 8-bit | FM register data port (read/write shadowed register values) |
-| 0x9102 | FM_STATUS | 8-bit | Busy/timer/IRQ flags |
+| 0x9100 | FM_ADDR | 8-bit | Port 0 address select |
+| 0x9101 | FM_DATA | 8-bit | Port 0 data port (read/write shadowed register values) |
+| 0x9102 | FM_STATUS | 8-bit | Host-visible busy/timer/IRQ flags |
 | 0x9103 | FM_CONTROL | 8-bit | Bit0=enable, bit1=mute, bit7=write-one reset |
-| 0x9104 | FM_MIX_L | 8-bit | FM mix gain (left; currently used in mono fold-down) |
-| 0x9105 | FM_MIX_R | 8-bit | FM mix gain (right; currently used in mono fold-down) |
+| 0x9104 | FM_PORT1_ADDR (`FM_MIX_L` legacy alias) | 8-bit | Port 1 address select in the active YM2608 path |
+| 0x9105 | FM_PORT1_DATA (`FM_MIX_R` legacy alias) | 8-bit | Port 1 data port in the active YM2608 path |
 
 `FM_STATUS` bits (current emulator behavior):
 - Bit 0: Timer A flag
@@ -800,11 +833,17 @@ The FM extension is implemented as an APU sub-block. The memory bus already rout
 - Bit 6: Busy flag (host-interface busy placeholder timing)
 - Bit 7: IRQ pending (derived from timer flags + IRQ enable bits)
 
+Current host-interface notes:
+- The active YM2608 wrapper exposes dual-port access through `0x9100/0x9101` and `0x9104/0x9105`.
+- A separate `status1` mirror is not currently exposed through the Nitro MMIO shell; `0x9102` is the shared host status register.
+- Timer-oriented OPM-style writes (`0x10/0x11/0x12/0x14`) are translated to the YM2608 timer registers in the active YMFM backend.
+
 Current implementation status:
-- ✅ MMIO host interface (`FM_ADDR/FM_DATA/FM_STATUS/FM_CONTROL/FM_MIX_L/R`)
+- ✅ MMIO host interface (`FM_ADDR/FM_DATA/FM_STATUS/FM_CONTROL/FM_PORT1_ADDR/DATA`, with `FM_MIX_L/R` retained as legacy aliases)
 - ✅ Timer/status behavior and IRQ bridge (deterministic placeholder timer timing)
-- ✅ YM2608-capable runtime backend path operational (YMFM when available)
-- ✅ Runtime backend selection/fallback control (`NCDX_YM_BACKEND=auto|ymfm|legacy`)
+- ✅ YM2608 runtime path operational through the YMFM backend in cgo builds
+- ✅ Emulator/devkit entrypoints default `NCDX_YM_BACKEND` to `ymfm` and currently expose `-audio-backend ymfm`
+- ✅ In-tree OPM-lite path retained as a code-level fallback for non-YMFM builds
 - 🚧 Conformance/polish remains in progress (timbre/pitch parity and broader subsystem coverage)
 
 ### Input Registers (0xA000-0xAFFF)

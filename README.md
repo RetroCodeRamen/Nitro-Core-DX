@@ -417,7 +417,7 @@ The project documentation is organized into several main documents:
   - 44,100 Hz sample rate
   - PCM playback support
   - Master volume control
-  - FM extension MMIO + timer/IRQ path with YM2608-capable backend selection/fallback
+  - FM extension MMIO + timer/IRQ path with YM2608/OPNA playback through the YMFM-backed runtime
 
 - **Precise Memory Mapping**
   - Banked memory architecture (256 banks × 64KB = 16MB address space; ROM uses 32KB LoROM windows in banks 1-125)

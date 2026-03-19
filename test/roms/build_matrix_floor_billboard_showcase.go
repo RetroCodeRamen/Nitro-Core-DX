@@ -1007,23 +1007,38 @@ func makeDiagnosticFloorCanvas(canvasPixels int) image.Image {
 	return dst
 }
 
-func buildMatrixFloorOnlyROM(img image.Image, outPath string) error {
+func buildMatrixFloorBillboardShowcaseROM(floorImg image.Image, billboardImg image.Image, outPath string) error {
 	const (
-		codeBank          = 1
-		dataStartBank     = 2
-		wramLastFrame     = 0x0200
-		wramHeadingIndex  = 0x0202
-		wramCameraX       = 0x0204
-		wramCameraY       = 0x0206
-		headingTableBase  = 0x0300
-		headingSteps      = 64
-		matrixPlane0Ctl   = 0x1D // enabled, 128x128, bitmap, palette bank 1
-		matrixPlane1Ctl   = 0x2D // enabled, 128x128, bitmap, palette bank 2
-		matrixPlane0Flags = 0x00 // opaque floor
-		matrixPlane1Flags = 0x01 // palette index 0 transparent
+		codeBank             = 1
+		dataStartBank        = 2
+		wramLastFrame        = 0x0200
+		wramHeadingIndex     = 0x0202
+		wramCameraX          = 0x0204
+		wramCameraY          = 0x0206
+		headingTableBase     = 0x0300
+		headingSteps         = 64
+		turnStep             = 2
+		moveSpeed            = 12.0
+		floorHorizon         = 72
+		billboardHorizon     = 72
+		floorBaseDist        = 0x01C0
+		floorFocal           = 0x3A00
+		floorWidthScale      = 0x00C0
+		billboardBaseDist    = 0x01C0
+		billboardFocal       = 0x3A00
+		billboardWidthScale  = 0x00B8
+		billboardOriginX     = 512
+		billboardOriginY     = 640
+		billboardHeightScale = 0x02C0
+		matrixPlane0Ctl      = 0x1D // enabled, 128x128, bitmap, palette bank 1
+		matrixPlane1Ctl      = 0x2D // enabled, 128x128, bitmap, palette bank 2
+		matrixPlane2Ctl      = 0x3B // enabled, 64x64, bitmap, palette bank 3
+		matrixPlane0Flags    = 0x00 // opaque floor
+		matrixPlane1Flags    = 0x01 // palette index 0 transparent
+		matrixPlane2Flags    = 0x03 // transparent index 0 + two sided
 	)
 
-	floorAsset, err := emulator.BuildBitmapMatrixPlaneAssetFromImage(img, 0, ppucore.TilemapSize128x128, 1)
+	floorAsset, err := emulator.BuildBitmapMatrixPlaneAssetFromImage(floorImg, 0, ppucore.TilemapSize128x128, 1)
 	if err != nil {
 		return err
 	}
@@ -1032,9 +1047,20 @@ func buildMatrixFloorOnlyROM(img image.Image, outPath string) error {
 	if err != nil {
 		return err
 	}
+	if billboardImg == nil {
+		return fmt.Errorf("billboard image is required")
+	}
+	key := color.NRGBAModel.Convert(billboardImg.At(billboardImg.Bounds().Min.X, billboardImg.Bounds().Min.Y)).(color.NRGBA)
+	billboardCanvas := fitImageToCanvasNearest(billboardImg, 512, 512, key)
+	billboardAsset, err := emulator.BuildBitmapMatrixPlaneAssetFromImage(billboardCanvas, 2, ppucore.TilemapSize64x64, 3)
+	if err != nil {
+		return err
+	}
 
 	floorRef, cursor := allocateROMData(0, floorAsset.Program.Bitmap)
 	skyRef, cursor := allocateROMData(cursor, skyAsset.Program.Bitmap)
+	billboardRef, cursor := allocateROMData(cursor, billboardAsset.Program.Bitmap)
+	_ = billboardRef
 	_ = cursor
 
 	a := newASM(codeBank)
@@ -1045,18 +1071,22 @@ func buildMatrixFloorOnlyROM(img image.Image, outPath string) error {
 	for i, c := range skyAsset.Palette {
 		setCGRAMColor(a, uint8(2*16+i), c)
 	}
+	for i, c := range billboardAsset.Palette {
+		setCGRAMColor(a, uint8(3*16+i), c)
+	}
 	setCGRAMColor(a, 0, 0)
 	write16(a, wramHeadingIndex, 48) // roughly "up" in source space
 	write16(a, wramCameraX, 512)
 	write16(a, wramCameraY, 768)
-	emitInitHeadingTable(a, headingTableBase, headingSteps, 6.0)
+	emitInitHeadingTable(a, headingTableBase, headingSteps, moveSpeed)
 
 	// BG config.
 	write8(a, 0x8008, 0x21)
 	write8(a, 0x8009, 0x25)
-	write8(a, 0x8021, 0x00)
+	write8(a, 0x8021, 0x19)
 	write8(a, 0x806C, 0x00)
 	write8(a, 0x806D, 0x01)
+	write8(a, 0x806E, 0x02)
 
 	// Upload plane 0 bitmap.
 	write8(a, 0x8080, 0x00)
@@ -1076,6 +1106,15 @@ func buildMatrixFloorOnlyROM(img image.Image, outPath string) error {
 	write8(a, 0x808A, 0x00)
 	emitMatrixBitmapDMAChunks(a, 0x01, skyRef)
 
+	// Upload plane 2 bitmap (upright billboard/object).
+	write8(a, 0x8080, 0x02)
+	write8(a, 0x8081, matrixPlane2Ctl)
+	write8(a, 0x808C, matrixPlane2Flags)
+	write8(a, 0x8088, 0x00)
+	write8(a, 0x8089, 0x00)
+	write8(a, 0x808A, 0x00)
+	emitMatrixBitmapDMAChunks(a, 0x02, billboardRef)
+
 	a.movImm(0, 0x0000)
 	a.setDBR(0)
 
@@ -1090,10 +1129,10 @@ func buildMatrixFloorOnlyROM(img image.Image, outPath string) error {
 	write8(a, 0x8081, matrixPlane0Ctl)
 	write8(a, 0x808C, matrixPlane0Flags)
 	write8(a, 0x8091, 0x01) // generic perspective projection mode
-	write8(a, 0x8092, 92)   // horizon
-	write16(a, 0x809B, 0x0100)
-	write16(a, 0x809D, 0x2C00)
-	write16(a, 0x809F, 0x0100)
+	write8(a, 0x8092, floorHorizon)
+	write16(a, 0x809B, floorBaseDist)
+	write16(a, 0x809D, floorFocal)
+	write16(a, 0x809F, floorWidthScale)
 	a.movImm(0, 48)
 	emitLoadHeadingEntry(a, headingTableBase, 0, 1, 2, 3, 6)
 	write16(a, 0x8093, 512)
@@ -1109,6 +1148,26 @@ func buildMatrixFloorOnlyROM(img image.Image, outPath string) error {
 	a.movImm(3, 0x0000)
 	a.movImm(6, 0x0000)
 	emitWriteMatrixRegs(a, 0x802B, 0x802C, 0x802E, 0x8030, 0x8032, 0x8034, 0x8036, 0x19, 2, 3, 6, 2, 160, 100)
+
+	// Upright world-anchored billboard on a separate matrix plane.
+	write8(a, 0x8080, 0x02)
+	write8(a, 0x8081, matrixPlane2Ctl)
+	write8(a, 0x808C, matrixPlane2Flags)
+	write8(a, 0x8091, 0x02) // generic vertical projected quad
+	write8(a, 0x8092, billboardHorizon)
+	write16(a, 0x8093, 512)
+	write16(a, 0x8095, 768)
+	write16RegBytes(a, 0x8097, 1)
+	write16RegBytes(a, 0x8099, 2)
+	write16(a, 0x809B, billboardBaseDist)
+	write16(a, 0x809D, billboardFocal)
+	write16(a, 0x809F, billboardWidthScale)
+	write16(a, 0x80A1, billboardOriginX)
+	write16(a, 0x80A3, billboardOriginY)
+	write16(a, 0x80A5, 0x0000)
+	write16(a, 0x80A7, 0x0100)
+	write16(a, 0x80A9, billboardHeightScale)
+	emitWriteMatrixRegs(a, 0x8038, 0x8039, 0x803B, 0x803D, 0x803F, 0x8041, 0x8043, 0x19, 2, 3, 6, 2, 160, billboardHorizon)
 	write8(a, 0x8011, 0x01) // DISPLAY_CONTROL: enable display
 
 	a.mark("main_loop")
@@ -1131,13 +1190,19 @@ func buildMatrixFloorOnlyROM(img image.Image, outPath string) error {
 	a.andImm(4, 0x0004)
 	a.cmpImm(4, 0)
 	a.beq(noTurnLeft)
-	a.cmpImm(0, 0)
-	lookLeftWrap := a.uniq("look_left_wrap")
-	a.beq(lookLeftWrap)
-	a.subImm(0, 1)
 	afterTurnLeft := a.uniq("after_turn_left")
+	lookLeftWrap0 := a.uniq("look_left_wrap0")
+	lookLeftWrap1 := a.uniq("look_left_wrap1")
+	a.cmpImm(0, 0)
+	a.beq(lookLeftWrap0)
+	a.cmpImm(0, 1)
+	a.beq(lookLeftWrap1)
+	a.subImm(0, turnStep)
 	a.jmp(afterTurnLeft)
-	a.mark(lookLeftWrap)
+	a.mark(lookLeftWrap0)
+	a.movImm(0, headingSteps-turnStep)
+	a.jmp(afterTurnLeft)
+	a.mark(lookLeftWrap1)
 	a.movImm(0, headingSteps-1)
 	a.mark(afterTurnLeft)
 	a.mark(noTurnLeft)
@@ -1147,14 +1212,20 @@ func buildMatrixFloorOnlyROM(img image.Image, outPath string) error {
 	a.andImm(4, 0x0008)
 	a.cmpImm(4, 0)
 	a.beq(noTurnRight)
-	a.cmpImm(0, headingSteps-1)
-	lookRightWrap := a.uniq("look_right_wrap")
-	a.beq(lookRightWrap)
-	a.addImm(0, 1)
 	afterTurnRight := a.uniq("after_turn_right")
+	lookRightWrap62 := a.uniq("look_right_wrap62")
+	lookRightWrap63 := a.uniq("look_right_wrap63")
+	a.cmpImm(0, headingSteps-turnStep)
+	a.beq(lookRightWrap62)
+	a.cmpImm(0, headingSteps-1)
+	a.beq(lookRightWrap63)
+	a.addImm(0, turnStep)
 	a.jmp(afterTurnRight)
-	a.mark(lookRightWrap)
+	a.mark(lookRightWrap62)
 	a.movImm(0, 0)
+	a.jmp(afterTurnRight)
+	a.mark(lookRightWrap63)
+	a.movImm(0, 1)
 	a.mark(afterTurnRight)
 	a.mark(noTurnRight)
 	a.movImm(4, wramHeadingIndex)
@@ -1198,10 +1269,16 @@ func buildMatrixFloorOnlyROM(img image.Image, outPath string) error {
 	write16RegBytes(a, 0x8097, 1)
 	write16RegBytes(a, 0x8099, 2)
 
-	emitText(a, 8, 8, 0xF8, 0xF8, 0xF8, "FLOOR ONLY MATRIX DEMO")
-	emitText(a, 8, 20, 0xB0, 0xE0, 0xFF, "BG0 FLOOR  BG1 SKY/HORIZON")
+	write8Scratch(a, 0x8080, 0x02, 7, 5)
+	write16RegBytes(a, 0x8093, 3)
+	write16RegBytes(a, 0x8095, 6)
+	write16RegBytes(a, 0x8097, 1)
+	write16RegBytes(a, 0x8099, 2)
+
+	emitText(a, 8, 8, 0xF8, 0xF8, 0xF8, "FLOOR + BILLBOARD MATRIX DEMO")
+	emitText(a, 8, 20, 0xB0, 0xE0, 0xFF, "BG0 FLOOR  BG1 SKY  BG2 OBJECT")
 	emitText(a, 8, 32, 0xE0, 0xE0, 0x90, "UP/DOWN MOVE  LEFT/RIGHT TURN")
-	emitText(a, 8, 44, 0xFF, 0xD0, 0x70, "GENERIC PERSPECTIVE MODE")
+	emitText(a, 8, 44, 0xFF, 0xD0, 0x70, "GENERIC PROJECTION MODES")
 
 	a.jmp("main_loop")
 
@@ -1211,6 +1288,7 @@ func buildMatrixFloorOnlyROM(img image.Image, outPath string) error {
 
 	payload := append([]byte{}, floorAsset.Program.Bitmap...)
 	payload = append(payload, skyAsset.Program.Bitmap...)
+	payload = append(payload, billboardAsset.Program.Bitmap...)
 	if err := appendDataBlob(a.B, dataStartBank, payload); err != nil {
 		return err
 	}
@@ -1220,30 +1298,36 @@ func buildMatrixFloorOnlyROM(img image.Image, outPath string) error {
 
 func main() {
 	inPath := flag.String("in", "Resources/kart.png", "input PNG image")
-	outPath := flag.String("out", "roms/matrix_floor_only_showcase.rom", "output ROM path")
+	billboardPath := flag.String("billboard", "Resources/Test.png", "billboard PNG image")
+	outPath := flag.String("out", "roms/matrix_floor_billboard_showcase.rom", "output ROM path")
 	diagnostic := flag.Bool("diagnostic", false, "use a generated diagnostic floor image instead of loading a PNG")
 	flag.Parse()
 
 	var (
-		img image.Image
-		err error
+		floorImg image.Image
+		err      error
 	)
 	if *diagnostic {
-		img = makeDiagnosticFloorCanvas(1024)
+		floorImg = makeDiagnosticFloorCanvas(1024)
 	} else {
-		img, err = loadPNG(*inPath)
+		floorImg, err = loadPNG(*inPath)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "load %s: %v\n", *inPath, err)
 			os.Exit(1)
 		}
 	}
-	if err := buildMatrixFloorOnlyROM(img, *outPath); err != nil {
+	billboardImg, err := loadPNG(*billboardPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "load %s: %v\n", *billboardPath, err)
+		os.Exit(1)
+	}
+	if err := buildMatrixFloorBillboardShowcaseROM(floorImg, billboardImg, *outPath); err != nil {
 		fmt.Fprintf(os.Stderr, "build ROM: %v\n", err)
 		os.Exit(1)
 	}
 	if *diagnostic {
-		fmt.Printf("Built %s using generated diagnostic floor image\n", *outPath)
+		fmt.Printf("Built %s using generated diagnostic floor image and %s billboard\n", *outPath, *billboardPath)
 	} else {
-		fmt.Printf("Built %s using %s\n", *outPath, *inPath)
+		fmt.Printf("Built %s using %s floor and %s billboard\n", *outPath, *inPath, *billboardPath)
 	}
 }

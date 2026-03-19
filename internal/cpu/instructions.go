@@ -31,8 +31,7 @@ func (c *CPU) executeMOV(mode, reg1, reg2 uint8) error {
 		addr := c.GetRegister(reg2)
 		bank := c.State.DBR
 
-		// I/O addresses (offset 0x8000+ in bank 0) are 8-bit only
-		// For I/O addresses, read 8-bit and zero-extend to 16-bit
+		// Bank 0 high addresses are I/O; higher banks use the normal LoROM/data-bank window.
 		if addr >= 0x8000 && bank == 0 {
 			value := uint16(c.Mem.Read8(0, addr))
 			c.SetRegister(reg1, value)
@@ -53,10 +52,8 @@ func (c *CPU) executeMOV(mode, reg1, reg2 uint8) error {
 		value := c.GetRegister(reg2)
 		bank := c.State.DBR
 
-		// I/O addresses (offset 0x8000+ in bank 0) are 8-bit only
-		// For I/O addresses, always use bank 0 and write only the low byte
+		// Bank 0 high addresses are I/O; higher banks use the normal LoROM/data-bank window.
 		if addr >= 0x8000 && bank == 0 {
-			// I/O registers are 8-bit, so only write the low byte
 			c.Mem.Write8(0, addr, uint8(value&0xFF))
 			c.State.Cycles += 2 // Memory access
 			return nil
@@ -95,10 +92,12 @@ func (c *CPU) executeMOV(mode, reg1, reg2 uint8) error {
 	case 7: // MOV [R1], R2 - Store 8-bit to memory
 		addr := c.GetRegister(reg1)
 		value := c.GetRegister(reg2)
-		// I/O addresses (0x8000+) always use bank 0
 		bank := c.State.DBR
-		if addr >= 0x8000 {
-			bank = 0
+		// Bank 0 high addresses are I/O; higher banks use the normal LoROM/data-bank window.
+		if addr >= 0x8000 && bank == 0 {
+			c.Mem.Write8(0, addr, uint8(value&0xFF))
+			c.State.Cycles += 2 // Memory access
+			return nil
 		}
 		c.Mem.Write8(bank, addr, uint8(value&0xFF))
 		c.State.Cycles += 2 // Memory access
@@ -173,6 +172,45 @@ func (c *CPU) executeMOV(mode, reg1, reg2 uint8) error {
 			c.Mem.Write16(bank, addr, value)
 		}
 		c.State.Cycles += 3 // pointer update + memory access
+		return nil
+
+	// MOV mode 13/14 are optional byte variants for the indexed [R+imm] addressing.
+	// Implemented per `docs/specifications/CPU_AMPED_EXTENSION_DESIGN.md`.
+	case 13: // MOV R1, [R2+imm] - Load 8-bit from indexed memory, zero-extended
+		disp := int16(c.FetchImmediate())
+		base := int32(c.GetRegister(reg2))
+		addr := uint16(base + int32(disp))
+		bank := c.State.DBR
+
+		// Bank 0 high addresses are I/O; higher banks use the normal LoROM/data-bank window.
+		if addr >= 0x8000 && bank == 0 {
+			value := uint16(c.Mem.Read8(0, addr))
+			c.SetRegister(reg1, value)
+			c.UpdateFlags(value)
+			c.State.Cycles += 3 // indexed addr calc + memory access
+			return nil
+		}
+
+		value := uint16(c.Mem.Read8(bank, addr))
+		c.SetRegister(reg1, value)
+		c.UpdateFlags(value)
+		c.State.Cycles += 3 // indexed addr calc + memory access
+		return nil
+
+	case 14: // MOV [R1+imm], R2 - Store 8-bit to indexed memory, low-byte only
+		disp := int16(c.FetchImmediate())
+		base := int32(c.GetRegister(reg1))
+		addr := uint16(base + int32(disp))
+		value := c.GetRegister(reg2)
+		bank := c.State.DBR
+
+		// Bank 0 high addresses are I/O; higher banks use the normal LoROM/data-bank window.
+		if addr >= 0x8000 && bank == 0 {
+			c.Mem.Write8(0, addr, uint8(value&0xFF))
+		} else {
+			c.Mem.Write8(bank, addr, uint8(value&0xFF))
+		}
+		c.State.Cycles += 3 // indexed addr calc + memory access
 		return nil
 
 	default:

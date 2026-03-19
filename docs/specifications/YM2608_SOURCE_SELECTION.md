@@ -3,9 +3,9 @@
 ## Purpose
 Prevent cross-chip contamination during YM2608 conformance tuning by explicitly limiting emulator-source references to YM2608/OPNA-targeted files.
 
-## Runtime Context (2026-03-09)
-- Production runtime selection uses `NCDX_YM_BACKEND=auto|ymfm|legacy`.
-- `auto` is the default in emulator/devkit entrypoints and prefers YMFM when available.
+## Runtime Context (2026-03-19)
+- cgo-backed emulator/devkit entrypoints currently default `NCDX_YM_BACKEND` to `ymfm` and expose `-audio-backend ymfm`.
+- The in-tree OPM-lite model remains a code-level fallback when YMFM is unavailable.
 - This policy file governs conformance/reference inputs only; it does not force runtime backend mode.
 
 ## Active Allowlist

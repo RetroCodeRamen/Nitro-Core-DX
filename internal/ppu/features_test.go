@@ -568,86 +568,352 @@ func TestDMATransferToDedicatedMatrixPlaneBitmap(t *testing.T) {
 	}
 }
 
-func TestMatrixPlaneLiveFloorRegisterRoundTrip(t *testing.T) {
+func TestDMATransferToDedicatedMatrixPlaneRows(t *testing.T) {
 	logger := debug.NewLogger(1000)
 	ppu := NewPPU(logger)
-
-	ppu.Write8(0x80, 0x00)
-	ppu.Write8(0x8D, 0x01)
-	ppu.Write8(0x8E, 92)
-	ppu.Write8(0x8F, 0x34)
-	ppu.Write8(0x90, 0x12)
-	ppu.Write8(0x91, 0x78)
-	ppu.Write8(0x92, 0x56)
-	ppu.Write8(0x93, 0x00)
-	ppu.Write8(0x94, 0x01)
-	ppu.Write8(0x95, 0x00)
-	ppu.Write8(0x96, 0xFF)
-
-	plane := ppu.MatrixPlanes[0]
-	if !plane.LiveFloorEnabled {
-		t.Fatal("expected live floor to be enabled")
+	source := []uint8{
+		0x00, 0x00, 0xFF, 0xFF, // StartX = -1.0 in 16.16 fixed point
+		0x00, 0x00, 0x00, 0x00, // StartY = 0
+		0x00, 0x00, 0x00, 0x00, // StepX = 0
+		0x00, 0x00, 0x00, 0x00, // StepY = 0
 	}
-	if plane.LiveFloorHorizon != 92 {
-		t.Fatalf("LiveFloorHorizon = %d, want 92", plane.LiveFloorHorizon)
-	}
-	if plane.LiveFloorCameraX != 0x1234 {
-		t.Fatalf("LiveFloorCameraX = 0x%04X, want 0x1234", uint16(plane.LiveFloorCameraX))
-	}
-	if plane.LiveFloorCameraY != 0x5678 {
-		t.Fatalf("LiveFloorCameraY = 0x%04X, want 0x5678", uint16(plane.LiveFloorCameraY))
-	}
-	if plane.LiveFloorHeadingX != 0x0100 {
-		t.Fatalf("LiveFloorHeadingX = 0x%04X, want 0x0100", uint16(plane.LiveFloorHeadingX))
-	}
-	if uint16(plane.LiveFloorHeadingY) != 0xFF00 {
-		t.Fatalf("LiveFloorHeadingY = 0x%04X, want 0xFF00", uint16(plane.LiveFloorHeadingY))
+	ppu.MemoryReader = func(bank uint8, offset uint16) uint8 {
+		if bank != 1 || int(offset) >= len(source) {
+			return 0
+		}
+		return source[offset]
 	}
 
-	if got := ppu.Read8(0x8D); got != 0x01 {
-		t.Fatalf("readback live floor control = 0x%02X, want 0x01", got)
-	}
-	if got := ppu.Read8(0x8E); got != 92 {
-		t.Fatalf("readback live floor horizon = %d, want 92", got)
+	ppu.MatrixPlaneSelect = 2
+	ppu.MatrixPlaneRowAddr = 0
+	ppu.DMASourceBank = 1
+	ppu.DMASourceOffset = 0
+	ppu.DMADestType = 6
+	ppu.DMALength = uint16(len(source))
+	ppu.DMAEnabled = true
+
+	ppu.executeDMA()
+
+	row := ppu.MatrixPlanes[2].Rows[0]
+	if row.StartX != -65536 || row.StartY != 0 || row.StepX != 0 || row.StepY != 0 {
+		t.Fatalf("matrix row DMA mismatch: got=%+v want StartX=-65536 StartY=0 StepX=0 StepY=0", row)
 	}
 }
 
-func TestBitmapMatrixPlaneLiveFloorRendersBelowHorizon(t *testing.T) {
+func TestMatrixPlaneRowRegisterRoundTrip(t *testing.T) {
+	logger := debug.NewLogger(1000)
+	ppu := NewPPU(logger)
+
+	rowBytes := []uint8{
+		0x78, 0x56, 0x34, 0x12,
+		0xF0, 0xDE, 0xBC, 0x9A,
+		0x44, 0x33, 0x22, 0x11,
+		0x88, 0x77, 0x66, 0x55,
+	}
+
+	for planeIndex := uint8(0); planeIndex < 4; planeIndex++ {
+		ppu.Write8(0x80, planeIndex)
+		ppu.Write8(0x8D, 0x01)
+		ppu.Write8(0x8E, 0x10) // row 1, byte 0
+		ppu.Write8(0x8F, 0x00)
+
+		for _, b := range rowBytes {
+			ppu.Write8(0x90, b)
+		}
+
+		plane := ppu.MatrixPlanes[planeIndex]
+		if !plane.RowModeEnabled {
+			t.Fatalf("expected row mode to be enabled on plane %d", planeIndex)
+		}
+		row := plane.Rows[1]
+		if uint32(row.StartX) != 0x12345678 || uint32(row.StartY) != 0x9ABCDEF0 || uint32(row.StepX) != 0x11223344 || uint32(row.StepY) != 0x55667788 {
+			t.Fatalf("plane %d row decode mismatch: got=%+v", planeIndex, row)
+		}
+
+		ppu.Write8(0x8E, 0x10)
+		ppu.Write8(0x8F, 0x00)
+		for i, want := range rowBytes {
+			if got := ppu.Read8(0x90); got != want {
+				t.Fatalf("plane %d row byte %d = 0x%02X, want 0x%02X", planeIndex, i, got, want)
+			}
+		}
+	}
+}
+
+func TestBitmapMatrixPlaneRowModeRendersConfiguredRows(t *testing.T) {
 	logger := debug.NewLogger(1000)
 	ppu := NewPPU(logger)
 
 	ppu.CGRAM[0x11*2] = 0x1F
-	ppu.CGRAM[0x11*2+1] = 0x03 // green-ish
+	ppu.CGRAM[0x11*2+1] = 0x03
 
-	ppu.BG0.Enabled = true
-	ppu.BG0.TransformChannel = 0
-	ppu.TransformChannels[0].Enabled = true
-	ppu.TransformChannels[0].OutsideMode = 0
+	ppu.BG2.Enabled = true
+	ppu.BG2.TransformChannel = 2
+	ppu.TransformChannels[2].Enabled = true
+	ppu.TransformChannels[2].OutsideMode = 1 // backdrop
 
-	plane := &ppu.MatrixPlanes[0]
+	plane := &ppu.MatrixPlanes[2]
 	plane.Enabled = true
 	plane.Size = TilemapSize128x128
 	plane.SourceMode = MatrixPlaneSourceBitmap
 	plane.BitmapPalette = 1
-	plane.LiveFloorEnabled = true
-	plane.LiveFloorHorizon = 92
-	plane.LiveFloorCameraX = 512
-	plane.LiveFloorCameraY = 512
-	plane.LiveFloorHeadingX = 0
-	plane.LiveFloorHeadingY = -0x0100
+	plane.RowModeEnabled = true
 	for i := range plane.Bitmap {
 		plane.Bitmap[i] = 0x11
 	}
 
-	ppu.renderDotMatrixMode(0, 160, 80)
-	if got := ppu.OutputBuffer[80*320+160]; got != 0 {
-		t.Fatalf("pixel above horizon = 0x%06X, want 0x000000", got)
+	plane.Rows[80] = MatrixPlaneRowParams{
+		StartX: -1 << 16,
+		StartY: 0,
+		StepX:  0,
+		StepY:  0,
+	}
+	plane.Rows[150] = MatrixPlaneRowParams{
+		StartX: 10 << 16,
+		StartY: 4 << 16,
+		StepX:  1 << 16,
+		StepY:  0,
 	}
 
-	ppu.renderDotMatrixMode(0, 160, 150)
+	ppu.renderDotMatrixMode(2, 160, 80)
+	if got := ppu.OutputBuffer[80*320+160]; got != 0 {
+		t.Fatalf("pixel using out-of-bounds row = 0x%06X, want 0x000000", got)
+	}
+
+	ppu.renderDotMatrixMode(2, 160, 150)
 	want := ppu.getColorFromCGRAM(1, 1)
 	if got := ppu.OutputBuffer[150*320+160]; got != want {
-		t.Fatalf("pixel below horizon = 0x%06X, want 0x%06X", got, want)
+		t.Fatalf("pixel using in-bounds row = 0x%06X, want 0x%06X", got, want)
+	}
+}
+
+func TestMatrixPlaneProjectionRegisterRoundTripAllPlanes(t *testing.T) {
+	logger := debug.NewLogger(1000)
+	ppu := NewPPU(logger)
+
+	type wantState struct {
+		control      uint8
+		flags        uint8
+		rowControl   uint8
+		projControl  uint8
+		horizon      uint8
+		cameraX      int16
+		cameraY      int16
+		headingX     int16
+		headingY     int16
+		baseDistance uint16
+		focalLength  uint16
+		widthScale   uint16
+		originX      int16
+		originY      int16
+		facingX      int16
+		facingY      int16
+		heightScale  uint16
+	}
+
+	wants := [4]wantState{
+		{control: 0x1D, flags: 0x03, rowControl: 0x01, projControl: MatrixPlaneProjectionPerspective, horizon: 88, cameraX: 0x0120, cameraY: 0x0220, headingX: 0x0010, headingY: -0x0100, baseDistance: 0x0100, focalLength: 0x2400, widthScale: 0x0100, originX: 0x0340, originY: 0x0380, facingX: 0x0080, facingY: -0x00E0, heightScale: 0x0180},
+		{control: 0x13, flags: 0x00, rowControl: 0x00, projControl: MatrixPlaneProjectionVertical, horizon: 92, cameraX: -0x0040, cameraY: 0x0300, headingX: 0x0060, headingY: -0x00E0, baseDistance: 0x0180, focalLength: 0x2800, widthScale: 0x00C0, originX: -0x0100, originY: 0x0120, facingX: 0x0100, facingY: 0x0000, heightScale: 0x0240},
+		{control: 0x15, flags: 0x03, rowControl: 0x01, projControl: MatrixPlaneProjectionPerspective, horizon: 96, cameraX: 0x0400, cameraY: -0x0080, headingX: -0x0040, headingY: -0x00C0, baseDistance: 0x0200, focalLength: 0x3000, widthScale: 0x0140, originX: 0x0010, originY: -0x0200, facingX: -0x00C0, facingY: -0x0040, heightScale: 0x0100},
+		{control: 0x09, flags: 0x02, rowControl: 0x00, projControl: MatrixPlaneProjectionVertical, horizon: 104, cameraX: 0x0010, cameraY: 0x0018, headingX: 0x00A0, headingY: -0x0080, baseDistance: 0x0080, focalLength: 0x2000, widthScale: 0x0180, originX: 0x0200, originY: 0x0400, facingX: 0x0000, facingY: -0x0100, heightScale: 0x0300},
+	}
+
+	write16 := func(addr uint16, value uint16) {
+		ppu.Write8(addr, uint8(value&0xFF))
+		ppu.Write8(addr+1, uint8((value>>8)&0xFF))
+	}
+
+	for planeIndex, want := range wants {
+		ppu.Write8(0x80, uint8(planeIndex))
+		ppu.Write8(0x81, want.control)
+		ppu.Write8(0x8C, want.flags)
+		ppu.Write8(0x8D, want.rowControl)
+		ppu.Write8(0x91, want.projControl)
+		ppu.Write8(0x92, want.horizon)
+		write16(0x93, uint16(want.cameraX))
+		write16(0x95, uint16(want.cameraY))
+		write16(0x97, uint16(want.headingX))
+		write16(0x99, uint16(want.headingY))
+		write16(0x9B, want.baseDistance)
+		write16(0x9D, want.focalLength)
+		write16(0x9F, want.widthScale)
+		write16(0xA1, uint16(want.originX))
+		write16(0xA3, uint16(want.originY))
+		write16(0xA5, uint16(want.facingX))
+		write16(0xA7, uint16(want.facingY))
+		write16(0xA9, want.heightScale)
+	}
+
+	for planeIndex, want := range wants {
+		ppu.Write8(0x80, uint8(planeIndex))
+		plane := ppu.MatrixPlanes[planeIndex]
+
+		if got := ppu.Read8(0x81); got != want.control {
+			t.Fatalf("plane %d control register = 0x%02X, want 0x%02X", planeIndex, got, want.control)
+		}
+		if got := ppu.Read8(0x8C); got != want.flags {
+			t.Fatalf("plane %d flags register = 0x%02X, want 0x%02X", planeIndex, got, want.flags)
+		}
+		if got := ppu.Read8(0x8D); got != want.rowControl {
+			t.Fatalf("plane %d row control register = 0x%02X, want 0x%02X", planeIndex, got, want.rowControl)
+		}
+		if got := ppu.Read8(0x91); got != want.projControl {
+			t.Fatalf("plane %d projection control register = 0x%02X, want 0x%02X", planeIndex, got, want.projControl)
+		}
+		if plane.Horizon != want.horizon || plane.CameraX != want.cameraX || plane.CameraY != want.cameraY ||
+			plane.HeadingX != want.headingX || plane.HeadingY != want.headingY ||
+			plane.BaseDistance != want.baseDistance || plane.FocalLength != want.focalLength ||
+			plane.WidthScale != want.widthScale || plane.OriginX != want.originX || plane.OriginY != want.originY ||
+			plane.FacingX != want.facingX || plane.FacingY != want.facingY || plane.HeightScale != want.heightScale {
+			t.Fatalf("plane %d projection state mismatch: got horizon=%d cam=(%d,%d) heading=(%d,%d) base=0x%04X focal=0x%04X width=0x%04X origin=(%d,%d) facing=(%d,%d) height=0x%04X",
+				planeIndex, plane.Horizon, plane.CameraX, plane.CameraY, plane.HeadingX, plane.HeadingY, plane.BaseDistance, plane.FocalLength, plane.WidthScale, plane.OriginX, plane.OriginY, plane.FacingX, plane.FacingY, plane.HeightScale)
+		}
+	}
+}
+
+func TestBitmapMatrixPlanePerspectiveCoversBothScreenHalves(t *testing.T) {
+	logger := debug.NewLogger(1000)
+	ppu := NewPPU(logger)
+
+	ppu.BG0.Enabled = true
+	ppu.TransformChannels[0].Enabled = true
+
+	plane := &ppu.MatrixPlanes[0]
+	plane.Enabled = true
+	plane.SourceMode = MatrixPlaneSourceBitmap
+	plane.Size = TilemapSize128x128
+	plane.BitmapPalette = 1
+	plane.ProjectionMode = MatrixPlaneProjectionPerspective
+	plane.Horizon = 92
+	plane.CameraX = 512
+	plane.CameraY = 768
+	plane.HeadingX = 0
+	plane.HeadingY = -256 // forward/up
+	plane.BaseDistance = 0x0100
+	plane.FocalLength = 0x2C00
+	plane.WidthScale = 0x0100
+
+	// Palette bank 1: color 1 = red, color 2 = green.
+	ppu.CGRAM[(16+1)*2] = 0x00
+	ppu.CGRAM[(16+1)*2+1] = 0x7C
+	ppu.CGRAM[(16+2)*2] = 0xE0
+	ppu.CGRAM[(16+2)*2+1] = 0x03
+
+	width := tilemapWidthForSizeMode(plane.Size) * 8
+	height := width
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x += 2 {
+			leftNibble := uint8(1)
+			rightNibble := uint8(1)
+			if x >= width/2 {
+				leftNibble = 2
+			}
+			if x+1 >= width/2 {
+				rightNibble = 2
+			}
+			plane.Bitmap[(y*width+x)/2] = leftNibble | (rightNibble << 4)
+		}
+	}
+
+	rowY := 150
+	for x := 0; x < ScreenWidth; x++ {
+		ppu.renderDotMatrixMode(0, x, rowY)
+	}
+
+	leftColor := ppu.OutputBuffer[rowY*ScreenWidth+ScreenWidth/4]
+	rightColor := ppu.OutputBuffer[rowY*ScreenWidth+(ScreenWidth*3/4)]
+	if leftColor == 0 {
+		t.Fatalf("left half of perspective floor rendered black; projection collapsed off-screen")
+	}
+	if rightColor == 0 {
+		t.Fatalf("right half of perspective floor rendered black; projection collapsed off-screen")
+	}
+	if leftColor == rightColor {
+		t.Fatalf("perspective floor did not span both bitmap halves; leftColor=0x%06X rightColor=0x%06X", leftColor, rightColor)
+	}
+}
+
+func TestBitmapMatrixPlaneVerticalProjectionNarrowsAtSideView(t *testing.T) {
+	logger := debug.NewLogger(1000)
+	ppu := NewPPU(logger)
+
+	ppu.BG0.Enabled = true
+	ppu.TransformChannels[0].Enabled = true
+
+	plane := &ppu.MatrixPlanes[0]
+	plane.Enabled = true
+	plane.SourceMode = MatrixPlaneSourceBitmap
+	plane.Size = TilemapSize64x64
+	plane.BitmapPalette = 1
+	plane.ProjectionMode = MatrixPlaneProjectionVertical
+	plane.Horizon = 88
+	plane.CameraX = 512
+	plane.CameraY = 760
+	plane.HeadingX = 0
+	plane.HeadingY = -256
+	plane.BaseDistance = 0x0120
+	plane.FocalLength = 0x2C00
+	plane.WidthScale = 0x0180
+	plane.HeightScale = 0x0200
+	plane.OriginX = 512
+	plane.OriginY = 520
+	plane.FacingX = 0
+	plane.FacingY = -256
+	plane.TwoSided = true
+
+	ppu.CGRAM[(16+1)*2] = 0x1F
+	ppu.CGRAM[(16+1)*2+1] = 0x7C
+
+	width := tilemapWidthForSizeMode(plane.Size) * 8
+	height := width
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x += 2 {
+			plane.Bitmap[(y*width+x)/2] = 0x11
+		}
+	}
+
+	renderSpan := func() (minX, maxX, topY int, ok bool) {
+		for i := range ppu.OutputBuffer {
+			ppu.OutputBuffer[i] = 0
+		}
+		minX, maxX = ScreenWidth, -1
+		topY = ScreenHeight
+		for yy := 0; yy < ScreenHeight; yy++ {
+			for xx := 0; xx < ScreenWidth; xx++ {
+				ppu.renderDotMatrixMode(0, xx, yy)
+				if ppu.OutputBuffer[yy*ScreenWidth+xx] != 0 {
+					if xx < minX {
+						minX = xx
+					}
+					if xx > maxX {
+						maxX = xx
+					}
+					if yy < topY {
+						topY = yy
+					}
+					ok = true
+				}
+			}
+		}
+		return minX, maxX, topY, ok
+	}
+
+	frontMinX, frontMaxX, _, ok := renderSpan()
+	if !ok {
+		t.Fatalf("front-facing vertical plane rendered no visible pixels")
+	}
+
+	plane.FacingX = 221
+	plane.FacingY = -128
+	sideMinX, sideMaxX, _, ok := renderSpan()
+	if !ok {
+		t.Fatalf("side-view vertical plane rendered no visible pixels")
+	}
+
+	frontWidth := frontMaxX - frontMinX
+	sideWidth := sideMaxX - sideMinX
+	if sideWidth >= frontWidth {
+		t.Fatalf("side view should be narrower than front view: front=%d side=%d", frontWidth, sideWidth)
 	}
 }
 

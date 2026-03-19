@@ -108,13 +108,17 @@ go run -tags ymfm_cgo,no_sdl_ttf ./cmd/emulator \
 go run -tags ymfm_cgo ./cmd/rom_audio_capture \
   -rom roms/ym2608_demo_song.rom \
   -out /tmp/ym2608_demo_song_capture.wav \
-  -frames 4500 \
+  -frames 1800 \
   -audio-backend ymfm
 go run ./cmd/wav_compare \
   -ref Resources/Demo.wav \
   -got /tmp/ym2608_demo_song_capture.wav \
   -seconds 30
 ```
+
+The WAV compare is a useful guardrail, but it is intentionally optional. The
+required reproducibility signal is that the capture itself is deterministic for
+the chosen ROM/frame count.
 
 ### `build_pong_ym2608.go`
 **Purpose**: Build a simple Pong clone with YM2608 background music replayed from `Resources/Demo.vgz`.
@@ -142,6 +146,27 @@ go run -tags testrom_tools ./test/roms/build_pong_ym2608.go \
 go run -tags ymfm_cgo,no_sdl_ttf ./cmd/emulator \
   -rom roms/pong_ym2608_demo.rom \
   -audio-backend ymfm
+```
+
+### `build_matrix_rowmode_showcase.go`
+**Purpose**: Build a generic matrix-plane verification ROM using only the cleaned row-mode interface.
+
+**What it verifies**:
+- dedicated bitmap-backed matrix planes
+- generic row-parameter uploads
+- floor-style scanline projection without demo-specific PPU hooks
+- multiple matrix planes active at once
+
+**Usage**:
+```bash
+# Build ROM
+go run -tags testrom_tools ./test/roms/build_matrix_rowmode_showcase.go \
+  -in Resources/kart.png \
+  -out roms/matrix_rowmode_showcase.rom
+
+# Run in emulator
+go build -tags ymfm_cgo,no_sdl_ttf -o emulator ./cmd/emulator
+./emulator -rom roms/matrix_rowmode_showcase.rom -audio-backend ymfm
 ```
 
 ## Test ROMs

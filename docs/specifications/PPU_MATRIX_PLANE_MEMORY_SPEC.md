@@ -1,7 +1,7 @@
 # Nitro-Core-DX Matrix Plane Memory Specification
 
-**Version 0.1**  
-**Date:** March 10, 2026  
+**Version 0.2**  
+**Date:** March 19, 2026  
 **Scope:** Emulator-first architecture specification for Matrix Mode source sizing, dedicated matrix-plane memory, wrapping behavior, and the minimum per-plane capability target.
 
 ## Purpose
@@ -26,31 +26,38 @@ This is the minimum baseline, not a pooled shared budget across all matrix plane
 Current matrix rendering path:
 
 - [renderDotMatrixMode()](../../internal/ppu/scanline.go)
-- [BackgroundLayer](../../internal/ppu/ppu.go)
+- [BackgroundLayer / MatrixPlane](../../internal/ppu/ppu.go)
 
 Current source-size behavior:
 
-- `TileSize = 8x8` or `16x16`
-- `TilemapSize = 32x32` or `64x64`
+- tile-backed planes use explicit size modes: `32x32`, `64x64`, `128x128`
+- tile-backed planes inherit tile interpretation from the bound layer: `8x8` or `16x16`
+- bitmap-backed planes use dedicated 4bpp indexed source memory
 
 Current maximum source area:
 
-- `32x32 @ 8x8` = `256x256`
-- `32x32 @ 16x16` = `512x512`
-- `64x64 @ 8x8` = `512x512`
-- `64x64 @ 16x16` = `1024x1024`
+- tile-backed:
+  - `32x32 @ 8x8` = `256x256`
+  - `64x64 @ 8x8` = `512x512`
+  - `128x128 @ 8x8` = `1024x1024`
+  - `128x128 @ 16x16` = `2048x2048`
+- bitmap-backed:
+  - up to `1024x1024` indexed pixels per plane
 
 Current outside behavior:
 
 - wrap
 - backdrop
-- character-0 fallback
+- tile0 fallback
+- clamp
 
-Current renderer limitation:
+Current renderer contract:
 
-- the matrix plane still reads from normal VRAM-backed tilemap/tile data
-- there is no dedicated per-plane source memory model
-- there is no explicit `128x128 @ 8x8` path
+- dedicated per-plane tilemap memory exists
+- dedicated per-plane pattern memory exists
+- dedicated per-plane bitmap memory exists
+- generic per-scanline row-parameter uploads exist
+- generic projection modes currently include perspective rows and vertical projected quads
 
 ## Gap Against Target
 
@@ -68,11 +75,15 @@ Current emulator progress:
 - dedicated matrix-plane tilemap backing now exists per transform channel
 - a matrix-plane upload aperture exists in PPU MMIO
 - dedicated matrix-plane pattern memory now exists per plane with its own upload aperture
+- dedicated bitmap-backed matrix-plane memory now exists per plane
+- generic row-mode uploads are live through the per-plane row table registers
+- generic projection modes currently include:
+  - `0 = none/manual rows`
+  - `1 = perspective row projection`
+  - `2 = vertical projected quad`
 
 Still not complete:
-
-- no polished image-import/tooling path for matrix-plane bitmap content yet
-- no CoreLX bitmap-plane surface yet
+- no polished high-level CoreLX surface for bitmap/projection-specific plane programming yet
 - no FPGA-side implementation yet
 
 Required minimum target per matrix plane:
@@ -162,6 +173,79 @@ Per plane:
 - `Palette/DirectColor flags`
 
 The plane should then sample from its own configured source space before composition into the regular PPU output.
+
+## Generic Row-Parameter Support
+
+All 4 matrix planes should expose the same generic per-scanline row-parameter
+path.
+
+Per plane, per visible scanline:
+
+- `StartX`
+- `StartY`
+- `StepX`
+- `StepY`
+
+All values are `16.16` fixed point.
+
+This allows ROM-side code to generate:
+
+- flat views
+- floor/perspective views
+- road curvature
+- fisheye-like distortion
+
+without adding domain-specific "floor mode" or "billboard mode" logic to the
+PPU itself.
+
+## Generic Per-Plane Projection Support
+
+All 4 matrix planes should also expose the same generic projection primitive
+set. Projection support belongs in the PPU when it is:
+
+- symmetric across all 4 planes
+- reusable across many game designs
+- hardware-plausible
+
+Current emulator contract:
+
+- `ProjectionMode = 0`
+  - manual / affine / row-programmed plane
+- `ProjectionMode = 1`
+  - generic perspective row projection
+- `ProjectionMode = 2`
+  - generic vertical projected quad
+
+Per-plane projection parameters:
+
+- `Horizon`
+- `CameraX`
+- `CameraY`
+- `HeadingX`
+- `HeadingY`
+- `BaseDistance`
+- `FocalLength`
+- `WidthScale`
+- `OriginX`
+- `OriginY`
+- `FacingX`
+- `FacingY`
+- `HeightScale`
+
+These are not "kart mode" or any other demo-specific feature. They are generic
+projection controls that any ROM can use for:
+
+- floor-style perspective views
+- large pseudo-3D backgrounds
+- billboard/object quads anchored in world/source space
+- alternate camera-driven projections
+
+ROM/CoreLX still owns:
+
+- camera movement policy
+- path following
+- object placement
+- fisheye or other custom distortion styles
 
 ## Dedicated Matrix Memory
 
@@ -279,6 +363,7 @@ Nitro-Core-DX matrix planes will be designed around:
 - **dedicated matrix-source memory**
 - **minimum 1024x1024 source area per plane**
 - **affine transform behavior at least matching SNES Mode 7 baseline**
+- **generic per-scanline row parameters on all 4 planes**
 - **multiple planes each individually meeting that baseline**
 
 This is now the target contract for future emulator-first PPU work.

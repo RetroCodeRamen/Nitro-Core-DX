@@ -53,6 +53,50 @@ func TestMOVMode3IOWrite(t *testing.T) {
 	}
 }
 
+func TestMOVMode7IOWriteLowByteOnly(t *testing.T) {
+	mem := &testMemory{
+		wram:     make([]uint8, 32768),
+		ioWrites: make(map[uint16]uint8),
+	}
+	logger := &mockLogger{}
+
+	cpu := NewCPU(mem, logger)
+	cpu.State.DBR = 0
+	cpu.SetRegister(1, 0x8000)
+	cpu.SetRegister(2, 0x1234)
+
+	if err := cpu.executeMOV(7, 1, 2); err != nil {
+		t.Fatalf("executeMOV mode 7 failed: %v", err)
+	}
+	if got := mem.ioWrites[0x8000]; got != 0x34 {
+		t.Fatalf("mode 7 I/O write: got 0x%02X, want 0x34", got)
+	}
+}
+
+func TestMOVMode7HighROMAddressUsesDBRBank(t *testing.T) {
+	mem := &testMemoryWithROM{
+		wram: make([]uint8, 32768),
+		rom:  make([]uint8, 65536),
+	}
+	logger := &mockLogger{}
+	cpu := NewCPU(mem, logger)
+	cpu.State.DBR = 2
+
+	cpu.SetRegister(1, 0x9000)
+	cpu.SetRegister(2, 0x00CD)
+
+	if err := cpu.executeMOV(7, 1, 2); err != nil {
+		t.Fatalf("executeMOV mode 7 failed: %v", err)
+	}
+	romOffset := 32768 + 0x1000
+	if got := mem.rom[romOffset]; got != 0xCD {
+		t.Fatalf("mode 7 banked high-window write: got 0x%02X, want 0xCD", got)
+	}
+	if len(mem.ioSpace) != 0 {
+		t.Fatalf("mode 7 banked high-window write should not touch I/O, got %d writes", len(mem.ioSpace))
+	}
+}
+
 func TestMOVMode9IndexedLoad(t *testing.T) {
 	mem := &testMemory{
 		wram:     make([]uint8, 32768),
@@ -168,6 +212,165 @@ func TestMOVMode10IndexedStoreIO8Bit(t *testing.T) {
 	}
 	if got := mem.ioWrites[0x8000]; got != 0xCD {
 		t.Fatalf("mode 10 I/O write low byte: got 0x%02X, want 0xCD", got)
+	}
+}
+
+func TestMOVMode13IndexedLoadIO8BitZeroExtend(t *testing.T) {
+	mem := &testMemory{
+		wram:     make([]uint8, 32768),
+		ioWrites: make(map[uint16]uint8),
+		ioReads:  make(map[uint16]uint8),
+	}
+	logger := &mockLogger{}
+	cpu := NewCPU(mem, logger)
+	cpu.State.DBR = 0
+	cpu.State.PCBank = 0
+
+	// base 0x7FFE + 0x0002 => 0x8000 (I/O)
+	cpu.State.PCOffset = 0x0140
+	mem.wram[0x0140] = 0x02
+	mem.wram[0x0141] = 0x00
+	cpu.SetRegister(2, 0x7FFE)
+	mem.ioReads[0x8000] = 0x5A
+
+	// Execute MOV R1, [R2+imm] (mode 13)
+	if err := cpu.executeMOV(13, 1, 2); err != nil {
+		t.Fatalf("executeMOV mode 13 I/O failed: %v", err)
+	}
+	if got := cpu.GetRegister(1); got != 0x005A {
+		t.Fatalf("mode 13 I/O zero-extend: got 0x%04X, want 0x005A", got)
+	}
+}
+
+func TestMOVMode14IndexedStoreIO8Bit(t *testing.T) {
+	mem := &testMemory{
+		wram:     make([]uint8, 32768),
+		ioWrites: make(map[uint16]uint8),
+		ioReads:  make(map[uint16]uint8),
+	}
+	logger := &mockLogger{}
+	cpu := NewCPU(mem, logger)
+	cpu.State.DBR = 0
+	cpu.State.PCBank = 0
+
+	// base 0x7FFE + 0x0002 => 0x8000 (I/O)
+	cpu.State.PCOffset = 0x0150
+	mem.wram[0x0150] = 0x02
+	mem.wram[0x0151] = 0x00
+	cpu.SetRegister(1, 0x7FFE)
+	cpu.SetRegister(2, 0xABCD)
+
+	// Execute MOV [R1+imm], R2 (mode 14)
+	if err := cpu.executeMOV(14, 1, 2); err != nil {
+		t.Fatalf("executeMOV mode 14 I/O failed: %v", err)
+	}
+	if got := mem.ioWrites[0x8000]; got != 0xCD {
+		t.Fatalf("mode 14 I/O write low byte: got 0x%02X, want 0xCD", got)
+	}
+}
+
+func TestMOVMode2HighROMAddressUsesDBRBank(t *testing.T) {
+	mem := &testMemoryWithROM{
+		wram: make([]uint8, 32768),
+		rom:  make([]uint8, 65536),
+	}
+	logger := &mockLogger{}
+	cpu := NewCPU(mem, logger)
+	cpu.State.DBR = 2
+
+	cpu.SetRegister(2, 0x9000)
+	romOffset := 32768 + 0x1000
+	mem.rom[romOffset] = 0xEF
+	mem.rom[romOffset+1] = 0xBE
+
+	if err := cpu.executeMOV(2, 1, 2); err != nil {
+		t.Fatalf("executeMOV mode 2 failed: %v", err)
+	}
+	if got := cpu.GetRegister(1); got != 0xBEEF {
+		t.Fatalf("mode 2 banked ROM read: got 0x%04X, want 0xBEEF", got)
+	}
+	if len(mem.ioSpace) != 0 {
+		t.Fatalf("mode 2 banked ROM read should not touch I/O, got %d writes", len(mem.ioSpace))
+	}
+}
+
+func TestMOVMode3HighROMAddressUsesDBRBank(t *testing.T) {
+	mem := &testMemoryWithROM{
+		wram: make([]uint8, 32768),
+		rom:  make([]uint8, 65536),
+	}
+	logger := &mockLogger{}
+	cpu := NewCPU(mem, logger)
+	cpu.State.DBR = 2
+
+	cpu.SetRegister(1, 0x9000)
+	cpu.SetRegister(2, 0xCAFE)
+
+	if err := cpu.executeMOV(3, 1, 2); err != nil {
+		t.Fatalf("executeMOV mode 3 failed: %v", err)
+	}
+	romOffset := 32768 + 0x1000
+	if mem.rom[romOffset] != 0xFE || mem.rom[romOffset+1] != 0xCA {
+		t.Fatalf("mode 3 banked high-window write: got [%02X %02X], want [FE CA]", mem.rom[romOffset], mem.rom[romOffset+1])
+	}
+	if len(mem.ioSpace) != 0 {
+		t.Fatalf("mode 3 banked high-window write should not touch I/O, got %d writes", len(mem.ioSpace))
+	}
+}
+
+func TestMOVMode13HighROMAddressUsesDBRBank(t *testing.T) {
+	mem := &testMemoryWithROM{
+		wram: make([]uint8, 32768),
+		rom:  make([]uint8, 65536),
+	}
+	logger := &mockLogger{}
+	cpu := NewCPU(mem, logger)
+	cpu.State.DBR = 2
+	cpu.State.PCBank = 0
+
+	cpu.State.PCOffset = 0x0160
+	mem.wram[0x0160] = 0x02
+	mem.wram[0x0161] = 0x00
+	cpu.SetRegister(2, 0x8FFE)
+	romOffset := 32768 + 0x1000
+	mem.rom[romOffset] = 0x5A
+
+	if err := cpu.executeMOV(13, 1, 2); err != nil {
+		t.Fatalf("executeMOV mode 13 failed: %v", err)
+	}
+	if got := cpu.GetRegister(1); got != 0x005A {
+		t.Fatalf("mode 13 banked ROM read: got 0x%04X, want 0x005A", got)
+	}
+	if len(mem.ioSpace) != 0 {
+		t.Fatalf("mode 13 banked ROM read should not touch I/O, got %d writes", len(mem.ioSpace))
+	}
+}
+
+func TestMOVMode14HighROMAddressUsesDBRBank(t *testing.T) {
+	mem := &testMemoryWithROM{
+		wram: make([]uint8, 32768),
+		rom:  make([]uint8, 65536),
+	}
+	logger := &mockLogger{}
+	cpu := NewCPU(mem, logger)
+	cpu.State.DBR = 2
+	cpu.State.PCBank = 0
+
+	cpu.State.PCOffset = 0x0170
+	mem.wram[0x0170] = 0x02
+	mem.wram[0x0171] = 0x00
+	cpu.SetRegister(1, 0x8FFE)
+	cpu.SetRegister(2, 0xABCD)
+
+	if err := cpu.executeMOV(14, 1, 2); err != nil {
+		t.Fatalf("executeMOV mode 14 failed: %v", err)
+	}
+	romOffset := 32768 + 0x1000
+	if mem.rom[romOffset] != 0xCD {
+		t.Fatalf("mode 14 banked high-window write: got 0x%02X, want 0xCD", mem.rom[romOffset])
+	}
+	if len(mem.ioSpace) != 0 {
+		t.Fatalf("mode 14 banked high-window write should not touch I/O, got %d writes", len(mem.ioSpace))
 	}
 }
 

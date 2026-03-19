@@ -127,7 +127,6 @@ func TestScanlineCommandProgramRendersRebindAndPriorityEffect(t *testing.T) {
 	ppu.BG1.TileSize = false
 	ppu.BG1.TilemapBase = 0x1800
 	ppu.BG1.TransformChannel = 2 // Keep BG1 on a disabled channel so it renders normally.
-
 	ppu.TransformChannels[0].Enabled = true
 	ppu.TransformChannels[1].Enabled = true
 	ppu.TransformChannels[2].Enabled = false

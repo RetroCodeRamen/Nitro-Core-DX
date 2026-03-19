@@ -710,6 +710,101 @@ func TestVBlankSync(t *testing.T) {
 	// If we got here without errors, VBlank sync is working
 }
 
+func TestMemWriteUsesByteSemanticsInWRAM(t *testing.T) {
+	source := `function Start()
+    mem.write(0x0100, 0x12)
+    mem.write(0x0101, 0x34)
+    mem.write(0x0102, 0x56)
+    while true
+        wait_vblank()
+`
+
+	tmpDir := t.TempDir()
+	sourcePath := filepath.Join(tmpDir, "mem_write_byte_test.corelx")
+	outputPath := filepath.Join(tmpDir, "mem_write_byte_test.rom")
+
+	if err := os.WriteFile(sourcePath, []byte(source), 0644); err != nil {
+		t.Fatalf("Failed to write source: %v", err)
+	}
+	if err := CompileFile(sourcePath, outputPath); err != nil {
+		t.Fatalf("Compilation failed: %v", err)
+	}
+
+	romData, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("Failed to read ROM: %v", err)
+	}
+
+	emu := emulator.NewEmulator()
+	emu.SetFrameLimit(false)
+	if err := emu.LoadROM(romData); err != nil {
+		t.Fatalf("Failed to load ROM: %v", err)
+	}
+	emu.Start()
+
+	if err := emu.RunFrame(); err != nil {
+		t.Fatalf("RunFrame failed: %v", err)
+	}
+
+	if got := emu.Bus.WRAM[0x0100]; got != 0x12 {
+		t.Fatalf("WRAM[0x0100]: got 0x%02X want 0x12", got)
+	}
+	if got := emu.Bus.WRAM[0x0101]; got != 0x34 {
+		t.Fatalf("WRAM[0x0101]: got 0x%02X want 0x34", got)
+	}
+	if got := emu.Bus.WRAM[0x0102]; got != 0x56 {
+		t.Fatalf("WRAM[0x0102]: got 0x%02X want 0x56", got)
+	}
+}
+
+func TestMemReadUsesByteSemanticsInWRAM(t *testing.T) {
+	source := `function Start()
+    mem.write(0x0100, 0x12)
+    mem.write(0x0101, 0x34)
+    mem.write(0x0102, 0x56)
+
+    value := mem.read(0x0100)
+    if value == 0x3412
+        mem.write(0x0104, 1)
+    else
+        mem.write(0x0104, 2)
+
+    while true
+        wait_vblank()
+`
+
+	tmpDir := t.TempDir()
+	sourcePath := filepath.Join(tmpDir, "mem_read_byte_test.corelx")
+	outputPath := filepath.Join(tmpDir, "mem_read_byte_test.rom")
+
+	if err := os.WriteFile(sourcePath, []byte(source), 0644); err != nil {
+		t.Fatalf("Failed to write source: %v", err)
+	}
+	if err := CompileFile(sourcePath, outputPath); err != nil {
+		t.Fatalf("Compilation failed: %v", err)
+	}
+
+	romData, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("Failed to read ROM: %v", err)
+	}
+
+	emu := emulator.NewEmulator()
+	emu.SetFrameLimit(false)
+	if err := emu.LoadROM(romData); err != nil {
+		t.Fatalf("Failed to load ROM: %v", err)
+	}
+	emu.Start()
+
+	if err := emu.RunFrame(); err != nil {
+		t.Fatalf("RunFrame failed: %v", err)
+	}
+
+	if got := emu.Bus.WRAM[0x0104]; got != 0x02 {
+		t.Fatalf("byte-read marker: got 0x%02X want 0x02", got)
+	}
+}
+
 // TestGfxSetPaletteWritesExpectedCGRAM verifies the CoreLX gfx.set_palette builtin writes
 // the intended CGRAM color slot (regression for CGRAM_ADDR double-scaling bug).
 func TestGfxSetPaletteWritesExpectedCGRAM(t *testing.T) {

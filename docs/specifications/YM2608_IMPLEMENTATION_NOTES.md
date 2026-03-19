@@ -1,17 +1,16 @@
 # YM2608 Implementation Notes (Current + Historical Slice Log)
 
-## Current Runtime Snapshot (2026-03-09)
-- YM2608/OPNA playback is operational through the FM host MMIO window (`0x9100-0x91FF`) using the YMFM backend when available.
-- Backend selection is runtime-configurable through `NCDX_YM_BACKEND`:
-  - `auto` (default): YMFM when available, otherwise in-tree legacy FM path
-  - `ymfm`: force YMFM (falls back with warning if unavailable)
-  - `legacy`: force in-tree FM path
-- Emulator and Dev Kit CLIs expose `-audio-backend auto|ymfm|legacy` and default to `auto`.
+## Current Runtime Snapshot (2026-03-19)
+- YM2608/OPNA playback is operational through the FM host MMIO window (`0x9100-0x91FF`) in YMFM-backed builds.
+- cgo-backed emulator/devkit entrypoints default `NCDX_YM_BACKEND` to `ymfm` and currently expose `-audio-backend ymfm`.
+- The in-tree OPM-lite model remains a code-level fallback when YMFM is unavailable, but it is no longer the primary documented runtime target.
 - CoreLX language-level audio APIs are still legacy-oriented; YM2608 control is currently MMIO-driven from ROM/tooling paths.
 
 ## Repository Snapshot Note
 - This document includes historical slice-log entries from earlier implementation stages.
+- Many slice-log entries below describe a superseded in-tree YM2608 prototype/conformance effort rather than the current shipping YMFM-backed runtime path.
 - Some historical notes reference helper tooling or CI files that are not present in the current repository snapshot.
+- Use `COMPLETE_HARDWARE_SPECIFICATION_V2.1.md`, `APU_FM_OPM_EXTENSION_SPEC.md`, and `YM2608_BEHAVIOR_CROSSCHECK.md` for the current host-interface/runtime contract; use the remainder of this file as provenance/history unless a section explicitly says it reflects the current runtime.
 - Current local policy validation should be driven through the guarded make targets in the root `Makefile`; direct manifest-tool commands are optional and only apply when those helper files exist locally.
 
 ## Integration Lessons Captured
@@ -23,25 +22,15 @@
   - tooling now avoids ambiguous encoding for R0 immediate compares
 
 ## Scope
-Stages 1-2 introduce the YM2608 core scaffold used by Nitro-Core-DX APU MMIO and FM register-state latching.
+The current runtime surface that matters for this repository snapshot is:
 
-Implemented:
-- Dual YM2608 host ports (`A1=0` and `A1=1`) in the existing CPU-visible window `0x9100-0x91FF`
-- Register shadowing for both ports
-- Status0/Status1 read paths
-- Timer A / Timer B register behavior (`$24`, `$25`, `$26`, `$27`, `$29`)
-- Timer flags and IRQ state propagation into host-visible status
-- Rising-edge IRQ callback integration through APU -> CPU timer interrupt path
-- FM register decode/state latch for 6 channels and 4 operators per channel (no full synthesis yet)
-- Key-on/key-off state latch from `$28`
-- Channel/operator parameter latching from `$30-$B6` across both ports
+- Dual YM2608 host ports in the CPU-visible window `0x9100-0x91FF`
+- Host-visible shared status at `0x9102` and control at `0x9103`
+- Timer A / Timer B behavior and IRQ propagation into the APU -> CPU bridge
+- YMFM-backed playback in cgo builds
+- Legacy 4-channel APU kept alongside the FM extension
 
-Deferred (explicitly):
-- FM operator synthesis output path (6 channels, 4-op signal generation)
-- SSG tone/noise/envelope synthesis
-- ADPCM A/B decode/playback
-- Rhythm block sample playback/mixing
-- Cycle-accurate bus wait timing beyond deterministic placeholder
+Historical slice entries below may reference a broader prototype surface than the currently shipped wrapper. Read them as provenance, not as the authoritative current MMIO contract.
 
 ## Manual-Driven Register Behavior Used
 Reference file: `YM2608J Translated.pdf` (English translation).
@@ -55,18 +44,17 @@ Used sections:
 - IRQ enable register `$29` (`EN_TA`, `EN_TB`)
 
 ## Architectural Notes
-- Core is isolated in `internal/apu/ym2608.go`.
-- Runtime FM path is backend-selectable (`internal/apu/fm_opm.go` + YMFM bridge when built with `ymfm_cgo`).
-- Legacy 4-channel APU path still exists for compatibility and non-YM2608 fallback behavior.
+- Runtime FM path is implemented through `internal/apu/fm_opm.go` plus the YMFM bridge in cgo builds.
+- Legacy 4-channel APU path still exists for compatibility and alongside the YM2608 host interface.
 - Host-cycle to YM-master-clock conversion is explicit and deterministic:
   - Host domain default: `7.67 MHz`
   - YM master clock default: `8.00 MHz`
 - Current bus busy handling is deterministic placeholder (not yet cycle-exact against full chip wait table).
 
 ## Assumptions / Ambiguities
-- Translation text around status-flag wording is ambiguous in places; implementation currently mirrors timer flags into both status ports.
-- IRQ generation is currently modeled from timer flags + `$29` timer enable bits only.
-- Non-timer status bits (`EOS`, `BRDY`, `ZERO`) are reserved for future ADPCM/rhythm stages.
+- The historical prototype work summarized below explored fuller dual-status behavior than the current shipped Nitro wrapper exposes.
+- In the current wrapper, IRQ generation is modeled from timer flags + `$29` timer enable bits only.
+- Non-timer status bits (`EOS`, `BRDY`, `ZERO`) are not part of the current shared-status contract at `0x9102`.
 
 ## Validation Added in Stages 1-2
 - Unit:

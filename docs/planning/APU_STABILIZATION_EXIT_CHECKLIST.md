@@ -45,7 +45,7 @@ go run -tags testrom_tools ./test/roms/build_ym2608_demo_song.go \
   -out roms/ym2608_demo_song.rom \
   -frames-per-bank 70
 
-go run ./cmd/rom_audio_capture \
+go run -tags ymfm_cgo ./cmd/rom_audio_capture \
   -rom roms/ym2608_demo_song.rom \
   -out /tmp/ym2608_demo_song_capture.wav \
   -frames 1800 \
@@ -57,7 +57,7 @@ go run ./cmd/rom_audio_capture \
 go run ./cmd/wav_compare \
   -ref Resources/Demo.wav \
   -got /tmp/ym2608_demo_song_capture.wav \
-  -seconds 20
+  -seconds 30
 ```
 
 ### E) Gameplay + BGM smoke (manual)

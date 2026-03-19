@@ -1951,7 +1951,7 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		}
 		cg.builder.AddInstruction(rom.EncodeMOV(0, 4, 0)) // MOV R4, R0 (addr)
 		cg.builder.AddInstruction(rom.EncodeMOV(0, 5, 1)) // MOV R5, R1 (value)
-		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5)) // MOV [R4], R5 (8-bit store)
+		cg.builder.AddInstruction(rom.EncodeMOV(7, 4, 5)) // MOV [R4], R5 (8-bit store)
 		return nil
 
 	case "mem.read":
@@ -1962,7 +1962,7 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 			return fmt.Errorf("mem.read requires 1 argument (addr)")
 		}
 		cg.builder.AddInstruction(rom.EncodeMOV(0, 4, 0))       // MOV R4, R0 (addr)
-		cg.builder.AddInstruction(rom.EncodeMOV(2, destReg, 4)) // MOV R{dest}, [R4] (read)
+		cg.builder.AddInstruction(rom.EncodeMOV(6, destReg, 4)) // MOV R{dest}, [R4] (8-bit read)
 		return nil
 
 	case "bg.set_scroll":

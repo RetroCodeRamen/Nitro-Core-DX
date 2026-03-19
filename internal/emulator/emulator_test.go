@@ -1,7 +1,11 @@
 package emulator
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"math"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -175,5 +179,153 @@ func TestFrameCountRemainsMonotonicAcrossFPSUpdates(t *testing.T) {
 	}
 	if emu.FrameCount != 2 {
 		t.Fatalf("FrameCount after FPS update = %d, want 2", emu.FrameCount)
+	}
+}
+
+// framebufferChecksum returns a SHA256 hex of the display buffer (used to detect when frame content changes).
+func framebufferChecksum(buf []uint32) string {
+	raw := make([]byte, len(buf)*4)
+	for i, px := range buf {
+		raw[i*4+0] = byte(px)
+		raw[i*4+1] = byte(px >> 8)
+		raw[i*4+2] = byte(px >> 16)
+		raw[i*4+3] = byte(px >> 24)
+	}
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
+}
+
+// TestMatrixFloorBillboardReferenceFramebufferChangesWithInput verifies that the matrix floor+billboard
+// reference ROM updates the displayed framebuffer when controller input is applied (WRAM and PPU plane
+// state change; the picture must change too). If this test fails, the PPU is not rendering from the
+// updated matrix plane camera/heading/row state.
+func TestMatrixFloorBillboardReferenceFramebufferChangesWithInput(t *testing.T) {
+	// Try multiple paths: module root (go test from repo) and package dir (go test ./internal/emulator).
+	possiblePaths := []string{
+		"roms/matrix_floor_billboard_reference.rom",
+		"../roms/matrix_floor_billboard_reference.rom",
+		"../../roms/matrix_floor_billboard_reference.rom",
+	}
+	var romPath string
+	for _, p := range possiblePaths {
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			continue
+		}
+		if _, err := os.Stat(abs); err == nil {
+			romPath = abs
+			break
+		}
+		if _, err := os.Stat(p); err == nil {
+			romPath = p
+			break
+		}
+	}
+	if romPath == "" {
+		t.Skip("matrix_floor_billboard_reference.rom not found (build with: go run ./test/roms/build_matrix_floor_billboard_reference.go)")
+	}
+
+	data, err := os.ReadFile(romPath)
+	if err != nil {
+		t.Fatalf("read ROM: %v", err)
+	}
+
+	emu := NewEmulator()
+	if err := emu.LoadROM(data); err != nil {
+		t.Fatalf("load ROM: %v", err)
+	}
+	emu.Running = true
+	emu.SetFrameLimit(false)
+
+	// Warmup so ROM is past init and in main loop
+	for i := 0; i < 5; i++ {
+		emu.SetInputButtons(0)
+		if err := emu.RunFrame(); err != nil {
+			t.Fatalf("warmup RunFrame: %v", err)
+		}
+	}
+
+	// Baseline: a few frames with no input
+	emu.SetInputButtons(0)
+	for i := 0; i < 10; i++ {
+		if err := emu.RunFrame(); err != nil {
+			t.Fatalf("baseline RunFrame: %v", err)
+		}
+	}
+	checksumNoInput := framebufferChecksum(emu.GetOutputBuffer())
+
+	// Apply forward (UP) input for several frames so camera/heading and matrix plane state change
+	emu.SetInputButtons(0x0001) // UP
+	for i := 0; i < 20; i++ {
+		if err := emu.RunFrame(); err != nil {
+			t.Fatalf("forward RunFrame: %v", err)
+		}
+	}
+	checksumWithInput := framebufferChecksum(emu.GetOutputBuffer())
+
+	// After running with input, WRAM camera should have changed and the ROM writes that to plane 1 each frame.
+	// If plane 1 matches WRAM but the framebuffer didn't change, the render path isn't using the plane state.
+	wramCamX := emu.Bus.Read16(0, 0x0204)
+	wramCamY := emu.Bus.Read16(0, 0x0206)
+	plane1 := &emu.PPU.MatrixPlanes[1]
+	planeCamX := uint16(int16(plane1.CameraX))
+	planeCamY := uint16(int16(plane1.CameraY))
+	if wramCamX != planeCamX || wramCamY != planeCamY {
+		t.Logf("WRAM camera=(%d,%d) plane1.Camera=(%d,%d) — ROM may not be writing plane 1 each frame or timing differs",
+			wramCamX, wramCamY, plane1.CameraX, plane1.CameraY)
+	}
+
+	if checksumNoInput == checksumWithInput {
+		t.Errorf("framebuffer did not change after applying input: checksum %s (no input) == %s (with UP); "+
+			"PPU should render from updated matrix plane camera/heading", checksumNoInput, checksumWithInput)
+	}
+}
+
+func TestMatrixFloorBillboardGenericFramebufferChangesWithInput(t *testing.T) {
+	data, err := os.ReadFile("../../roms/matrix_floor_billboard_generic.rom")
+	if err != nil {
+		t.Fatalf("read ROM: %v", err)
+	}
+
+	emu := NewEmulator()
+	if err := emu.LoadROM(data); err != nil {
+		t.Fatalf("load ROM: %v", err)
+	}
+	emu.Running = true
+	emu.SetFrameLimit(false)
+
+	// Warmup so ROM finishes init.
+	for i := 0; i < 10; i++ {
+		emu.SetInputButtons(0)
+		if err := emu.RunFrame(); err != nil {
+			t.Fatalf("warmup RunFrame: %v", err)
+		}
+	}
+
+	// Baseline frame (no input).
+	emu.SetInputButtons(0)
+	if err := emu.RunFrame(); err != nil {
+		t.Fatalf("baseline RunFrame: %v", err)
+	}
+	before := framebufferChecksum(emu.GetOutputBuffer())
+
+	// Apply UP for a few frames.
+	for i := 0; i < 10; i++ {
+		emu.SetInputButtons(0x0001)
+		if err := emu.RunFrame(); err != nil {
+			t.Fatalf("input RunFrame: %v", err)
+		}
+	}
+	after := framebufferChecksum(emu.GetOutputBuffer())
+
+	wramCamX := int16(emu.Bus.Read16(0, 0x0204))
+	wramCamY := int16(emu.Bus.Read16(0, 0x0206))
+	p0 := &emu.PPU.MatrixPlanes[0]
+	p1 := &emu.PPU.MatrixPlanes[1]
+	t.Logf("WRAM camera=(%d,%d) plane0.Camera=(%d,%d) plane1.Camera=(%d,%d)",
+		wramCamX, wramCamY, int16(p0.CameraX), int16(p0.CameraY), int16(p1.CameraX), int16(p1.CameraY))
+
+	if before == after {
+		t.Fatalf("framebuffer did not change after applying input: checksum %s == %s", before, after)
 	}
 }

@@ -87,15 +87,15 @@ Nitro-Core-DX is a retro-inspired fantasy console (Go emulator + FPGA RTL) with 
 
 ## APU Review
 
-**Intended:** Legacy 4-channel PSG (sine, square, saw, noise) + PCM, plus FM extension (YM2608 direction) at 0x9100–0x91FF, mixer combining legacy and FM, runtime backend selection (YMFM vs legacy).
+**Intended:** Legacy 4-channel PSG (sine, square, saw, noise) + PCM, plus FM extension (YM2608 direction) at 0x9100–0x91FF, mixer combining legacy and FM, with YM2608/OPNA as the primary runtime target.
 
-**Implemented:** Legacy APU complete (frequency, volume, waveform, duration, master volume, completion status). FM extension: MMIO at 0x9100–0x91FF, FMOPM struct, YMFM backend via CGo to Resources/ymfm-main, legacy fallback, `NCDX_YM_BACKEND=auto|ymfm|legacy`. Timer/IRQ bridge and deterministic placeholder timing present. Tests force `legacy` for determinism where needed.
+**Implemented:** Legacy APU complete (frequency, volume, waveform, duration, master volume, completion status). FM extension: MMIO at 0x9100–0x91FF, FMOPM host wrapper, YMFM backend via CGo to `Resources/ymfm-main`, and code-level OPM-lite fallback when YMFM is unavailable. Timer/IRQ bridge and deterministic placeholder timing are present. User-facing cgo entrypoints currently default to `ymfm`.
 
-**Coherent:** Yes. Single APU struct with optional FM; backend selection at init; no duplicate channel logic.
+**Coherent:** Yes. Single APU struct with optional FM; current runtime is centered on the YMFM-backed host path without duplicating legacy channel logic.
 
 **Matches project goals:** YM2608-style APU work is underway; legacy preserved; FM host interface and playback path operational. Conformance refinement and full subsystem parity (SSG/ADPCM/rhythm) are documented as in progress.
 
-**Missing / questionable:** Deprecated float phase fields still exist for compatibility; remove only with an explicit savestate migration/version step. Broader YM2608 test coverage and subsystem parity work remain ongoing.
+**Missing / questionable:** Deprecated float phase fields still exist for compatibility; save states are now versioned, but removing those fields should still go through an explicit migration step. Broader YM2608 test coverage and subsystem parity work remain ongoing.
 
 **Design drift:** None. APU_FM_OPM_EXTENSION_SPEC and planning docs describe current direction (extension, not replacement; YM2608 target).
 
@@ -205,7 +205,7 @@ Nitro-Core-DX is a retro-inspired fantasy console (Go emulator + FPGA RTL) with 
 
 ## Risks and Unknowns
 
-1. **Savestates:** If savestates persist deprecated fields (e.g. PPU legacy matrix, APU float phase), removing those fields could break save compatibility—needs versioning/migration before removal.
+1. **Savestates:** Save states are now versioned, but deprecated fields (e.g. PPU legacy matrix, APU float phase) can still break compatibility if removed without a deliberate migration step.
 2. **FPGA parity:** Extent to which games or tests assume FPGA behavior identical to Go is unclear; documenting FPGA PPU as “subset” until four-matrix and tilemap layout are aligned reduces risk.
 3. **HDMA “partial”:** HARDWARE_FEATURES_STATUS says HDMA scroll is “structure exists” and “needs full per-layer scroll HDMA support.” Code appears to implement it; clarify and update status to avoid duplicate work or wrong assumptions.
 4. **External dependents:** Unknown whether any external tool or ROM depends on `RenderFrame()`, `executeDMA()`, or legacy PPU matrix registers; recommend release-note/deprecation discipline before removal.

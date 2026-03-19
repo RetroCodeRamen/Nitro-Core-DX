@@ -20,10 +20,17 @@ func init() {
 	gob.Register(SaveState{})
 	gob.Register(cpu.CPUState{})
 	gob.Register(ppu.BackgroundLayer{})
+	gob.Register(ppu.MatrixPlane{})
+	gob.Register(ppu.MatrixPlaneRowParams{})
 	gob.Register(ppu.TransformChannel{})
 	gob.Register(ppu.Window{})
 	gob.Register(apu.AudioChannel{})
 }
+
+const (
+	saveStateVersion1 uint16 = 1
+	saveStateVersion2 uint16 = 2
+)
 
 // SaveState represents a complete emulator state snapshot
 type SaveState struct {
@@ -52,25 +59,45 @@ type SaveState struct {
 
 // PPUState represents PPU state for save/load
 type PPUState struct {
-	VRAM               [65536]uint8
-	CGRAM              [512]uint8
-	OAM                [768]uint8
-	BG0, BG1, BG2, BG3 ppu.BackgroundLayer
-	TransformChannels  [4]ppu.TransformChannel
-	Window0, Window1   ppu.Window
-	WindowControl      uint8
-	WindowMainEnable   uint8
-	WindowSubEnable    uint8
-	HDMAEnabled        bool
-	HDMATableBase      uint16
-	FrameCounter       uint16
-	VBlankFlag         bool
-	VRAMAddr           uint16
-	CGRAMAddr          uint8
-	CGRAMWriteLatch    bool
-	CGRAMWriteValue    uint16
-	OAMAddr            uint8
-	OAMByteIndex       uint8
+	VRAM                   [65536]uint8
+	CGRAM                  [512]uint8
+	OAM                    [768]uint8
+	BG0, BG1, BG2, BG3     ppu.BackgroundLayer
+	TransformChannels      [4]ppu.TransformChannel
+	MatrixPlanes           [ppu.NumTransformChannels]ppu.MatrixPlane
+	Window0, Window1       ppu.Window
+	WindowControl          uint8
+	WindowMainEnable       uint8
+	WindowSubEnable        uint8
+	HDMAEnabled            bool
+	HDMATableBase          uint16
+	HDMAControl            uint8
+	HDMAExtControl         uint8
+	FrameCounter           uint16
+	VBlankFlag             bool
+	VRAMAddr               uint16
+	CGRAMAddr              uint8
+	CGRAMWriteLatch        bool
+	CGRAMWriteValue        uint16
+	MatrixPlaneSelect      uint8
+	MatrixPlaneAddr        uint16
+	MatrixPlanePatternAddr uint16
+	MatrixPlaneBitmapAddr  uint32
+	MatrixPlaneRowAddr     uint16
+	DMAEnabled             bool
+	DMASourceBank          uint8
+	DMASourceOffset        uint16
+	DMADestType            uint8
+	DMADestAddr            uint16
+	DMALength              uint16
+	DMAMode                uint8
+	DMACycles              uint16
+	DMAProgress            uint16
+	DMACurrentSrc          uint16
+	DMACurrentDest         uint16
+	DMAFillValue           uint8
+	OAMAddr                uint8
+	OAMByteIndex           uint8
 }
 
 // APUState represents APU state for save/load
@@ -100,7 +127,7 @@ type InputState struct {
 func (e *Emulator) SaveState() ([]byte, error) {
 	// Create save state structure
 	state := SaveState{
-		Version:     1, // Version 1 of save state format
+		Version:     saveStateVersion2,
 		CPUState:    e.CPU.State,
 		PPUState:    e.savePPUState(),
 		APUState:    e.saveAPUState(),
@@ -132,13 +159,13 @@ func (e *Emulator) LoadState(data []byte) error {
 	}
 
 	// Check version compatibility
-	if state.Version != 1 {
-		return fmt.Errorf("unsupported save state version: %d (expected 1)", state.Version)
+	if state.Version != saveStateVersion1 && state.Version != saveStateVersion2 {
+		return fmt.Errorf("unsupported save state version: %d (expected %d or %d)", state.Version, saveStateVersion1, saveStateVersion2)
 	}
 
 	// Restore state
 	e.CPU.State = state.CPUState
-	e.loadPPUState(state.PPUState)
+	e.loadPPUState(state.PPUState, state.Version)
 	e.loadAPUState(state.APUState)
 	e.loadMemoryState(state.MemoryState)
 	e.loadInputState(state.InputState)
@@ -150,35 +177,59 @@ func (e *Emulator) LoadState(data []byte) error {
 
 // savePPUState extracts PPU state for saving
 func (e *Emulator) savePPUState() PPUState {
+	var transformChannels [4]ppu.TransformChannel
+	for i := 0; i < ppu.NumTransformChannels && i < 4; i++ {
+		transformChannels[i] = e.PPU.TransformChannels[i]
+	}
 	return PPUState{
-		VRAM:              e.PPU.VRAM,
-		CGRAM:             e.PPU.CGRAM,
-		OAM:               e.PPU.OAM,
-		BG0:               e.PPU.BG0,
-		BG1:               e.PPU.BG1,
-		BG2:               e.PPU.BG2,
-		BG3:               e.PPU.BG3,
-		TransformChannels: e.PPU.TransformChannels,
-		Window0:           e.PPU.Window0,
-		Window1:           e.PPU.Window1,
-		WindowControl:     e.PPU.WindowControl,
-		WindowMainEnable:  e.PPU.WindowMainEnable,
-		WindowSubEnable:   e.PPU.WindowSubEnable,
-		HDMAEnabled:       e.PPU.HDMAEnabled,
-		HDMATableBase:     e.PPU.HDMATableBase,
-		FrameCounter:      e.PPU.FrameCounter,
-		VBlankFlag:        e.PPU.VBlankFlag,
-		VRAMAddr:          e.PPU.VRAMAddr,
-		CGRAMAddr:         e.PPU.CGRAMAddr,
-		CGRAMWriteLatch:   e.PPU.CGRAMWriteLatch,
-		CGRAMWriteValue:   e.PPU.CGRAMWriteValue,
-		OAMAddr:           e.PPU.OAMAddr,
-		OAMByteIndex:      e.PPU.OAMByteIndex,
+		VRAM:                   e.PPU.VRAM,
+		CGRAM:                  e.PPU.CGRAM,
+		OAM:                    e.PPU.OAM,
+		BG0:                    e.PPU.BG0,
+		BG1:                    e.PPU.BG1,
+		BG2:                    e.PPU.BG2,
+		BG3:                    e.PPU.BG3,
+		TransformChannels:      transformChannels,
+		MatrixPlanes:           e.PPU.MatrixPlanes,
+		Window0:                e.PPU.Window0,
+		Window1:                e.PPU.Window1,
+		WindowControl:          e.PPU.WindowControl,
+		WindowMainEnable:       e.PPU.WindowMainEnable,
+		WindowSubEnable:        e.PPU.WindowSubEnable,
+		HDMAEnabled:            e.PPU.HDMAEnabled,
+		HDMATableBase:          e.PPU.HDMATableBase,
+		HDMAControl:            e.PPU.HDMAControl,
+		HDMAExtControl:         e.PPU.HDMAExtControl,
+		FrameCounter:           e.PPU.FrameCounter,
+		VBlankFlag:             e.PPU.VBlankFlag,
+		VRAMAddr:               e.PPU.VRAMAddr,
+		CGRAMAddr:              e.PPU.CGRAMAddr,
+		CGRAMWriteLatch:        e.PPU.CGRAMWriteLatch,
+		CGRAMWriteValue:        e.PPU.CGRAMWriteValue,
+		MatrixPlaneSelect:      e.PPU.MatrixPlaneSelect,
+		MatrixPlaneAddr:        e.PPU.MatrixPlaneAddr,
+		MatrixPlanePatternAddr: e.PPU.MatrixPlanePatternAddr,
+		MatrixPlaneBitmapAddr:  e.PPU.MatrixPlaneBitmapAddr,
+		MatrixPlaneRowAddr:     e.PPU.MatrixPlaneRowAddr,
+		DMAEnabled:             e.PPU.DMAEnabled,
+		DMASourceBank:          e.PPU.DMASourceBank,
+		DMASourceOffset:        e.PPU.DMASourceOffset,
+		DMADestType:            e.PPU.DMADestType,
+		DMADestAddr:            e.PPU.DMADestAddr,
+		DMALength:              e.PPU.DMALength,
+		DMAMode:                e.PPU.DMAMode,
+		DMACycles:              e.PPU.DMACycles,
+		DMAProgress:            e.PPU.DMAProgress,
+		DMACurrentSrc:          e.PPU.DMACurrentSrc,
+		DMACurrentDest:         e.PPU.DMACurrentDest,
+		DMAFillValue:           e.PPU.DMAFillValue,
+		OAMAddr:                e.PPU.OAMAddr,
+		OAMByteIndex:           e.PPU.OAMByteIndex,
 	}
 }
 
 // loadPPUState restores PPU state from saved state
-func (e *Emulator) loadPPUState(state PPUState) {
+func (e *Emulator) loadPPUState(state PPUState, version uint16) {
 	e.PPU.VRAM = state.VRAM
 	e.PPU.CGRAM = state.CGRAM
 	e.PPU.OAM = state.OAM
@@ -186,7 +237,9 @@ func (e *Emulator) loadPPUState(state PPUState) {
 	e.PPU.BG1 = state.BG1
 	e.PPU.BG2 = state.BG2
 	e.PPU.BG3 = state.BG3
-	e.PPU.TransformChannels = state.TransformChannels
+	for i := 0; i < ppu.NumTransformChannels && i < 4; i++ {
+		e.PPU.TransformChannels[i] = state.TransformChannels[i]
+	}
 	e.PPU.Window0 = state.Window0
 	e.PPU.Window1 = state.Window1
 	e.PPU.WindowControl = state.WindowControl
@@ -194,6 +247,60 @@ func (e *Emulator) loadPPUState(state PPUState) {
 	e.PPU.WindowSubEnable = state.WindowSubEnable
 	e.PPU.HDMAEnabled = state.HDMAEnabled
 	e.PPU.HDMATableBase = state.HDMATableBase
+	if version >= saveStateVersion2 {
+		e.PPU.MatrixPlanes = state.MatrixPlanes
+		e.PPU.HDMAControl = state.HDMAControl
+		e.PPU.HDMAExtControl = state.HDMAExtControl
+		e.PPU.MatrixPlaneSelect = state.MatrixPlaneSelect
+		e.PPU.MatrixPlaneAddr = state.MatrixPlaneAddr
+		e.PPU.MatrixPlanePatternAddr = state.MatrixPlanePatternAddr
+		e.PPU.MatrixPlaneBitmapAddr = state.MatrixPlaneBitmapAddr
+		e.PPU.MatrixPlaneRowAddr = state.MatrixPlaneRowAddr
+		e.PPU.DMAEnabled = state.DMAEnabled
+		e.PPU.DMASourceBank = state.DMASourceBank
+		e.PPU.DMASourceOffset = state.DMASourceOffset
+		e.PPU.DMADestType = state.DMADestType
+		e.PPU.DMADestAddr = state.DMADestAddr
+		e.PPU.DMALength = state.DMALength
+		e.PPU.DMAMode = state.DMAMode
+		e.PPU.DMACycles = state.DMACycles
+		e.PPU.DMAProgress = state.DMAProgress
+		e.PPU.DMACurrentSrc = state.DMACurrentSrc
+		e.PPU.DMACurrentDest = state.DMACurrentDest
+		e.PPU.DMAFillValue = state.DMAFillValue
+	} else {
+		// Version 1 save states predate matrix-plane serialization. Reset the
+		// newer plane/MMIO state so we don't leak stale runtime data across loads.
+		e.PPU.MatrixPlanes = [ppu.NumTransformChannels]ppu.MatrixPlane{}
+		for i := range e.PPU.MatrixPlanes {
+			e.PPU.MatrixPlanes[i].Size = ppu.TilemapSize32x32
+			e.PPU.MatrixPlanes[i].BaseDistance = 0x0100
+			e.PPU.MatrixPlanes[i].FocalLength = 0x3000
+			e.PPU.MatrixPlanes[i].WidthScale = 0x0100
+			e.PPU.MatrixPlanes[i].HeightScale = 0x0200
+			e.PPU.MatrixPlanes[i].HeadingY = -0x0100
+			e.PPU.MatrixPlanes[i].FacingY = -0x0100
+		}
+		e.PPU.HDMAControl = 0
+		e.PPU.HDMAExtControl = 0
+		e.PPU.MatrixPlaneSelect = 0
+		e.PPU.MatrixPlaneAddr = 0
+		e.PPU.MatrixPlanePatternAddr = 0
+		e.PPU.MatrixPlaneBitmapAddr = 0
+		e.PPU.MatrixPlaneRowAddr = 0
+		e.PPU.DMAEnabled = false
+		e.PPU.DMASourceBank = 0
+		e.PPU.DMASourceOffset = 0
+		e.PPU.DMADestType = 0
+		e.PPU.DMADestAddr = 0
+		e.PPU.DMALength = 0
+		e.PPU.DMAMode = 0
+		e.PPU.DMACycles = 0
+		e.PPU.DMAProgress = 0
+		e.PPU.DMACurrentSrc = 0
+		e.PPU.DMACurrentDest = 0
+		e.PPU.DMAFillValue = 0
+	}
 	e.PPU.FrameCounter = state.FrameCounter
 	e.PPU.VBlankFlag = state.VBlankFlag
 	e.PPU.VRAMAddr = state.VRAMAddr
@@ -202,6 +309,7 @@ func (e *Emulator) loadPPUState(state PPUState) {
 	e.PPU.CGRAMWriteValue = state.CGRAMWriteValue
 	e.PPU.OAMAddr = state.OAMAddr
 	e.PPU.OAMByteIndex = state.OAMByteIndex
+	e.PPU.ResetDerivedRuntimeCachesForStateLoad()
 	e.PPU.SyncTransformBindingsForStateLoad()
 }
 

@@ -53,23 +53,51 @@ func TestBusFMExtensionTimerStatus(t *testing.T) {
 	bus.Write8(0, 0x9100, 0x14) // Timer control: start A + IRQ enable A
 	bus.Write8(0, 0x9101, 0x11)
 
-	if err := audio.StepAPU(64); err != nil {
-		t.Fatalf("StepAPU failed: %v", err)
+	// Different FM backends may advance timer flags over slightly different
+	// cycle counts, so poll instead of hard-coding 64 cycles.
+	const (
+		pollStepCycles = uint64(32)
+		pollMaxCycles  = uint64(4096)
+	)
+
+	var status uint8
+	timerARaised := false
+	for waited := uint64(0); waited <= pollMaxCycles; waited += pollStepCycles {
+		if err := audio.StepAPU(pollStepCycles); err != nil {
+			t.Fatalf("StepAPU failed: %v", err)
+		}
+		status = bus.Read8(0, 0x9102)
+		if status&apu.FMStatusTimerA != 0 {
+			timerARaised = true
+			break
+		}
 	}
-	status := bus.Read8(0, 0x9102)
-	if status&apu.FMStatusTimerA == 0 {
-		t.Fatalf("Timer A flag not set via bus path, status=0x%02X", status)
+
+	if !timerARaised {
+		t.Fatalf("Timer A flag not set via bus path after polling, status=0x%02X", status)
 	}
 	if status&apu.FMStatusIRQ == 0 {
-		t.Fatalf("IRQ flag not set via bus path, status=0x%02X", status)
+		t.Fatalf("IRQ flag not set via bus path after TimerA raised, status=0x%02X", status)
 	}
 
 	// Clear timer A flag via timer control bit2, keep start+IRQ enable.
 	bus.Write8(0, 0x9100, 0x14)
 	bus.Write8(0, 0x9101, 0x15)
+
+	// Poll until TimerA/IRQ bits clear.
+	for waited := uint64(0); waited <= pollMaxCycles; waited += pollStepCycles {
+		status = bus.Read8(0, 0x9102)
+		if status&(apu.FMStatusTimerA|apu.FMStatusIRQ) == 0 {
+			return
+		}
+		if err := audio.StepAPU(pollStepCycles); err != nil {
+			t.Fatalf("StepAPU failed during clear polling: %v", err)
+		}
+	}
+
 	status = bus.Read8(0, 0x9102)
 	if status&(apu.FMStatusTimerA|apu.FMStatusIRQ) != 0 {
-		t.Fatalf("Timer A/IRQ flags not cleared via bus path, status=0x%02X", status)
+		t.Fatalf("Timer A/IRQ flags not cleared via bus path after polling, status=0x%02X", status)
 	}
 }
 
