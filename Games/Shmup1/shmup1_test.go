@@ -10,7 +10,7 @@ import (
 	"nitro-core-dx/internal/emulator"
 )
 
-// compileROM compiles a CoreLX source file to ROM bytes (same helper pattern as Galaxy Force tests).
+// compileROM compiles a CoreLX source file to ROM bytes using the shared game-test helper pattern.
 func compileROM(t *testing.T, srcPath string) []byte {
 	t.Helper()
 	result, err := corelx.CompileSource(
@@ -158,4 +158,3 @@ func TestShmup1TitleASCII(t *testing.T) {
 	buf := emu.GetOutputBuffer()
 	writeASCIIFrame(t, buf, 320, 200, "shmup1_title_frame.txt")
 }
-

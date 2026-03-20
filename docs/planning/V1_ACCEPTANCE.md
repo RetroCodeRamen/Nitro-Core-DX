@@ -106,16 +106,16 @@ This document defines release-blocking acceptance gates tied to `V1_CHARTER.md`.
 - V1 release docs, APIs, and acceptance references target YM2608 as the canonical FM chip.
 - YM2151/OPM-lite is not the V1 release target.
 
-## 7. Galaxy Force + Documentation Gates
+## 7. NitroPackInDemo + Documentation Gates
 
 ### ACC-GAME-1 Full Concept
-- Vertical shmup core + Matrix Mode transition + showcase boss path playable end-to-end.
+- Title screen, pseudo-3D overworld, building interaction, interior showcase room, NPC interaction, and credits path playable end-to-end.
 
 ### ACC-GAME-2 Regression
-- Scripted smoke tests validate core game loops and transitions.
+- Scripted smoke tests validate scene flow, pseudo-3D traversal, and interaction transitions.
 
 ### ACC-DOCS-1 Manual Coherence
-- Programming manual sections use Galaxy Force code excerpts that build/run.
+- Programming manual sections use NitroPackInDemo code excerpts that build/run.
 
 ### ACC-DOCS-2 Runnable Snippets
 - In-app docs snippets load/run successfully for mapped sections.

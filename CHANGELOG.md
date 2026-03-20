@@ -26,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Documentation alignment**
   - Updated active manuals and README to reflect the current vertical-projected-quad semantics and the ROM-first `NitroPackInDemo` effort.
 
+### Removed
+- **GalaxyForce prototype workspace**
+  - Removed `Games/GalaxyForce/` for now so the active repo stays focused on the ROM-first `NitroPackInDemo` proof-of-concept and current emulator/dev-kit priorities.
+
 ### Fixed
 - **Vertical projected quad ground anchoring / projection correctness**
   - Replaced the old projected-corner interpolation path in `internal/ppu/scanline.go` with a world-space ray/plane intersection path for vertical projected quads.

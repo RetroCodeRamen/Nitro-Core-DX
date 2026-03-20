@@ -1,7 +1,7 @@
 # Nitro-Core-DX V1 Charter
 
 Status: Active (V1 source of truth)  
-Last Updated: March 6, 2026
+Last Updated: March 20, 2026
 
 This charter is the canonical scope contract for Nitro-Core-DX V1.0.  
 Other planning files may contain ideas/history; this document defines what can block V1 release.
@@ -15,7 +15,7 @@ Ship Nitro-Core-DX as a product-complete desktop SDK (Linux + Windows first-clas
 - Debugger stepping (pause/resume + frame-step + CPU-step)
 - YM2608 audio at the approved behavioral parity profile
 - Built-in documentation with runnable snippets
-- Galaxy Force flagship game and manual integration
+- NitroPackInDemo ROM-first showcase and manual integration
 
 ## 2. In Scope (Release-Blocking)
 
@@ -75,14 +75,14 @@ The following sequence is mandatory for V1 execution:
 
 This is a schedule constraint, not optional guidance. Scope may not bypass this order without an approved scope-change record.
 
-### V1-GAME: Galaxy Force flagship
-- V1-GAME-1 Vertical shmup core gameplay
-- V1-GAME-2 Matrix Mode transition sequence(s)
-- V1-GAME-3 Pseudo-3D style boss encounter (or equivalent Matrix showcase)
-- V1-GAME-4 Game code organized as canonical manual example source
+### V1-GAME: NitroPackInDemo pack-in showcase
+- V1-GAME-1 Title -> overworld -> enterable-building flow playable end-to-end
+- V1-GAME-2 Pseudo-3D overworld traversal proves matrix floor + facade gameplay
+- V1-GAME-3 Interior showcase room proves floor, ceiling, wall, NPC, and dialogue systems
+- V1-GAME-4 Demo code organized as canonical manual example source
 
 ### V1-DOCS: Documentation integration
-- V1-DOCS-1 Programming manual sections mapped to real Galaxy Force modules
+- V1-DOCS-1 Programming manual sections mapped to real NitroPackInDemo modules
 - V1-DOCS-2 Runnable docs snippets in-app
 - V1-DOCS-3 Manual and guide content validated against current shipped behavior
 
