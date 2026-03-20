@@ -917,6 +917,202 @@ func TestBitmapMatrixPlaneVerticalProjectionNarrowsAtSideView(t *testing.T) {
 	}
 }
 
+func TestBitmapMatrixPlaneVerticalProjectionBottomDropsAsCameraApproaches(t *testing.T) {
+	logger := debug.NewLogger(1000)
+	ppu := NewPPU(logger)
+
+	ppu.BG0.Enabled = true
+	ppu.TransformChannels[0].Enabled = true
+
+	plane := &ppu.MatrixPlanes[0]
+	plane.Enabled = true
+	plane.SourceMode = MatrixPlaneSourceBitmap
+	plane.Size = TilemapSize64x64
+	plane.BitmapPalette = 1
+	plane.ProjectionMode = MatrixPlaneProjectionVertical
+	plane.Horizon = 110
+	plane.CameraX = 512
+	plane.CameraY = 760
+	plane.HeadingX = 0
+	plane.HeadingY = -256
+	plane.BaseDistance = 0x0200
+	plane.FocalLength = 0x3A00
+	plane.WidthScale = 0x0100
+	plane.HeightScale = 0x0400
+	plane.OriginX = 512
+	plane.OriginY = 680
+	plane.FacingX = 0
+	plane.FacingY = 256
+	plane.TwoSided = true
+
+	ppu.CGRAM[(16+1)*2] = 0x1F
+	ppu.CGRAM[(16+1)*2+1] = 0x7C
+
+	width := tilemapWidthForSizeMode(plane.Size) * 8
+	height := width
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x += 2 {
+			plane.Bitmap[(y*width+x)/2] = 0x11
+		}
+	}
+
+	renderBottom := func() (bottomY int, ok bool) {
+		for i := range ppu.OutputBuffer {
+			ppu.OutputBuffer[i] = 0
+		}
+		bottomY = -1
+		for yy := 0; yy < ScreenHeight; yy++ {
+			for xx := 0; xx < ScreenWidth; xx++ {
+				ppu.renderDotMatrixMode(0, xx, yy)
+				if ppu.OutputBuffer[yy*ScreenWidth+xx] != 0 {
+					if yy > bottomY {
+						bottomY = yy
+					}
+					ok = true
+				}
+			}
+		}
+		return bottomY, ok
+	}
+
+	farBottom, ok := renderBottom()
+	if !ok {
+		t.Fatalf("far vertical plane rendered no visible pixels")
+	}
+
+	plane.CameraY = 700
+	nearBottom, ok := renderBottom()
+	if !ok {
+		t.Fatalf("near vertical plane rendered no visible pixels")
+	}
+
+	if nearBottom <= farBottom {
+		t.Fatalf("expected building bottom to move lower on screen as camera approaches: far=%d near=%d", farBottom, nearBottom)
+	}
+}
+
+func TestBitmapMatrixPlaneVerticalProjectionCenterAnchorMatchesProjectedSpan(t *testing.T) {
+	logger := debug.NewLogger(1000)
+	ppu := NewPPU(logger)
+
+	ppu.BG0.Enabled = true
+	ppu.TransformChannels[0].Enabled = true
+
+	plane := &ppu.MatrixPlanes[0]
+	plane.Enabled = true
+	plane.SourceMode = MatrixPlaneSourceBitmap
+	plane.Size = TilemapSize64x64
+	plane.BitmapPalette = 1
+	plane.ProjectionMode = MatrixPlaneProjectionVertical
+	plane.Horizon = 96
+	plane.BaseDistance = 0x0200
+	plane.FocalLength = 0x3A00
+	plane.WidthScale = 0x00C0
+	plane.HeightScale = 0x0200
+	plane.OriginX = 512
+	plane.OriginY = 680
+	plane.FacingX = 0
+	plane.FacingY = 256
+	plane.TwoSided = true
+
+	ppu.CGRAM[(16+1)*2] = 0x1F
+	ppu.CGRAM[(16+1)*2+1] = 0x7C
+
+	width := tilemapWidthForSizeMode(plane.Size) * 8
+	height := width
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x += 2 {
+			plane.Bitmap[(y*width+x)/2] = 0x11
+		}
+	}
+
+	renderFrame := func() {
+		for i := range ppu.OutputBuffer {
+			ppu.OutputBuffer[i] = 0
+		}
+		for yy := 0; yy < ScreenHeight; yy++ {
+			for xx := 0; xx < ScreenWidth; xx++ {
+				ppu.renderDotMatrixMode(0, xx, yy)
+			}
+		}
+	}
+
+	measureSpanNearX := func(centerX int32) (topY, bottomY int, ok bool) {
+		topY = ScreenHeight
+		bottomY = -1
+		xMin := int(centerX) - 2
+		xMax := int(centerX) + 2
+		if xMin < 0 {
+			xMin = 0
+		}
+		if xMax >= ScreenWidth {
+			xMax = ScreenWidth - 1
+		}
+		for yy := 0; yy < ScreenHeight; yy++ {
+			for xx := xMin; xx <= xMax; xx++ {
+				if ppu.OutputBuffer[yy*ScreenWidth+xx] == 0 {
+					continue
+				}
+				if yy < topY {
+					topY = yy
+				}
+				if yy > bottomY {
+					bottomY = yy
+				}
+				ok = true
+			}
+		}
+		return topY, bottomY, ok
+	}
+
+	absDiff := func(a, b int32) int32 {
+		if a > b {
+			return a - b
+		}
+		return b - a
+	}
+
+	cases := []struct {
+		name     string
+		cameraX  int16
+		cameraY  int16
+		headingX int16
+		headingY int16
+	}{
+		{name: "front", cameraX: 512, cameraY: 760, headingX: 0, headingY: -256},
+		{name: "angled", cameraX: 456, cameraY: 736, headingX: 90, headingY: -240},
+	}
+
+	for _, tc := range cases {
+		plane.CameraX = tc.cameraX
+		plane.CameraY = tc.cameraY
+		plane.HeadingX = tc.headingX
+		plane.HeadingY = tc.headingY
+
+		expectedBottomX, expectedBottomY, _, ok := ppu.projectMatrixPlanePoint(plane, int32(plane.OriginX), int32(plane.OriginY), 0)
+		if !ok {
+			t.Fatalf("%s: projected bottom center was not visible", tc.name)
+		}
+		_, expectedTopY, _, ok := ppu.projectMatrixPlanePoint(plane, int32(plane.OriginX), int32(plane.OriginY), int32(plane.HeightScale))
+		if !ok {
+			t.Fatalf("%s: projected top center was not visible", tc.name)
+		}
+
+		renderFrame()
+		gotTopY, gotBottomY, ok := measureSpanNearX(expectedBottomX)
+		if !ok {
+			t.Fatalf("%s: rendered plane produced no visible pixels near projected center x=%d", tc.name, expectedBottomX)
+		}
+
+		if absDiff(int32(gotBottomY), expectedBottomY) > 3 {
+			t.Fatalf("%s: rendered bottom did not match projected ground anchor: got=%d want=%d", tc.name, gotBottomY, expectedBottomY)
+		}
+		if absDiff(int32(gotTopY), expectedTopY) > 3 {
+			t.Fatalf("%s: rendered top did not match projected top anchor: got=%d want=%d", tc.name, gotTopY, expectedTopY)
+		}
+	}
+}
+
 // TestDMATransfer tests DMA copy and fill modes
 func TestDMATransfer(t *testing.T) {
 	logger := debug.NewLogger(1000)

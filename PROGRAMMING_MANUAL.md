@@ -709,6 +709,20 @@ If you are writing low-level ROM code, the dedicated matrix-plane aperture is:
 - `MATRIX_PLANE_HEIGHT_SCALE`
   - vertical size term for projected quads
 
+Vertical projected quads are now treated as real world-space planes instead of
+screen-facing billboards.
+
+That means:
+
+- the renderer intersects the camera ray with the plane defined by
+  `ORIGIN_*` and `FACING_*`
+- the bottom of the quad is anchored to the ground/world position represented
+  by `ORIGIN_*`
+- off-angle views should narrow and foreshorten instead of behaving like a
+  Doom-style sprite that keeps facing the camera
+- if a facade should stay visually locked to the floor, it should normally
+  share the same camera/horizon/focal model as the floor plane that scene uses
+
 #### Row Table Layout
 
 Each visible scanline has a 16-byte row record:

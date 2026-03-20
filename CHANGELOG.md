@@ -13,6 +13,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Start 0.1.10 development cycle.
+- **NitroPackInDemo ROM-first pack-in demo workspace**
+  - Added `Games/NitroPackInDemo/` as the canonical home for the ROM-first pack-in/sample demo effort.
+  - Includes the locked design doc, ROM builder, scene-flow tests, and placeholder `park.png` / `building.png` assets for the current vertical slice.
+- **ROM builder branch helper coverage**
+  - Added `BGT`, `BLT`, `BGE`, and `BLE` convenience branch helpers to `test/roms/romutil/asm.go` so current ROM-side control-flow builders can target signed comparisons cleanly.
+
+### Changed
+- **NitroPackInDemo overworld baseline**
+  - The current demo ROM now has a title scene, overworld floor + facade slice, pause overlay, centered placeholder player sprite, and enterable interior placeholder scene under `Games/NitroPackInDemo/`.
+  - The building facade is now driven from the same camera/horizon/focal model as the overworld floor so the scene can be tuned as one coherent projection.
+- **Documentation alignment**
+  - Updated active manuals and README to reflect the current vertical-projected-quad semantics and the ROM-first `NitroPackInDemo` effort.
+
+### Fixed
+- **Vertical projected quad ground anchoring / projection correctness**
+  - Replaced the old projected-corner interpolation path in `internal/ppu/scanline.go` with a world-space ray/plane intersection path for vertical projected quads.
+  - Height sampling now uses camera-space forward depth, which keeps facades better tied to the ground plane and reduces the old screen-facing Doom-sprite behavior.
+- **Projection regression coverage**
+  - Added dedicated PPU tests covering approach behavior and center-anchor agreement for vertical projected quads in `internal/ppu/features_test.go`.
+- **NitroPackInDemo scene and projection checks**
+  - Added ROM-side assertions that the demo building plane inherits the overworld floor camera model in `Games/NitroPackInDemo/build_rom_test.go`.
 
 ---
 

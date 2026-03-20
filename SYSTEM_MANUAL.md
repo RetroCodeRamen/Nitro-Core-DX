@@ -338,7 +338,7 @@ When migrating to FPGA:
 #### PPU Rendering
 - 🚧 **Background Layer Rendering**: Basic structure, needs full tilemap implementation
 - 🚧 **Sprite Rendering**: Structure in place, needs full implementation
-- ✅ **Matrix Mode**: Implemented (transform-channel-backed per-layer matrix rendering, center/mirror/outside mode, scanline command updates)
+- ✅ **Matrix Mode**: Implemented (transform-channel-backed per-layer matrix rendering, center/mirror/outside mode, perspective row projection, vertical projected quads, scanline command updates)
 - 🚧 **Tile Rendering**: Placeholder implementation, needs full 4bpp tile decoding
 
 ### ❌ Not Yet Implemented

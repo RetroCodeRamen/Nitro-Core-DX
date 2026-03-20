@@ -117,6 +117,7 @@ For detailed information about the development process and challenges, see [Deve
   - Sprite system with priority, blending, and alpha transparency
   - 4 background layers with per-layer Matrix Mode transformations
   - Matrix Mode with outside-screen handling and direct color mode
+  - Dedicated matrix-plane path with bitmap-backed planes, perspective row projection, and vertical projected quads
   - Mosaic effect, DMA transfers, sprite-to-background priority
 - **Audio System**: 4-channel legacy audio synthesis with PCM playback support
   - Waveform generation (sine, square, saw, noise)
@@ -148,6 +149,7 @@ For detailed information about the development process and challenges, see [Deve
 - **Nitro-Core-DX App Expansion**: Sound Studio, find/replace, richer editor UX polish
 - **CoreLX Toolchain**: unified asset model, packaging flow, structured assets, banked linker integration
 - **Audio Roadmap**: YM2608 conformance refinement, broader subsystem parity, and future Sound Studio-facing authoring flow
+- **NitroPackInDemo**: ROM-first pack-in demo vertical slice with title flow, pseudo-3D overworld, enterable building stub, and active matrix-facade projection tuning
 
 ### ❌ Optional Enhancements (Not Required)
 
@@ -284,6 +286,7 @@ Known-good ROMs for embedded emulator testing (after generating them locally):
 - `roms/input_visual_diagnostic.rom`
 - `roms/fm_opmlite_showcase.rom`
 - `roms/apu_fm_showcase.rom`
+- `roms/nitro_pack_in_demo.rom` via `go run -tags testrom_tools ./Games/NitroPackInDemo`
 
 ROM layout:
 - Active runnable ROM artifacts are centralized in `roms/`.

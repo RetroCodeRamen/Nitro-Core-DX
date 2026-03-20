@@ -66,6 +66,10 @@ func (a *Asm) branch(op uint16, label string) {
 
 func (a *Asm) Beq(label string)  { a.branch(rom.EncodeBEQ(), label) }
 func (a *Asm) Bne(label string)  { a.branch(rom.EncodeBNE(), label) }
+func (a *Asm) Bgt(label string)  { a.branch(rom.EncodeBGT(), label) }
+func (a *Asm) Blt(label string)  { a.branch(rom.EncodeBLT(), label) }
+func (a *Asm) Bge(label string)  { a.branch(rom.EncodeBGE(), label) }
+func (a *Asm) Ble(label string)  { a.branch(rom.EncodeBLE(), label) }
 func (a *Asm) Jmp(label string)  { a.branch(rom.EncodeJMP(), label) }
 func (a *Asm) Call(label string) { a.branch(rom.EncodeCALL(), label) }
 func (a *Asm) Ret()              { a.Inst(rom.EncodeRET()) }

@@ -5,6 +5,8 @@
 
 > **Historical Snapshot Note (2026-02-23):** This document contains consolidated historical reviews/plans. Some status items below are stale relative to the current codebase and tests (especially older review sections). Verify against recent test runs/docs before using this as present-state status.
 
+> **Current Focus Update (2026-03-20):** Active implementation focus is the ROM-first `Games/NitroPackInDemo` pack-in demo. Recent work corrected vertical projected quad ground anchoring in `internal/ppu/scanline.go`, added projection regression coverage in `internal/ppu/features_test.go`, and is using the demo ROM as the current proving ground for matrix-floor traversal, facade projection, scene transitions, and future CoreLX API design.
+
 ---
 
 ## Table of Contents

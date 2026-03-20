@@ -1139,6 +1139,13 @@ func (p *PPU) renderDotMatrixMode(layerNum, x, y int) {
 		worldX = int32((int64(centerX) + ((int64(rightX) * int64(horizStep) * int64(screenDX)) >> 8)) >> 8)
 		worldY = int32((int64(centerY) + ((int64(rightY) * int64(horizStep) * int64(screenDX)) >> 8)) >> 8)
 	} else if plane.Enabled && plane.ProjectionMode == MatrixPlaneProjectionVertical {
+		forwardX := int32(plane.HeadingX)
+		forwardY := int32(plane.HeadingY)
+		if forwardX == 0 && forwardY == 0 {
+			forwardY = -0x0100
+		}
+		rightX := -forwardY
+		rightY := forwardX
 		facingX := int32(plane.FacingX)
 		facingY := int32(plane.FacingY)
 		if facingX == 0 && facingY == 0 {
@@ -1147,106 +1154,80 @@ func (p *PPU) renderDotMatrixMode(layerNum, x, y int) {
 		tangentX := -facingY
 		tangentY := facingX
 		widthHalf := int32(plane.WidthScale) / 2
+		widthHalfFx := widthHalf << 8
 		heightScale := int32(plane.HeightScale)
 		originX := int32(plane.OriginX)
 		originY := int32(plane.OriginY)
-
-		leftBottomX := originX - ((tangentX * widthHalf) >> 8)
-		leftBottomY := originY - ((tangentY * widthHalf) >> 8)
-		rightBottomX := originX + ((tangentX * widthHalf) >> 8)
-		rightBottomY := originY + ((tangentY * widthHalf) >> 8)
-
-		lx0, ly0, leftDepth, leftOK := p.projectMatrixPlanePoint(plane, leftBottomX, leftBottomY, 0)
-		rx0, ry0, rightDepth, rightOK := p.projectMatrixPlanePoint(plane, rightBottomX, rightBottomY, 0)
-		if !leftOK && !rightOK {
-			return
-		}
-		if (leftDepth <= 0 || rightDepth <= 0) && !plane.TwoSided {
-			return
-		}
-		lx1, ly1, _, leftTopOK := p.projectMatrixPlanePoint(plane, leftBottomX, leftBottomY, heightScale)
-		rx1, ry1, _, rightTopOK := p.projectMatrixPlanePoint(plane, rightBottomX, rightBottomY, heightScale)
-		if !leftTopOK && !rightTopOK {
+		if widthHalf <= 0 || heightScale <= 0 {
 			return
 		}
 
-		topMin := ly0
-		if ly1 < topMin {
-			topMin = ly1
+		focal := int32(plane.FocalLength)
+		if focal <= 0 {
+			focal = 1
 		}
-		if ry0 < topMin {
-			topMin = ry0
+
+		screenDX := int32(x - ScreenWidth/2)
+		screenDY := int32(y - int(plane.Horizon))
+		screenSlope := int32((int64(screenDX) << 16) / int64(focal)) // 8.8
+
+		rayX := forwardX + int32((int64(rightX)*int64(screenSlope))>>8)
+		rayY := forwardY + int32((int64(rightY)*int64(screenSlope))>>8)
+
+		camXfx := int32(plane.CameraX) << 8
+		camYfx := int32(plane.CameraY) << 8
+		originXfx := originX << 8
+		originYfx := originY << 8
+
+		toOriginX := originXfx - camXfx
+		toOriginY := originYfx - camYfx
+		numerator := int32((int64(toOriginX)*int64(facingX) + int64(toOriginY)*int64(facingY)) >> 8) // 8.8
+		denominator := int32((int64(rayX)*int64(facingX) + int64(rayY)*int64(facingY)) >> 8)         // 8.8
+		if denominator == 0 {
+			return
 		}
-		if ry1 < topMin {
-			topMin = ry1
-		}
-		bottomMax := ly0
-		if ly1 > bottomMax {
-			bottomMax = ly1
-		}
-		if ry0 > bottomMax {
-			bottomMax = ry0
-		}
-		if ry1 > bottomMax {
-			bottomMax = ry1
-		}
-		if int32(y) < topMin || int32(y) > bottomMax {
+		if denominator > 0 && !plane.TwoSided {
 			return
 		}
 
-		denomLeft := ly0 - ly1
-		if denomLeft == 0 {
-			denomLeft = 1
-		}
-		denomRight := ry0 - ry1
-		if denomRight == 0 {
-			denomRight = 1
-		}
-		tLeft := ((int32(y) - ly1) << 16) / denomLeft
-		tRight := ((int32(y) - ry1) << 16) / denomRight
-		if tLeft < 0 || tLeft > 0x10000 || tRight < 0 || tRight > 0x10000 {
+		rayDepth := int32((int64(numerator) << 8) / int64(denominator)) // 8.8
+		if rayDepth <= 0 {
 			return
 		}
 
-		xLeft := lx1 + int32((int64(lx0-lx1)*int64(tLeft))>>16)
-		xRight := rx1 + int32((int64(rx0-rx1)*int64(tRight))>>16)
-		if xLeft == xRight {
+		hitXfx := camXfx + int32((int64(rayX)*int64(rayDepth))>>8)
+		hitYfx := camYfx + int32((int64(rayY)*int64(rayDepth))>>8)
+		hitRelCamX := hitXfx - camXfx
+		hitRelCamY := hitYfx - camYfx
+		forwardDepth := int32((int64(hitRelCamX)*int64(forwardX) + int64(hitRelCamY)*int64(forwardY)) >> 8) // 8.8
+		if forwardDepth <= 0 {
 			return
 		}
 
-		minX := xLeft
-		maxX := xRight
-		if minX > maxX {
-			minX, maxX = maxX, minX
-		}
-		if int32(x) < minX || int32(x) > maxX {
+		worldZ := int32(plane.BaseDistance) - int32((int64(screenDY<<8)*int64(forwardDepth))/int64(focal)) // 8.8
+		if worldZ < 0 || worldZ > heightScale {
 			return
 		}
 
-		var u int32
-		if xLeft < xRight {
-			u = ((int32(x) - xLeft) << 16) / (xRight - xLeft)
-		} else {
-			u = ((xLeft - int32(x)) << 16) / (xLeft - xRight)
-		}
-		if u < 0 {
-			u = 0
-		} else if u > 0x10000 {
-			u = 0x10000
-		}
-		v := (tLeft + tRight) / 2
-		if v < 0 {
-			v = 0
-		} else if v > 0x10000 {
-			v = 0x10000
+		relHitX := hitXfx - originXfx
+		relHitY := hitYfx - originYfx
+		tangentPos := int32((int64(relHitX)*int64(tangentX) + int64(relHitY)*int64(tangentY)) >> 8) // 8.8
+		if tangentPos < -widthHalfFx || tangentPos > widthHalfFx {
+			return
 		}
 
 		sourcePixelWidth, sourcePixelHeight, _ := p.getMatrixPlaneSourceDimensionsCached(layerNum, layer, plane)
-		sourceX := int32((int64(u) * int64(sourcePixelWidth-1)) >> 16)
-		sourceY := int32((int64(v) * int64(sourcePixelHeight-1)) >> 16)
-		if leftDepth <= 0 || rightDepth <= 0 {
-			sourceX = int32(sourcePixelWidth-1) - sourceX
+		widthRangeFx := widthHalfFx * 2
+		if widthRangeFx <= 0 {
+			return
 		}
+
+		sourceU := tangentPos + widthHalfFx
+		if denominator > 0 {
+			sourceU = widthRangeFx - sourceU
+		}
+		sourceX := int32((int64(sourceU) * int64(sourcePixelWidth-1)) / int64(widthRangeFx))
+		sourceY := int32((int64(heightScale-worldZ) * int64(sourcePixelHeight-1)) / int64(heightScale))
 
 		color, ok := p.sampleMatrixPlaneSourcePixel(layerNum, layer, channel, plane, sourceX, sourceY)
 		if !ok {
