@@ -6,6 +6,8 @@ A custom 16-bit fantasy console emulator inspired by classic 8/16-bit consoles, 
 
 > **✅ Architecture Stable**: The core hardware architecture is complete and stable. The emulator and tooling are actively maintained, and tests/documentation continue to be refined as clock-driven behavior and debug tooling evolve.
 
+> **Current Focus (2026-03-20)**: Active implementation work is centered on `Games/NitroPackInDemo`, a ROM-first showcase demo that is being used to prove pseudo-3D matrix-floor traversal, facade projection, scene flow, and the future CoreLX game-programming surface.
+
 ---
 
 ## Meet Nitro-Core-DX
@@ -99,6 +101,38 @@ Nitro-Core-DX is a complete fantasy console system built from scratch, consistin
 5. **Assembler v1** - Text assembly (`.asm`) -> ROM pipeline for lower-level workflows
 
 For detailed information about the development process and challenges, see [Development Notes](docs/DEVELOPMENT_NOTES.md).
+
+---
+
+## Current Showcase Demo
+
+The current proving ground for Nitro-Core-DX is **NitroPackInDemo**, a ROM-first showcase and pack-in style demo that is being built before the higher-level CoreLX version. The idea is to finish the proof-of-concept in raw ROM form first, then use that working demo to shape the language, compiler, and Dev Kit workflows around a real game-sized target instead of toy snippets.
+
+![NitroPackInDemo Screenshot](Resources/ShowcaseDemo.png)
+
+Today, this showcase demo is where matrix-floor traversal, vertical projected facades, scene transitions, player movement, and future adventure/RPG-style building blocks are being proven. The current slice already includes a title flow, pseudo-3D overworld traversal, a visible player character, and an enterable building facade that is being tuned against the live matrix projection path.
+
+Why this matters:
+
+- It acts as the current end-to-end proof of concept for the emulator.
+- It gives the Dev Kit a real pack-in demo target instead of isolated test cases.
+- It will become the reference app used to design and validate the next stage of CoreLX ergonomics.
+
+Current direction for the showcase:
+
+- ROM-first implementation in `Games/NitroPackInDemo`
+- pseudo-3D overworld traversal using matrix-floor rendering
+- world-space building facade / billboard-style scene interaction
+- later interior showcase room, NPC interaction, dialogue, and credits
+
+Build and run the current showcase ROM locally:
+
+```bash
+go run -tags testrom_tools ./Games/NitroPackInDemo -out roms/nitro_pack_in_demo.rom
+./nitro-core-dx -rom roms/nitro_pack_in_demo.rom
+```
+
+If you are using the integrated Dev Kit instead of the standalone emulator, you can also load `roms/nitro_pack_in_demo.rom` directly in the embedded emulator pane after generating it.
 
 ---
 
