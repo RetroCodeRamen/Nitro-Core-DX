@@ -50,11 +50,16 @@ func TestNitroPackInDemoSceneFlow(t *testing.T) {
 
 	const (
 		sceneAddr   = 0x0202
+		cameraXAddr = 0x020C
 		cameraYAddr = 0x020E
+		intXAddr    = 0x0218
+		intYAddr    = 0x021A
 
 		sceneTitle     = 0
 		sceneOverworld = 1
 		sceneInterior  = 2
+		sceneDialogue  = 4
+		sceneCredits   = 5
 
 		btnUp    = 1 << 0
 		btnA     = 1 << 4
@@ -81,8 +86,13 @@ func TestNitroPackInDemoSceneFlow(t *testing.T) {
 	if got := int16(emu.PPU.MatrixPlanes[0].CameraX); got != 512 {
 		t.Fatalf("plane 0 camera X after entering overworld: got %d, want 512", got)
 	}
-	if got := int16(emu.PPU.MatrixPlanes[0].CameraY); got != 768 {
-		t.Fatalf("plane 0 camera Y after entering overworld: got %d, want 768", got)
+	// The floor camera trails the player by heading>>2 (feet pivot): with
+	// heading Y = -256 the floor camera sits at 768 - (-256>>2) = 832.
+	if got := int16(emu.PPU.MatrixPlanes[0].CameraY); got != 832 {
+		t.Fatalf("plane 0 camera Y after entering overworld: got %d, want 832", got)
+	}
+	if got := int16(emu.PPU.MatrixPlanes[1].CameraY); got != 768 {
+		t.Fatalf("plane 1 camera Y should track the raw player position: got %d, want 768", got)
 	}
 	if emu.PPU.MatrixPlanes[1].Horizon != emu.PPU.MatrixPlanes[0].Horizon {
 		t.Fatalf("plane 1 horizon should match floor horizon: got %d want %d", emu.PPU.MatrixPlanes[1].Horizon, emu.PPU.MatrixPlanes[0].Horizon)
@@ -106,12 +116,66 @@ func TestNitroPackInDemoSceneFlow(t *testing.T) {
 	if got := emu.Bus.Read16(0, sceneAddr); got != sceneInterior {
 		t.Fatalf("scene after door interaction: got %d, want %d", got, sceneInterior)
 	}
+	if got := emu.Bus.Read16(0, intXAddr); got != 512 {
+		t.Fatalf("interior entry X: got %d, want 512", got)
+	}
+	if got := emu.Bus.Read16(0, intYAddr); got != 616 {
+		t.Fatalf("interior entry Y: got %d, want 616", got)
+	}
 
+	// Walk north toward the guide; the NPC collision stops the player at Y=500.
+	runFrames(t, emu, btnUp, 40)
+	if got := emu.Bus.Read16(0, intYAddr); got != 500 {
+		t.Fatalf("interior Y after walking into the guide: got %d, want 500", got)
+	}
+
+	// Talk to the guide.
 	runFrames(t, emu, btnA, 1)
 	runFrames(t, emu, 0, 2)
+	if got := emu.Bus.Read16(0, sceneAddr); got != sceneDialogue {
+		t.Fatalf("scene after talking to the guide: got %d, want %d", got, sceneDialogue)
+	}
 
+	// Four A edges: skip page 0 reveal, advance to page 1, skip page 1
+	// reveal, advance past the last page into the credits.
+	for i := 0; i < 4; i++ {
+		runFrames(t, emu, btnA, 1)
+		runFrames(t, emu, 0, 2)
+	}
+	if got := emu.Bus.Read16(0, sceneAddr); got != sceneCredits {
+		t.Fatalf("scene after paging through the dialogue: got %d, want %d", got, sceneCredits)
+	}
+
+	// START on the credits resets everything back to the title.
+	runFrames(t, emu, btnStart, 1)
+	runFrames(t, emu, 0, 2)
+	if got := emu.Bus.Read16(0, sceneAddr); got != sceneTitle {
+		t.Fatalf("scene after credits START: got %d, want %d", got, sceneTitle)
+	}
+	if got := emu.Bus.Read16(0, cameraXAddr); got != 512 {
+		t.Fatalf("camera X after credits reset: got %d, want 512", got)
+	}
+	if got := emu.Bus.Read16(0, cameraYAddr); got != 768 {
+		t.Fatalf("camera Y after credits reset: got %d, want 768", got)
+	}
+
+	// The loop restarts cleanly: enter the overworld and the building again,
+	// then leave through the interior exit zone at the entry point.
+	runFrames(t, emu, btnStart, 1)
+	runFrames(t, emu, 0, 2)
 	if got := emu.Bus.Read16(0, sceneAddr); got != sceneOverworld {
-		t.Fatalf("scene after leaving interior stub: got %d, want %d", got, sceneOverworld)
+		t.Fatalf("scene after restarting from title: got %d, want %d", got, sceneOverworld)
+	}
+	runFrames(t, emu, btnUp, 20)
+	runFrames(t, emu, btnA, 1)
+	runFrames(t, emu, 0, 2)
+	if got := emu.Bus.Read16(0, sceneAddr); got != sceneInterior {
+		t.Fatalf("scene after re-entering the building: got %d, want %d", got, sceneInterior)
+	}
+	runFrames(t, emu, btnA, 1)
+	runFrames(t, emu, 0, 2)
+	if got := emu.Bus.Read16(0, sceneAddr); got != sceneOverworld {
+		t.Fatalf("scene after exiting through the door zone: got %d, want %d", got, sceneOverworld)
 	}
 }
 

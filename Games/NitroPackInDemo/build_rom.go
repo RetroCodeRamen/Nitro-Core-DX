@@ -35,6 +35,7 @@ func (a *asm) subImm(reg uint8, v uint16)  { a.SubImm(reg, v) }
 func (a *asm) subReg(dst, src uint8)       { a.SubReg(dst, src) }
 func (a *asm) andImm(reg uint8, v uint16)  { a.AndImm(reg, v) }
 func (a *asm) cmpImm(reg uint8, v uint16)  { a.CmpImm(reg, v) }
+func (a *asm) cmpReg(r1, r2 uint8)         { a.CmpReg(r1, r2) }
 func (a *asm) resolve() error              { return a.Resolve() }
 func (a *asm) beq(label string)            { a.Beq(label) }
 func (a *asm) bne(label string)            { a.Bne(label) }
@@ -74,11 +75,15 @@ func write16s(a *asm, addr uint16, value int16) { romutil.Write16S(a.Asm, addr, 
 func write16RegBytes(a *asm, addr uint16, reg uint8) {
 	romutil.Write16RegBytes(a.Asm, addr, reg)
 }
+func (a *asm) sarImm(reg uint8, v uint16) { a.SarImm(reg, v) }
 func write8Scratch(a *asm, addr uint16, value uint8, addrReg, valueReg uint8) {
 	romutil.Write8Scratch(a.Asm, addr, value, addrReg, valueReg)
 }
 func emitText(a *asm, x uint16, y uint8, r, g, b uint8, text string) {
 	romutil.EmitText(a.Asm, x, y, r, g, b, text)
+}
+func emitTextCentered(a *asm, y uint8, r, g, b uint8, text string) {
+	emitText(a, uint16((320-len(text)*8)/2), y, r, g, b, text)
 }
 func setCGRAMColor(a *asm, colorIndex uint8, rgb555 uint16) {
 	romutil.SetCGRAMColor(a.Asm, colorIndex, rgb555)
@@ -264,6 +269,75 @@ func buildAnnexPlaceholderImage() image.Image {
 	return img
 }
 
+// buildInteriorFloorImage draws the interior room floor for matrix plane 2.
+// The 256x256 image maps onto the full 1024-unit plane world (4 world units
+// per pixel): the walkable room is a checkered tile floor with a wall band,
+// surrounded by dark void so the room edges read clearly in perspective.
+func buildInteriorFloorImage(roomMinX, roomMinY, roomMaxX, roomMaxY int) image.Image {
+	const worldPerPixel = 4
+	img := image.NewRGBA(image.Rect(0, 0, 256, 256))
+
+	void := color.RGBA{R: 12, G: 10, B: 16, A: 255}
+	wall := color.RGBA{R: 70, G: 78, B: 96, A: 255}
+	tileA := color.RGBA{R: 150, G: 110, B: 70, A: 255}
+	tileB := color.RGBA{R: 122, G: 86, B: 52, A: 255}
+	rug := color.RGBA{R: 160, G: 48, B: 48, A: 255}
+
+	fillRect(img, 0, 0, 256, 256, void)
+
+	px0 := roomMinX / worldPerPixel
+	py0 := roomMinY / worldPerPixel
+	px1 := roomMaxX/worldPerPixel + 1
+	py1 := roomMaxY/worldPerPixel + 1
+
+	fillRect(img, px0-3, py0-3, px1+3, py1+3, wall)
+	for y := py0; y < py1; y++ {
+		for x := px0; x < px1; x++ {
+			c := tileA
+			if ((x/6)+(y/6))%2 == 1 {
+				c = tileB
+			}
+			img.SetRGBA(x, y, c)
+		}
+	}
+
+	// Rug in front of the NPC at the far (low-Y) end of the room.
+	rugCX := (px0 + px1) / 2
+	fillRect(img, rugCX-8, py0+6, rugCX+8, py0+16, rug)
+
+	return img
+}
+
+// buildNPCImage draws the placeholder NPC character used as the interior
+// vertical billboard (plane 3): bottom-anchored so the feet sit on the floor.
+func buildNPCImage() image.Image {
+	img := image.NewRGBA(image.Rect(0, 0, 64, 64))
+
+	skin := color.RGBA{R: 232, G: 188, B: 152, A: 255}
+	hair := color.RGBA{R: 86, G: 56, B: 30, A: 255}
+	tunic := color.RGBA{R: 56, G: 120, B: 190, A: 255}
+	belt := color.RGBA{R: 40, G: 36, B: 32, A: 255}
+	legs := color.RGBA{R: 62, G: 58, B: 70, A: 255}
+	eye := color.RGBA{R: 24, G: 24, B: 30, A: 255}
+
+	fillRect(img, 25, 46, 31, 62, legs)
+	fillRect(img, 33, 46, 39, 62, legs)
+	fillRect(img, 23, 60, 32, 63, belt)
+	fillRect(img, 32, 60, 41, 63, belt)
+	fillRect(img, 20, 26, 44, 47, tunic)
+	fillRect(img, 20, 42, 44, 46, belt)
+	fillRect(img, 15, 28, 20, 42, skin)
+	fillRect(img, 44, 28, 49, 42, skin)
+	fillCircle(img, 32, 16, 9, skin)
+	fillRect(img, 23, 5, 42, 12, hair)
+	fillRect(img, 22, 8, 26, 16, hair)
+	fillRect(img, 38, 8, 43, 16, hair)
+	fillRect(img, 28, 15, 30, 18, eye)
+	fillRect(img, 35, 15, 37, 18, eye)
+
+	return img
+}
+
 func normalizeBillboardImage(img image.Image) image.Image {
 	if img == nil {
 		return nil
@@ -381,11 +455,28 @@ func emitDisableAllSceneLayers(a *asm) {
 func emitEnableOverworldLayers(a *asm, objects []billboardPlane) {
 	write8(a, 0x8008, 0x21)
 	write8(a, 0x8018, 0x09)
+	write8(a, 0x8021, 0x00)
+	write8(a, 0x8026, 0x00)
 	for _, obj := range objects {
 		write8(a, obj.bgControlAddr, obj.bgControlValue)
 		write8(a, obj.transformBindAddr, obj.plane)
 		write8(a, obj.matrixControlAddr, 0x01)
 	}
+	write8(a, 0x8011, 0x01)
+}
+
+// emitEnableInteriorLayers swaps the scene to the interior set: BG2 carries
+// the interior floor (plane 2), BG3 carries the NPC billboard (plane 3), and
+// the overworld layers (BG0/BG1) are switched off.
+func emitEnableInteriorLayers(a *asm) {
+	write8(a, 0x8008, 0x00)
+	write8(a, 0x8009, 0x00)
+	write8(a, 0x8021, 0x21)
+	write8(a, 0x806E, 0x02)
+	write8(a, 0x8038, 0x01)
+	write8(a, 0x8026, 0x15)
+	write8(a, 0x806F, 0x03)
+	write8(a, 0x8045, 0x01)
 	write8(a, 0x8011, 0x01)
 }
 
@@ -407,6 +498,8 @@ func buildNitroPackInDemoROM(floorImg, billboardImg image.Image, outPath string)
 		sceneOverworld = 1
 		sceneInterior  = 2
 		scenePause     = 3
+		sceneDialogue  = 4
+		sceneCredits   = 5
 
 		wramLastFrame    = 0x0200
 		wramScene        = 0x0202
@@ -420,17 +513,34 @@ func buildNitroPackInDemoROM(floorImg, billboardImg image.Image, outPath string)
 		wramJumpTimer    = 0x0212
 		wramInputLow     = 0x0214
 		wramInputHigh    = 0x0216
+		wramIntX         = 0x0218
+		wramIntY         = 0x021A
+		wramIntHeading   = 0x021C
+		wramDialogPage   = 0x021E
+		wramDialogReveal = 0x0220
 
 		headingTableBase = 0x0300
 		headingSteps     = 64
 
+		// Dialogue text lives in WRAM as one 16-bit word per character so the
+		// per-frame typewriter loop can stream revealed characters to the text
+		// port with plain indexed loads.
+		dialogPage0Base = 0x0500
+		dialogPage1Base = 0x0560
+		dialogPageCount = 2
+
 		playerSpriteTile = 8
 		playerSpriteX    = 152
 		playerSpriteCtrl = 0x03
-		playerSpriteAttr = 0x05
+		// Priority bits [7:6] = 0b01 = priority 1. BG1 (building billboard) also has
+		// priority 1, but same-priority BGs render before sprites, so the player sprite
+		// renders on top of the building when they overlap.
+		playerSpriteAttr = 0x45
 
 		floorPlaneCtl        = 0x1D
 		floorPlaneFlags      = 0x00
+		interiorFloorCtl     = 0x3D // floorPlaneCtl pattern with palette bank 3
+		interiorFloorFlags   = 0x00
 		overworldHorizon     = 113
 		overworldBaseDist    = 0x0C00
 		overworldFocalLength = 0xC000
@@ -448,7 +558,45 @@ func buildNitroPackInDemoROM(floorImg, billboardImg image.Image, outPath string)
 		doorMinX = buildingAnchorX - buildingDoorHalfWidth
 		doorMaxX = buildingAnchorX + buildingDoorHalfWidth
 		doorMaxY = buildingAnchorY + buildingDoorFrontY
+
+		// Collision footprint for the building facade. The player is stopped at
+		// buildingFrontY when their X is within the building's half-width.
+		buildingCollisionHalfWidth = 40
+		buildingCollisionMinX      = buildingAnchorX - buildingCollisionHalfWidth // 472
+		buildingCollisionMaxX      = buildingAnchorX + buildingCollisionHalfWidth // 552
+		buildingFrontY             = buildingAnchorY                              // 600
+
+		// Interior room. The player enters at the south (high-Y) end facing
+		// north toward the NPC, and the door back out is the entry zone.
+		interiorMinX         = 416
+		interiorMaxX         = 608
+		interiorMinY         = 432
+		interiorMaxY         = 632
+		interiorEntryX       = 512
+		interiorEntryY       = 616
+		interiorEntryHeading = 48 // heading table index: facing -Y (north)
+
+		npcAnchorX   = 512
+		npcAnchorY   = 472
+		npcStopY     = npcAnchorY + 28 // collision: player stops in front of the NPC
+		npcBlockMinX = npcAnchorX - 24
+		npcBlockMaxX = npcAnchorX + 24
+		npcTalkMinX  = npcAnchorX - 28
+		npcTalkMaxX  = npcAnchorX + 28
+		npcTalkMaxY  = npcAnchorY + 96
+
+		exitZoneMinX = interiorEntryX - 40
+		exitZoneMaxX = interiorEntryX + 40
+		exitZoneMinY = 608
 	)
+
+	dialogPages := []struct {
+		base uint16
+		text string
+	}{
+		{dialogPage0Base, "WELCOME TO THE NITRO SHOWCASE"},
+		{dialogPage1Base, "THANKS FOR TRYING THE DEMO"},
+	}
 
 	if floorImg == nil {
 		return fmt.Errorf("floor image is required")
@@ -466,9 +614,21 @@ func buildNitroPackInDemoROM(floorImg, billboardImg image.Image, outPath string)
 	if err != nil {
 		return err
 	}
+	interiorFloorImg := buildInteriorFloorImage(interiorMinX, interiorMinY, interiorMaxX, interiorMaxY)
+	interiorFloorAsset, err := emulator.BuildBitmapMatrixPlaneAssetFromImage(interiorFloorImg, 2, ppucore.TilemapSize128x128, 3)
+	if err != nil {
+		return err
+	}
+	npcImg := normalizeBillboardImage(buildNPCImage())
+	npcAsset, err := emulator.BuildBitmapMatrixPlaneAssetFromImage(npcImg, 3, ppucore.TilemapSize64x64, 4)
+	if err != nil {
+		return err
+	}
 
 	floorRef, cursor := allocateROMData(0, floorAsset.Program.Bitmap)
 	mainBuildingRef, cursor := allocateROMData(cursor, mainBuildingAsset.Program.Bitmap)
+	interiorFloorRef, cursor := allocateROMData(cursor, interiorFloorAsset.Program.Bitmap)
+	npcRef, cursor := allocateROMData(cursor, npcAsset.Program.Bitmap)
 	_ = cursor
 
 	objects := []billboardPlane{
@@ -492,6 +652,27 @@ func buildNitroPackInDemoROM(floorImg, billboardImg image.Image, outPath string)
 		},
 	}
 
+	// The interior NPC shares the building's projection model so the room and
+	// its occupant track the same camera, just person-sized.
+	npcObject := billboardPlane{
+		plane:             3,
+		bgControlAddr:     0x8026,
+		bgControlValue:    0x15,
+		transformBindAddr: 0x806F,
+		matrixControlAddr: 0x8045,
+		planeControl:      matrixPlaneBitmapControl64(4),
+		flags:             0x03,
+		horizon:           overworldHorizon,
+		baseDistance:      overworldBaseDist,
+		focalLength:       overworldFocalLength,
+		widthScale:        0x0024,
+		originX:           npcAnchorX,
+		originY:           npcAnchorY,
+		facingX:           0,
+		facingY:           0x0100,
+		heightScale:       0x1C00,
+	}
+
 	a := newASM(codeBank)
 
 	for i, c := range floorAsset.Palette {
@@ -499,6 +680,12 @@ func buildNitroPackInDemoROM(floorImg, billboardImg image.Image, outPath string)
 	}
 	for i, c := range mainBuildingAsset.Palette {
 		setCGRAMColor(a, uint8(2*16+i), c)
+	}
+	for i, c := range interiorFloorAsset.Palette {
+		setCGRAMColor(a, uint8(3*16+i), c)
+	}
+	for i, c := range npcAsset.Palette {
+		setCGRAMColor(a, uint8(4*16+i), c)
 	}
 	setCGRAMColor(a, 0x00, 0x0000)
 	setCGRAMColor(a, 0x51, 0x7FFF)
@@ -518,12 +705,24 @@ func buildNitroPackInDemoROM(floorImg, billboardImg image.Image, outPath string)
 	write16(a, wramJumpTimer, 0)
 	write16(a, wramInputLow, 0)
 	write16(a, wramInputHigh, 0)
+	write16(a, wramIntX, interiorEntryX)
+	write16(a, wramIntY, interiorEntryY)
+	write16(a, wramIntHeading, interiorEntryHeading)
+	write16(a, wramDialogPage, 0)
+	write16(a, wramDialogReveal, 0)
 	emitInitHeadingTable(a, headingTableBase, headingSteps, 3.6)
+	for _, page := range dialogPages {
+		for i, ch := range page.text {
+			write16(a, page.base+uint16(i*2), uint16(ch))
+		}
+	}
 
 	write8(a, 0x8008, 0x21)
 	write8(a, 0x806C, 0x00)
 	emitUploadPlaneBitmap(a, 0x00, floorPlaneCtl, floorPlaneFlags, floorRef)
 	emitUploadPlaneBitmap(a, 0x01, objects[0].planeControl, objects[0].flags, mainBuildingRef)
+	emitUploadPlaneBitmap(a, 0x02, interiorFloorCtl, interiorFloorFlags, interiorFloorRef)
+	emitUploadPlaneBitmap(a, 0x03, npcObject.planeControl, npcObject.flags, npcRef)
 
 	a.movImm(0, 0x0000)
 	a.setDBR(0)
@@ -553,6 +752,18 @@ func buildNitroPackInDemoROM(floorImg, billboardImg image.Image, outPath string)
 		emitSyncPlaneCameraHeading(a, obj.plane, 3, 6, 1, 2)
 	}
 
+	// Interior planes are projected at boot too; their layers stay disabled
+	// until the interior scene enables them.
+	write8(a, 0x8080, 0x02)
+	write8(a, 0x8081, interiorFloorCtl)
+	write8(a, 0x808C, interiorFloorFlags)
+	write8(a, 0x8091, 0x01)
+	write8(a, 0x8092, overworldHorizon)
+	write16(a, 0x809B, overworldBaseDist)
+	write16(a, 0x809D, overworldFocalLength)
+	write16(a, 0x809F, 0x00C0)
+	emitConfigureVerticalBillboardPlane(a, npcObject)
+
 	write8(a, 0x806C, 0x00)
 	for _, obj := range objects {
 		write8(a, obj.transformBindAddr, obj.plane)
@@ -566,6 +777,8 @@ func buildNitroPackInDemoROM(floorImg, billboardImg image.Image, outPath string)
 	sceneOverworldLabel := a.uniq("scene_overworld")
 	sceneInteriorLabel := a.uniq("scene_interior")
 	scenePauseLabel := a.uniq("scene_pause")
+	sceneDialogueLabel := a.uniq("scene_dialogue")
+	sceneCreditsLabel := a.uniq("scene_credits")
 
 	titlePressed := a.uniq("title_pressed")
 	titleDone := a.uniq("title_done")
@@ -573,8 +786,6 @@ func buildNitroPackInDemoROM(floorImg, billboardImg image.Image, outPath string)
 	pauseDone := a.uniq("pause_done")
 	interiorPausePressed := a.uniq("interior_pause_pressed")
 	interiorPauseDone := a.uniq("interior_pause_done")
-	interiorActionPressed := a.uniq("interior_action_pressed")
-	interiorActionDone := a.uniq("interior_action_done")
 
 	noTurnLeft := a.uniq("no_turn_left")
 	afterTurnLeft := a.uniq("after_turn_left")
@@ -588,6 +799,7 @@ func buildNitroPackInDemoROM(floorImg, billboardImg image.Image, outPath string)
 	clampXMaxDone := a.uniq("clamp_x_max_done")
 	clampYMinDone := a.uniq("clamp_y_min_done")
 	clampYMaxDone := a.uniq("clamp_y_max_done")
+	buildingCollisionSkip := a.uniq("building_collision_skip")
 	doorInteractOutOfRange := a.uniq("door_interact_out_of_range")
 	doorPromptOutOfRange := a.uniq("door_prompt_out_of_range")
 	doorPromptDone := a.uniq("door_prompt_done")
@@ -617,17 +829,21 @@ func buildNitroPackInDemoROM(floorImg, billboardImg image.Image, outPath string)
 	a.beq(sceneInteriorLabel)
 	a.cmpImm(0, scenePause)
 	a.beq(scenePauseLabel)
+	a.cmpImm(0, sceneDialogue)
+	a.beq(sceneDialogueLabel)
+	a.cmpImm(0, sceneCredits)
+	a.beq(sceneCreditsLabel)
 	a.jmp(sceneOverworldLabel)
 
 	a.mark(sceneTitleLabel)
 	emitDisableAllSceneLayers(a)
 	clearSprite(a, 0)
 	clearSprite(a, 1)
-	emitText(a, 88, 42, 0xFF, 0xFF, 0xFF, "NITRO PACK-IN DEMO")
-	emitText(a, 72, 66, 0x90, 0xD8, 0xFF, "M2 OVERWORLD VERTICAL SLICE")
-	emitText(a, 96, 98, 0xFF, 0xFF, 0xFF, "PRESS START")
-	emitText(a, 44, 130, 0xC0, 0xE0, 0x90, "BUILDING ROW  TREES  DOOR INTERACT")
-	emitText(a, 62, 154, 0xFF, 0xC0, 0x70, "INTERIOR ROOM PLACEHOLDER ACTIVE")
+	emitTextCentered(a, 42, 0xFF, 0xFF, 0xFF, "NITRO PACK-IN DEMO")
+	emitTextCentered(a, 66, 0x90, 0xD8, 0xFF, "OVERWORLD  INTERIOR  DIALOGUE  CREDITS")
+	emitTextCentered(a, 98, 0xFF, 0xFF, 0xFF, "PRESS START")
+	emitTextCentered(a, 130, 0xC0, 0xE0, 0x90, "WALK TO THE BUILDING AND PRESS A")
+	emitTextCentered(a, 154, 0xFF, 0xC0, 0x70, "TALK TO THE GUIDE INSIDE")
 	a.movReg(6, 3)
 	a.andImm(6, 0x0004)
 	a.cmpImm(6, 0)
@@ -671,14 +887,29 @@ func buildNitroPackInDemoROM(floorImg, billboardImg image.Image, outPath string)
 	a.mark(pauseDone)
 	a.jmp("main_loop")
 
+	intNoTurnLeft := a.uniq("int_no_turn_left")
+	intAfterTurnLeft := a.uniq("int_after_turn_left")
+	intLookLeftWrap := a.uniq("int_look_left_wrap")
+	intNoTurnRight := a.uniq("int_no_turn_right")
+	intAfterTurnRight := a.uniq("int_after_turn_right")
+	intLookRightWrap := a.uniq("int_look_right_wrap")
+	intNoMoveForward := a.uniq("int_no_move_forward")
+	intNoMoveBackward := a.uniq("int_no_move_backward")
+	intClampXMinDone := a.uniq("int_clamp_x_min_done")
+	intClampXMaxDone := a.uniq("int_clamp_x_max_done")
+	intClampYMinDone := a.uniq("int_clamp_y_min_done")
+	intClampYMaxDone := a.uniq("int_clamp_y_max_done")
+	intNpcBlockSkip := a.uniq("int_npc_block_skip")
+	intTalkOut := a.uniq("int_talk_out")
+	intTalkPressed := a.uniq("int_talk_pressed")
+	intTalkEdgeDone := a.uniq("int_talk_edge_done")
+	intExitOut := a.uniq("int_exit_out")
+	intExitPressed := a.uniq("int_exit_pressed")
+	intExitEdgeDone := a.uniq("int_exit_edge_done")
+	intOutsidePressed := a.uniq("int_outside_pressed")
+	intZoneDone := a.uniq("int_zone_done")
+
 	a.mark(sceneInteriorLabel)
-	emitDisableAllSceneLayers(a)
-	clearSprite(a, 0)
-	clearSprite(a, 1)
-	emitText(a, 76, 44, 0xFF, 0xFF, 0xFF, "INTERIOR SHOWCASE STUB")
-	emitText(a, 52, 72, 0x90, 0xD8, 0xFF, "NEXT: FLOOR CEILING WALLS NPC")
-	emitText(a, 64, 104, 0xC0, 0xE0, 0x90, "A RETURNS TO THE OVERWORLD")
-	emitText(a, 72, 128, 0xFF, 0xC0, 0x70, "START STILL OPENS PAUSE")
 	a.movReg(6, 3)
 	a.andImm(6, 0x0004)
 	a.cmpImm(6, 0)
@@ -698,22 +929,206 @@ func buildNitroPackInDemoROM(floorImg, billboardImg image.Image, outPath string)
 	storeWRAM(a, wramScene, 7)
 	a.jmp("main_loop")
 	a.mark(interiorPauseDone)
-	a.movReg(6, 2)
+
+	loadWRAM(a, 5, wramInputLow)
+	loadWRAM(a, 0, wramIntHeading)
+
+	a.movReg(4, 5)
+	a.andImm(4, 0x0004)
+	a.cmpImm(4, 0)
+	a.beq(intNoTurnLeft)
+	loadWRAM(a, 7, wramTurnTick)
+	a.cmpImm(7, 3)
+	a.beq(intAfterTurnLeft)
+	a.cmpImm(0, 0)
+	a.beq(intLookLeftWrap)
+	a.subImm(0, 1)
+	a.jmp(intAfterTurnLeft)
+	a.mark(intLookLeftWrap)
+	a.movImm(0, headingSteps-1)
+	a.mark(intAfterTurnLeft)
+	a.mark(intNoTurnLeft)
+
+	a.movReg(4, 5)
+	a.andImm(4, 0x0008)
+	a.cmpImm(4, 0)
+	a.beq(intNoTurnRight)
+	loadWRAM(a, 7, wramTurnTick)
+	a.cmpImm(7, 3)
+	a.beq(intAfterTurnRight)
+	a.cmpImm(0, headingSteps-1)
+	a.beq(intLookRightWrap)
+	a.addImm(0, 1)
+	a.jmp(intAfterTurnRight)
+	a.mark(intLookRightWrap)
+	a.movImm(0, 0)
+	a.mark(intAfterTurnRight)
+	a.mark(intNoTurnRight)
+
+	loadWRAM(a, 7, wramTurnTick)
+	a.addImm(7, 1)
+	a.andImm(7, 3)
+	storeWRAM(a, wramTurnTick, 7)
+	storeWRAM(a, wramIntHeading, 0)
+
+	emitLoadHeadingEntry(a, headingTableBase, 0, 1, 2, 3, 6)
+
+	loadWRAM(a, 4, wramIntX)
+	loadWRAM(a, 0, wramIntY)
+
+	a.movReg(7, 5)
+	a.andImm(7, 0x0001)
+	a.cmpImm(7, 0)
+	a.beq(intNoMoveForward)
+	a.addReg(4, 3)
+	a.addReg(0, 6)
+	a.mark(intNoMoveForward)
+
+	a.movReg(7, 5)
+	a.andImm(7, 0x0002)
+	a.cmpImm(7, 0)
+	a.beq(intNoMoveBackward)
+	a.subReg(4, 3)
+	a.subReg(0, 6)
+	a.mark(intNoMoveBackward)
+
+	a.cmpImm(4, interiorMinX)
+	a.bge(intClampXMinDone)
+	a.movImm(4, interiorMinX)
+	a.mark(intClampXMinDone)
+
+	a.cmpImm(4, interiorMaxX)
+	a.ble(intClampXMaxDone)
+	a.movImm(4, interiorMaxX)
+	a.mark(intClampXMaxDone)
+
+	a.cmpImm(0, interiorMinY)
+	a.bge(intClampYMinDone)
+	a.movImm(0, interiorMinY)
+	a.mark(intClampYMinDone)
+
+	a.cmpImm(0, interiorMaxY)
+	a.ble(intClampYMaxDone)
+	a.movImm(0, interiorMaxY)
+	a.mark(intClampYMaxDone)
+
+	// NPC collision: stop the player in front of the guide.
+	a.cmpImm(4, npcBlockMinX)
+	a.blt(intNpcBlockSkip)
+	a.cmpImm(4, npcBlockMaxX)
+	a.bgt(intNpcBlockSkip)
+	a.cmpImm(0, npcStopY)
+	a.bge(intNpcBlockSkip)
+	a.movImm(0, npcStopY)
+	a.mark(intNpcBlockSkip)
+
+	storeWRAM(a, wramIntX, 4)
+	storeWRAM(a, wramIntY, 0)
+
+	emitEnableInteriorLayers(a)
+	loadWRAM(a, 4, wramIntX)
+	loadWRAM(a, 0, wramIntY)
+	a.movReg(3, 4)
+	a.movReg(6, 0)
+
+	// Same feet-pivot split as the overworld: the floor camera trails the
+	// player by heading>>2 so turning pivots at the feet, while the NPC
+	// billboard tracks the raw player position so it scales correctly.
+	a.movReg(7, 1)
+	a.sarImm(7, 2)
+	a.subReg(3, 7)
+	a.movReg(7, 2)
+	a.sarImm(7, 2)
+	a.subReg(6, 7)
+	emitSyncPlaneCameraHeading(a, 0x02, 3, 6, 1, 2)
+
+	loadWRAM(a, 3, wramIntX)
+	a.movReg(6, 0)
+	emitSyncPlaneCameraHeading(a, 0x03, 3, 6, 1, 2)
+
+	a.movImm(1, 136)
+	writeSpriteImm(a, 0, playerSpriteX, 1, playerSpriteTile, playerSpriteAttr, playerSpriteCtrl)
+	clearSprite(a, 1)
+
+	emitText(a, 8, 8, 0xF8, 0xF8, 0xF8, "INTERIOR SHOWCASE")
+	emitText(a, 8, 20, 0xB0, 0xE0, 0xFF, "TALK TO THE GUIDE  EXIT AT THE DOOR")
+
+	loadWRAM(a, 4, wramIntX)
+	loadWRAM(a, 0, wramIntY)
+	loadWRAM(a, 5, wramInputLow)
+
+	a.cmpImm(4, npcTalkMinX)
+	a.blt(intTalkOut)
+	a.cmpImm(4, npcTalkMaxX)
+	a.bgt(intTalkOut)
+	a.cmpImm(0, npcTalkMaxY)
+	a.bgt(intTalkOut)
+	a.movReg(6, 5)
 	a.andImm(6, 0x0010)
 	a.cmpImm(6, 0)
-	a.bne(interiorActionPressed)
+	a.bne(intTalkPressed)
 	a.movImm(7, 0)
 	storeWRAM(a, wramActionHeld, 7)
-	a.jmp(interiorActionDone)
-	a.mark(interiorActionPressed)
+	a.jmp(intTalkEdgeDone)
+	a.mark(intTalkPressed)
 	loadWRAM(a, 7, wramActionHeld)
 	a.cmpImm(7, 0)
-	a.bne(interiorActionDone)
+	a.bne(intTalkEdgeDone)
+	a.movImm(7, 1)
+	storeWRAM(a, wramActionHeld, 7)
+	a.movImm(7, 0)
+	storeWRAM(a, wramDialogPage, 7)
+	storeWRAM(a, wramDialogReveal, 7)
+	a.movImm(7, sceneDialogue)
+	storeWRAM(a, wramScene, 7)
+	a.jmp("main_loop")
+	a.mark(intTalkEdgeDone)
+	emitText(a, 104, 176, 0xFF, 0xFF, 0xFF, "PRESS A TO TALK")
+	a.jmp(intZoneDone)
+
+	a.mark(intTalkOut)
+	a.cmpImm(4, exitZoneMinX)
+	a.blt(intExitOut)
+	a.cmpImm(4, exitZoneMaxX)
+	a.bgt(intExitOut)
+	a.cmpImm(0, exitZoneMinY)
+	a.blt(intExitOut)
+	a.movReg(6, 5)
+	a.andImm(6, 0x0010)
+	a.cmpImm(6, 0)
+	a.bne(intExitPressed)
+	a.movImm(7, 0)
+	storeWRAM(a, wramActionHeld, 7)
+	a.jmp(intExitEdgeDone)
+	a.mark(intExitPressed)
+	loadWRAM(a, 7, wramActionHeld)
+	a.cmpImm(7, 0)
+	a.bne(intExitEdgeDone)
 	a.movImm(7, 1)
 	storeWRAM(a, wramActionHeld, 7)
 	a.movImm(7, sceneOverworld)
 	storeWRAM(a, wramScene, 7)
-	a.mark(interiorActionDone)
+	storeWRAM(a, wramSceneReturn, 7)
+	a.jmp("main_loop")
+	a.mark(intExitEdgeDone)
+	emitText(a, 104, 176, 0xFF, 0xFF, 0xFF, "PRESS A TO EXIT")
+	a.jmp(intZoneDone)
+
+	a.mark(intExitOut)
+	a.movReg(6, 5)
+	a.andImm(6, 0x0010)
+	a.cmpImm(6, 0)
+	a.bne(intOutsidePressed)
+	a.movImm(7, 0)
+	storeWRAM(a, wramActionHeld, 7)
+	a.jmp(intZoneDone)
+	a.mark(intOutsidePressed)
+	loadWRAM(a, 7, wramActionHeld)
+	a.cmpImm(7, 0)
+	a.bne(intZoneDone)
+	a.movImm(7, 1)
+	storeWRAM(a, wramActionHeld, 7)
+	a.mark(intZoneDone)
 	a.jmp("main_loop")
 
 	a.mark(sceneOverworldLabel)
@@ -799,6 +1214,18 @@ func buildNitroPackInDemoROM(floorImg, billboardImg image.Image, outPath string)
 	a.movImm(0, worldMaxY)
 	a.mark(clampYMaxDone)
 
+	// Building collision: prevent the player from walking through the building facade.
+	// R4=playerX, R0=playerY. If X is within the building footprint and Y would cross
+	// the front face, clamp Y to the face so the player stops at the wall.
+	a.cmpImm(4, buildingCollisionMinX)
+	a.blt(buildingCollisionSkip)
+	a.cmpImm(4, buildingCollisionMaxX)
+	a.bgt(buildingCollisionSkip)
+	a.cmpImm(0, buildingFrontY)
+	a.bge(buildingCollisionSkip)
+	a.movImm(0, buildingFrontY)
+	a.mark(buildingCollisionSkip)
+
 	storeWRAM(a, wramCameraX, 4)
 	storeWRAM(a, wramCameraY, 0)
 
@@ -807,9 +1234,25 @@ func buildNitroPackInDemoROM(floorImg, billboardImg image.Image, outPath string)
 	loadWRAM(a, 0, wramCameraY)
 	a.movReg(3, 4)
 	a.movReg(6, 0)
-	emitSyncPlaneCameraHeading(a, 0x00, 3, 6, 1, 2)
+
+	// Shift the floor camera backward so rotation pivots at the character's feet
+	// rather than the abstract camera origin. feetForward ≈ 64 world units
+	// (headingX/Y SAR 2), which maps to screen Y≈148 — the lower half of the
+	// player sprite at Y=136 with height 16.
+	// Floor uses the offset camera; billboard planes use the player position so
+	// the building scales correctly relative to the character.
+	a.movReg(7, 1)
+	a.sarImm(7, 2)
+	a.subReg(3, 7)
+	a.movReg(7, 2)
+	a.sarImm(7, 2)
+	a.subReg(6, 7)
+	emitSyncPlaneCameraHeading(a, 0x00, 3, 6, 1, 2) // floor: feet-pivot camera
+
+	loadWRAM(a, 3, wramCameraX) // reload player position for billboard planes
+	a.movReg(6, 0)              // R0 still holds playerY
 	for _, obj := range objects {
-		emitSyncPlaneCameraHeading(a, obj.plane, 3, 6, 1, 2)
+		emitSyncPlaneCameraHeading(a, obj.plane, 3, 6, 1, 2) // billboard: player position
 	}
 
 	a.movImm(1, 136)
@@ -846,6 +1289,12 @@ func buildNitroPackInDemoROM(floorImg, billboardImg image.Image, outPath string)
 	storeWRAM(a, wramScene, 7)
 	a.movImm(7, 1)
 	storeWRAM(a, wramActionHeld, 7)
+	a.movImm(7, interiorEntryX)
+	storeWRAM(a, wramIntX, 7)
+	a.movImm(7, interiorEntryY)
+	storeWRAM(a, wramIntY, 7)
+	a.movImm(7, interiorEntryHeading)
+	storeWRAM(a, wramIntHeading, 7)
 	a.jmp("main_loop")
 	a.mark(doorActionEdgeDone)
 	a.jmp(outsideActionDone)
@@ -880,12 +1329,164 @@ func buildNitroPackInDemoROM(floorImg, billboardImg image.Image, outPath string)
 	a.mark(doorPromptDone)
 	a.jmp("main_loop")
 
+	// Dialogue scene: the interior render state (layers, planes, sprites)
+	// persists from the frame that opened the dialogue, so each frame only
+	// redraws the text overlay. One character is revealed per frame; A skips
+	// to the full line, then advances pages, then hands off to the credits.
+	dialogPageLabels := make([]string, len(dialogPages))
+	for i := range dialogPages {
+		dialogPageLabels[i] = a.uniq(fmt.Sprintf("dialog_page_%d", i))
+	}
+	dialogInputLabel := a.uniq("dialog_input")
+	dialogPressed := a.uniq("dialog_pressed")
+	dialogAdvance := a.uniq("dialog_advance")
+	dialogToCredits := a.uniq("dialog_to_credits")
+	dialogEdgeDone := a.uniq("dialog_edge_done")
+
+	a.mark(sceneDialogueLabel)
+	loadWRAM(a, 0, wramDialogPage)
+	for i := 0; i < len(dialogPages)-1; i++ {
+		a.cmpImm(0, uint16(i))
+		a.beq(dialogPageLabels[i])
+	}
+	a.jmp(dialogPageLabels[len(dialogPages)-1])
+
+	for i, page := range dialogPages {
+		pageLen := uint16(len(page.text))
+		revealClamped := a.uniq("dialog_reveal_clamped")
+		typeLoop := a.uniq("dialog_type_loop")
+		typeDone := a.uniq("dialog_type_done")
+		noPrompt := a.uniq("dialog_no_prompt")
+
+		a.mark(dialogPageLabels[i])
+		loadWRAM(a, 2, wramDialogReveal)
+		a.cmpImm(2, pageLen)
+		a.bge(revealClamped)
+		a.addImm(2, 1)
+		storeWRAM(a, wramDialogReveal, 2)
+		a.mark(revealClamped)
+
+		emitTextCentered(a, 152, 0xFF, 0xD0, 0x70, "GUIDE")
+
+		// Stream the revealed prefix of the page text from its WRAM table.
+		write16(a, 0x8070, uint16((320-len(page.text)*8)/2))
+		write8(a, 0x8072, 172)
+		write8(a, 0x8073, 0xFF)
+		write8(a, 0x8074, 0xFF)
+		write8(a, 0x8075, 0xFF)
+		a.movImm(1, page.base)
+		loadWRAM(a, 2, wramDialogReveal)
+		a.mark(typeLoop)
+		a.cmpImm(2, 0)
+		a.beq(typeDone)
+		a.movLoad(3, 1)
+		a.movImm(4, 0x8076)
+		a.movStore(4, 3)
+		a.addImm(1, 2)
+		a.subImm(2, 1)
+		a.jmp(typeLoop)
+		a.mark(typeDone)
+
+		loadWRAM(a, 2, wramDialogReveal)
+		a.cmpImm(2, pageLen)
+		a.blt(noPrompt)
+		emitTextCentered(a, 188, 0xA0, 0xD8, 0xFF, "PRESS A")
+		a.mark(noPrompt)
+
+		loadWRAM(a, 2, wramDialogReveal)
+		a.movImm(3, pageLen)
+		a.jmp(dialogInputLabel)
+	}
+
+	// Shared dialogue input handling. R2=reveal, R3=page length.
+	a.mark(dialogInputLabel)
+	loadWRAM(a, 5, wramInputLow)
+	a.movReg(6, 5)
+	a.andImm(6, 0x0010)
+	a.cmpImm(6, 0)
+	a.bne(dialogPressed)
+	a.movImm(7, 0)
+	storeWRAM(a, wramActionHeld, 7)
+	a.jmp(dialogEdgeDone)
+	a.mark(dialogPressed)
+	loadWRAM(a, 7, wramActionHeld)
+	a.cmpImm(7, 0)
+	a.bne(dialogEdgeDone)
+	a.movImm(7, 1)
+	storeWRAM(a, wramActionHeld, 7)
+	a.cmpReg(2, 3)
+	a.bge(dialogAdvance)
+	storeWRAM(a, wramDialogReveal, 3)
+	a.jmp(dialogEdgeDone)
+	a.mark(dialogAdvance)
+	loadWRAM(a, 0, wramDialogPage)
+	a.addImm(0, 1)
+	a.cmpImm(0, dialogPageCount)
+	a.bge(dialogToCredits)
+	storeWRAM(a, wramDialogPage, 0)
+	a.movImm(7, 0)
+	storeWRAM(a, wramDialogReveal, 7)
+	a.jmp(dialogEdgeDone)
+	a.mark(dialogToCredits)
+	a.movImm(7, 0)
+	storeWRAM(a, wramDialogPage, 7)
+	storeWRAM(a, wramDialogReveal, 7)
+	a.movImm(7, sceneCredits)
+	storeWRAM(a, wramScene, 7)
+	a.mark(dialogEdgeDone)
+	a.jmp("main_loop")
+
+	// Credits scene: START performs a full state reset back to the title.
+	creditsPressed := a.uniq("credits_pressed")
+	creditsDone := a.uniq("credits_done")
+
+	a.mark(sceneCreditsLabel)
+	emitDisableAllSceneLayers(a)
+	clearSprite(a, 0)
+	clearSprite(a, 1)
+	emitTextCentered(a, 48, 0xFF, 0xFF, 0xFF, "NITRO PACK-IN DEMO")
+	emitTextCentered(a, 76, 0x90, 0xD8, 0xFF, "A NITRO-CORE-DX SHOWCASE")
+	emitTextCentered(a, 104, 0xC0, 0xE0, 0x90, "ENGINE  TOOLS  ROM  BY RETROCODERAMEN")
+	emitTextCentered(a, 128, 0xB0, 0xFF, 0xB0, "THANKS FOR PLAYING")
+	emitTextCentered(a, 160, 0xFF, 0xC0, 0x70, "PRESS START FOR TITLE")
+	a.movReg(6, 3)
+	a.andImm(6, 0x0004)
+	a.cmpImm(6, 0)
+	a.bne(creditsPressed)
+	a.movImm(7, 0)
+	storeWRAM(a, wramStartHeld, 7)
+	a.jmp(creditsDone)
+	a.mark(creditsPressed)
+	loadWRAM(a, 7, wramStartHeld)
+	a.cmpImm(7, 0)
+	a.bne(creditsDone)
+	a.movImm(7, 1)
+	storeWRAM(a, wramStartHeld, 7)
+	a.movImm(7, 512)
+	storeWRAM(a, wramCameraX, 7)
+	a.movImm(7, 768)
+	storeWRAM(a, wramCameraY, 7)
+	a.movImm(7, 48)
+	storeWRAM(a, wramHeadingIndex, 7)
+	a.movImm(7, 0)
+	storeWRAM(a, wramTurnTick, 7)
+	storeWRAM(a, wramDialogPage, 7)
+	storeWRAM(a, wramDialogReveal, 7)
+	a.movImm(7, sceneOverworld)
+	storeWRAM(a, wramSceneReturn, 7)
+	a.movImm(7, sceneTitle)
+	storeWRAM(a, wramScene, 7)
+	a.mark(creditsDone)
+	a.jmp("main_loop")
+
 	if err := a.resolve(); err != nil {
 		return err
 	}
 
 	payload := append([]byte{}, floorAsset.Program.Bitmap...)
 	payload = append(payload, mainBuildingAsset.Program.Bitmap...)
+	payload = append(payload, interiorFloorAsset.Program.Bitmap...)
+	payload = append(payload, npcAsset.Program.Bitmap...)
 	if err := appendDataBlob(a.B, dataStartBank, payload); err != nil {
 		return err
 	}
