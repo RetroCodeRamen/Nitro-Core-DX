@@ -1,94 +1,43 @@
-# Nitro-Core-DX v0.1.9
+# Nitro-Core-DX v0.2.0
 
 ## What Changed (Plain-English)
 
-This release pushes the emulator baseline forward in the areas that actually matter for software development: CPU contract cleanup, YM2608 audio, graphics/PPU capability, CoreLX control surface, and test content.
+This release closes out the ROM-first era and sets the table for CoreLX v1. The pack-in demo is finished, the CoreLX language design is fully decided and documented, and the repository itself got a deep cleanup so the language work starts from a trustworthy foundation.
 
-### 1) CPU ISA And Runtime Contract Were Tightened
+### 1) The NitroPackInDemo Pack-In Demo Is Complete
 
-The CPU side is cleaner and easier to target than it was before.
+The ROM-first showcase now runs its entire loop: title screen, pseudo-3D overworld park, walking into the building, an interior room with a checkered matrix-plane floor and an NPC guide, a two-page typewriter dialogue, credits, and a clean reset back to the title.
 
-Key changes:
-- resolved the old `CMP immediate` / `BEQ` encoding ambiguity
-- kept the amped CPU extension path moving toward a cleaner documented contract
-- improved the emulator-side baseline for building more advanced software against the real instruction set
+Highlights:
+- matrix-plane floor plus vertical projected facades, indoors and out, on one coherent camera model
+- NPC collision, door/exit trigger zones, pause overlay, and edge-handled input
+- the full scene loop is exercised headlessly by automated tests
 
-What that means for you:
-- fewer “special case” instruction surprises in tools and ROM builders
-- a better base for future CoreLX/codegen work
-- cleaner documentation for the active CPU contract
-
-### 2) YM2608 Is Now The Real Runtime Audio Path
-
-The legacy FM fallback path is gone. The emulator and Dev Kit now run against the YMFM-backed YM2608 path directly.
+Run it: `./emulator -rom roms/nitro_pack_in_demo.rom`
 
 What that means for you:
-- audio testing is now happening against the intended sound path
-- bundled demo ROMs exercise the current YM2608 runtime directly
-- release users are no longer testing a fallback audio stack by accident
-- the active Pong demo now uses a much smaller compact song storage path instead of bloated code-generated frame writes
+- the console has a real, playable reference game proving the pseudo-3D feature set
+- this demo is the acceptance test for the CoreLX rebuild — same game, new language, compared frame by frame
 
-### 3) Graphics / Matrix Mode Took A Big Step Forward
+### 2) CoreLX v1 Is Designed
 
-The PPU now has a much more serious matrix-plane implementation than before:
+The complete language design is settled and written down — not implemented yet, but decided, with rationale:
 
-- dedicated matrix-plane tilemap memory
-- dedicated matrix-plane pattern memory
-- bitmap-backed matrix planes in the emulator
-- explicit outside behavior, including clamp
-- larger source sizes aimed at SNES-class `1024x1024` floor/background use
+- **Syntax charter** (`docs/specifications/CORELX_SYNTAX_V1.md`): learnability-first syntax anchored in Lua, BASIC, and Go. Two numeric types to learn (`int` and `fixed`, with decimal literals just working as fixed-point), structs that pass by reference, BASIC-style counting loops, and no second way to do anything.
+- **Cartridge format** (`docs/specifications/CORELX_CARTRIDGE_FORMAT.md`): one text file is the whole game — code plus sprites, backgrounds, and audio as readable text sections. Editors convert PNGs and samples to text at import time; the compiler is a deterministic text-to-ROM function.
+- **Decision record** (`Games/NitroPackInDemo/CORELX_EXTRACTION.md`): every design question raised by the demo extraction, answered — memory model, modules, generic transformation planes, what ships in v1, and the stability contract: once v1 ships, the language only grows additively; programs that compile on v1 behave identically forever.
 
 What that means for you:
-- matrix planes are no longer just “small rotating tilemaps”
-- large floor/background experiments are now practical
-- the graphics pipeline is much closer to a real pseudo-3D baseline
-- the emulator now has a clearer path toward SNES-class Mode 7 behavior as a baseline rather than just generic affine rotation
+- the next development cycle is implementation, not design churn
+- the language you learn at v1 is the language, permanently
 
-### 4) CoreLX Can Drive Matrix Planes Directly
+### 3) The Repository Got a Deep Cleanup
 
-CoreLX now has first-class helpers for matrix-plane setup and authored content:
+- documentation pass over everything: dead docs deleted, historical plans and audits archived, navigation maps rewritten around the current sources of truth, stale status claims corrected
+- file-mode drift from a machine migration fixed (1,400 files), so git history stays honest
+- build artifacts, logs, stale release staging, and an accidentally committed third-party installer removed
+- `make test-full` now covers exactly the project's packages (including the demo's ROM-builder tests) and passes clean
 
-- `matrix_plane.enable(...)`
-- `matrix_plane.disable(...)`
-- `matrix_plane.load_tiles(...)`
-- `matrix_plane.load_tilemap(...)`
-- `matrix_plane.set_tile(...)`
-- `matrix_plane.fill_rect(...)`
-- `matrix_plane.clear(...)`
+## Versioning Note
 
-What that means for you:
-- you can author and load dedicated matrix-plane content without dropping to raw MMIO
-- the programming manual now documents the supported matrix-plane workflow
-
-### 5) The Release Package Now Includes Test ROMs
-
-Both release archives now include two ROMs in `roms/`:
-
-- `pong_ym2608_demo.rom`
-  - gameplay + YM2608 audio validation
-- `matrix_floor_only_kart.rom`
-  - dedicated matrix-floor validation using the kart image path
-
-What that means for you:
-- users can test the current audio/runtime path immediately
-- users can test the current matrix-floor path immediately
-
-## Why v0.1.9 Matters
-
-This release is about moving the emulator from “feature experiments” toward a usable software platform:
-
-- the CPU contract is cleaner
-- the audio path is cleaner and more intentional
-- the matrix-plane architecture is much stronger
-- the language surface is better aligned with the graphics hardware model
-- the release downloads now include real validation content, not just the app binary
-
-## Downloads
-
-- **Linux:** `nitrocoredx-v0.1.9-linux-amd64.tar.gz`
-- **Windows:** `nitrocoredx-v0.1.9-windows-amd64.zip`
-
-Both downloads include:
-- the integrated Nitro-Core-DX app
-- `roms/pong_ym2608_demo.rom`
-- `roms/matrix_floor_only_kart.rom`
+This is a minor-version bump (0.1.x → 0.2.0) marking the transition from "prove the console" to "build the language." The next cycle is M8: implementing CoreLX v1 and rebuilding the demo in it.

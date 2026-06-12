@@ -3,7 +3,7 @@
 **Created:** January 27, 2026  
 **Status:** Design Review Needed
 
-> **Historical Snapshot:** This document predates later timing fixes. Use `docs/TIMING_FIX_SUMMARY.md` and current hardware spec/test evidence for current timing values.
+> **Historical Snapshot:** This document predates later timing fixes. Use the current hardware spec (`docs/specifications/COMPLETE_HARDWARE_SPECIFICATION_V2.1.md`) and test evidence for current timing values.
 
 ## Current Situation
 

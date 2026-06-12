@@ -6,7 +6,7 @@ A custom 16-bit fantasy console emulator inspired by classic 8/16-bit consoles, 
 
 > **✅ Architecture Stable**: The core hardware architecture is complete and stable. The emulator and tooling are actively maintained, and tests/documentation continue to be refined as clock-driven behavior and debug tooling evolve.
 
-> **Current Focus (2026-03-20)**: Active implementation work is centered on `Games/NitroPackInDemo`, a ROM-first showcase demo that is being used to prove pseudo-3D matrix-floor traversal, facade projection, scene flow, and the future CoreLX game-programming surface.
+> **Current Focus (2026-06-12)**: The `Games/NitroPackInDemo` ROM-first showcase is complete (title, overworld, interior, dialogue, credits), and the CoreLX v1 language design is settled. Active work is the M8 CoreLX rebuild: implementing the v1 language ([syntax charter](docs/specifications/CORELX_SYNTAX_V1.md), [cartridge format](docs/specifications/CORELX_CARTRIDGE_FORMAT.md), [decision record](Games/NitroPackInDemo/CORELX_EXTRACTION.md)) and rebuilding the demo in CoreLX to validate it.
 
 ---
 
@@ -404,7 +404,7 @@ Note: Test ROMs can map controls differently. Use the ROM-specific docs/comments
 - Click the embedded emulator pane to give it keyboard focus
 - Make sure `Capture Game Input` is enabled in the Dev Kit when testing controls
 
-For more detailed troubleshooting, see [docs/issues/](docs/issues/) for known issues and fixes.
+For more detailed troubleshooting, see [docs/guides/](docs/guides/) (debugging and input guides) and the incident history in [docs/archive/](docs/archive/).
 
 ---
 
@@ -417,7 +417,8 @@ The project documentation is organized into several main documents:
 - **[SYSTEM_MANUAL.md](SYSTEM_MANUAL.md)**: System architecture manual (under revision; verify against current specs)
 - **[PROGRAMMING_MANUAL.md](PROGRAMMING_MANUAL.md)**: Programming manual (under revision; pre-alpha APIs may change)
 - **[docs/CORELX.md](docs/CORELX.md)**: Current CoreLX language reference (implementation-aware)
-- **[docs/CORELX_DATA_MODEL_PLAN.md](docs/CORELX_DATA_MODEL_PLAN.md)**: Current CoreLX / Nitro-Core-DX app Phase 1 plan
+- **[docs/specifications/CORELX_SYNTAX_V1.md](docs/specifications/CORELX_SYNTAX_V1.md)**: CoreLX v1 language syntax charter
+- **[docs/specifications/CORELX_CARTRIDGE_FORMAT.md](docs/specifications/CORELX_CARTRIDGE_FORMAT.md)**: CoreLX single-file cartridge format (draft)
 - **[docs/specifications/COMPLETE_HARDWARE_SPECIFICATION_V2.1.md](docs/specifications/COMPLETE_HARDWARE_SPECIFICATION_V2.1.md)**: Current evidence-based hardware specification
 - **[docs/specifications/APU_FM_OPM_EXTENSION_SPEC.md](docs/specifications/APU_FM_OPM_EXTENSION_SPEC.md)**: FM extension design + implementation status
 
@@ -425,7 +426,6 @@ The project documentation is organized into several main documents:
 - **[CHANGELOG.md](CHANGELOG.md)**: Version history and change log
 - **[docs/DEVELOPMENT_NOTES.md](docs/DEVELOPMENT_NOTES.md)**: Development process, challenges, and philosophy
 - **[docs/DEVKIT_ARCHITECTURE.md](docs/DEVKIT_ARCHITECTURE.md)**: Dev Kit backend/frontend split and invariants
-- **[docs/issues/](docs/issues/)**: Known issues and fixes
 - **[docs/testing/](docs/testing/)**: Testing guides and results
 - **[docs/specifications/](docs/specifications/)**: Hardware specs, pin definitions, FPGA docs (with current-vs-historical notes)
 - **[docs/guides/](docs/guides/)**: Setup guides, build instructions, and procedures

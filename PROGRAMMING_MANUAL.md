@@ -1258,7 +1258,7 @@ Use these for deeper details after you finish this manual.
 
 - `docs/README.md` - docs map / source-of-truth guide
 - `docs/CORELX.md` - language reference and examples (still being updated alongside compiler changes)
-- `docs/CORELX_DATA_MODEL_PLAN.md` - compiler/data model plan for the SDK/dev kit
+- `docs/specifications/CORELX_CARTRIDGE_FORMAT.md` - CoreLX cartridge/asset format (v1 draft)
 - `docs/DEVKIT_ARCHITECTURE.md` - backend/frontend split for Nitro-Core-DX (Dev Kit architecture)
 - `docs/specifications/COMPLETE_HARDWARE_SPECIFICATION_V2.1.md` - current hardware spec reference
 - `docs/specifications/APU_FM_OPM_EXTENSION_SPEC.md` - current FM extension runtime architecture/status (transitional)

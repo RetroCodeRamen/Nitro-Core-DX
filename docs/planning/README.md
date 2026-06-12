@@ -1,32 +1,30 @@
 # Planning Documents
 
-This directory contains planning, roadmap, and implementation-plan documents.
+This directory contains active planning, roadmap, and risk documents for the
+**product** V1 (emulator + SDK + tools release).
 
 ## Current Planning Inputs
 
 - `V1_CHARTER.md`
-  - Canonical V1 scope contract and release-blocking IDs
+  - Canonical product V1 scope contract and release-blocking IDs
+  - (The CoreLX *language* v1 charter is separate:
+    `docs/specifications/CORELX_SYNTAX_V1.md`)
 - `V1_ACCEPTANCE.md`
   - Release acceptance gates and required evidence
 - `V1_RISKS.md`
   - Active V1 risk register (owner + mitigation tracking)
-- `DEV_TOOLS_IMPLEMENTATION_PLAN.md`
-  - Dev tools roadmap and implementation ideas (review against current code before executing)
+- `NEXT_STEPS_PLAN.md`
+  - Sequenced workstreams from the April 2026 project review (see its status
+    note — CoreLX phases are governed by the M7/M8 decision record)
 - `FUTURE_FEATURES_PARKING_LOT.md`
   - Deferred ideas / future expansion concepts (keyboard bus, YM2608 follow-ups, etc.)
-- `APU_STABILIZATION_EXIT_CHECKLIST.md`
-  - Required pre-CPU-expansion audio stabilization gate and verification commands
-
-## Historical / Mixed Snapshot Planning
-
-- `MASTER_PLAN.md`
-  - Consolidated historical planning + review document
-  - Contains useful context but includes stale status sections
-  - Treat as a planning archive, not present-state truth
 
 ## Usage Guidance
 
-- For “what should we build next?” decisions, prefer:
+- For "what should we build next?" decisions, prefer:
   1. current test results + recent worklog
-  2. `docs/CORELX_DATA_MODEL_PLAN.md` (for CoreLX/SDK work)
+  2. `Games/NitroPackInDemo/CORELX_EXTRACTION.md` §12 (for CoreLX/M8 work)
   3. targeted planning docs in this folder
+- Completed or superseded plans live in `docs/archive/plans/`
+  (master plan, dev-tools plan, APU stabilization checklist, CoreLX data
+  model plan).

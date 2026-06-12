@@ -3,7 +3,11 @@
 Status: Active (V1 source of truth)  
 Last Updated: March 20, 2026
 
-This charter is the canonical scope contract for Nitro-Core-DX V1.0.  
+This charter is the canonical scope contract for Nitro-Core-DX V1.0 (the
+**product**: emulator + SDK + tools release).  
+The CoreLX **language** has its own v1 charter — the syntax/semantics freeze in
+`docs/specifications/CORELX_SYNTAX_V1.md` — which is a dependency of, but
+distinct from, this product charter.  
 Other planning files may contain ideas/history; this document defines what can block V1 release.
 
 ## 1. Product Goal

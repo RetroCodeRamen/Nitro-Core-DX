@@ -201,6 +201,7 @@ func buildMatrixFloorBillboardReferenceROM(floorImg, billboardImg image.Image, o
 		wramCameraX          = 0x0204
 		wramCameraY          = 0x0206
 		wramLastFloorHeading = 0x0208 // only DMA row table when heading changes (saves FPS)
+		wramButtons          = 0x020A // saved here before R5 is clobbered by camera addr loads
 		trigTableBase        = 0x0300
 		trigSteps            = 64
 
@@ -352,6 +353,10 @@ func buildMatrixFloorBillboardReferenceROM(floorImg, billboardImg image.Image, o
 	a.movLoad(2, 4)
 	write8(a, 0xA001, 0x00)
 	a.movReg(5, 2) // keep buttons in R5
+	// Persist buttons to WRAM: R5 is clobbered by camera address loads before the
+	// UP/DOWN handler, so save now and reload from WRAM there.
+	a.movImm(4, wramButtons)
+	a.movStore(4, 5)
 
 	// Load heading index.
 	a.movImm(4, wramHeadingIndex)
@@ -459,10 +464,13 @@ func buildMatrixFloorBillboardReferenceROM(floorImg, billboardImg image.Image, o
 	a.movLoad(7, 5) // cameraY in R7
 
 	// UP: move forward along heading vector.
+	// R5 was clobbered by the camera load; reload buttons from WRAM into R0 (heading index
+	// is already stored to WRAM and R0 is free here).
 	noMoveForward := a.uniq("no_move_forward")
-	a.movReg(4, 5)
-	a.andImm(4, 0x0001)
-	a.cmpImm(4, 0)
+	a.movImm(5, wramButtons)
+	a.movLoad(0, 5)
+	a.andImm(0, 0x0001)
+	a.cmpImm(0, 0)
 	a.beq(noMoveForward)
 	// camera += precomputed move delta for this heading.
 	a.addReg(4, 3)
@@ -471,9 +479,10 @@ func buildMatrixFloorBillboardReferenceROM(floorImg, billboardImg image.Image, o
 
 	// DOWN: move backward along heading vector.
 	noMoveBackward := a.uniq("no_move_backward")
-	a.movReg(4, 5)
-	a.andImm(4, 0x0002)
-	a.cmpImm(4, 0)
+	a.movImm(5, wramButtons)
+	a.movLoad(0, 5)
+	a.andImm(0, 0x0002)
+	a.cmpImm(0, 0)
 	a.beq(noMoveBackward)
 	a.subReg(4, 3)
 	a.subReg(7, 6)
@@ -490,8 +499,8 @@ func buildMatrixFloorBillboardReferenceROM(floorImg, billboardImg image.Image, o
 	a.movImm(0, 0x0000)
 	a.setDBR(0)
 	write8Scratch(a, 0x8080, matrixPlane1, 5, 6)
-	a.movReg(6, 7)                // Copy camera Y to R6; Write16RegBytes uses R4 or R7 as addr so we'll clobber R7 next
-	write16RegBytes(a, 0x8093, 4) // CameraX (clobbers R7)
+	a.movReg(6, 7)                // Copy camera Y to R6 before write16RegBytes clobbers R7
+	write16RegBytes(a, 0x8093, 4) // CameraX
 	write16RegBytes(a, 0x8095, 6) // CameraY
 	write16RegBytes(a, 0x8097, 1) // HeadingX
 	write16RegBytes(a, 0x8099, 2) // HeadingY

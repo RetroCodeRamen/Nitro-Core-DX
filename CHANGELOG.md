@@ -11,24 +11,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [0.2.0] - 2026-06-12
+
 ### Added
-- Start 0.1.10 development cycle.
 - **NitroPackInDemo ROM-first pack-in demo workspace**
   - Added `Games/NitroPackInDemo/` as the canonical home for the ROM-first pack-in/sample demo effort.
   - Includes the locked design doc, ROM builder, scene-flow tests, and placeholder `park.png` / `building.png` assets for the current vertical slice.
 - **ROM builder branch helper coverage**
   - Added `BGT`, `BLT`, `BGE`, and `BLE` convenience branch helpers to `test/roms/romutil/asm.go` so current ROM-side control-flow builders can target signed comparisons cleanly.
+- **CoreLX v1 language design (M7 design extraction complete)**
+  - Added `Games/NitroPackInDemo/CORELX_EXTRACTION.md`: the full M7 system-by-system extraction of the demo ROM into proposed CoreLX APIs, plus the settled v1 design decision record (memory model, modules, generic transformation planes, three-tier builtin/module/pattern test, stability contract).
+  - Added `docs/specifications/CORELX_SYNTAX_V1.md`: the CoreLX v1 syntax charter (learnability-first; Lua/BASIC/Go anchors; `:=`/`var`/`const`, `int`+`fixed` with decimal literals as fixed-point, structs as reference types, BASIC `for ... to` loops, data declarations as the section grammar).
+  - Added `docs/specifications/CORELX_CARTRIDGE_FORMAT.md`: single-file cartridge format draft (one text file = whole game; sections for sprites/backgrounds/audio; import-time binary-to-text conversion; lossless editor round-trip contract).
 
 ### Changed
+- **NitroPackInDemo complete demo loop (M4-M7)**
+  - The interior placeholder scene is now a full matrix-plane room: a procedural checkered floor on plane 2 (BG2) and a procedural NPC guide billboard on plane 3 (BG3), with room-bounds clamping, NPC collision, and the same feet-pivot camera model as the overworld.
+  - Added a two-page typewriter dialogue scene (one character revealed per frame, A skips then advances) streamed from WRAM character tables, triggered by talking to the guide.
+  - Added a credits scene reached from the final dialogue page; START on the credits performs a full state reset back to the title so the demo loops cleanly.
+  - The building door now initializes the interior entry state, and the interior exit zone returns to the overworld with the outdoor position preserved.
+  - Extended `build_rom_test.go` to drive the full title → overworld → interior → dialogue → credits → title loop headlessly, including NPC collision and the restarted second lap.
 - **NitroPackInDemo overworld baseline**
   - The current demo ROM now has a title scene, overworld floor + facade slice, pause overlay, centered placeholder player sprite, and enterable interior placeholder scene under `Games/NitroPackInDemo/`.
   - The building facade is now driven from the same camera/horizon/focal model as the overworld floor so the scene can be tuned as one coherent projection.
-- **Documentation alignment**
+- **Documentation alignment and deep cleanup**
   - Updated active manuals and README to reflect the current vertical-projected-quad semantics and the ROM-first `NitroPackInDemo` effort.
+  - Comprehensive documentation pass: deleted 15 dead docs (resolved-issue postmortems, stale meta-cleanup notes), archived 10 historical plans/audits to `docs/archive/`, rewrote the `docs/README.md` navigation map around the CoreLX v1 sources of truth, fixed the stale "user-defined functions: Planned" status in `docs/CORELX.md`, and added scope notes distinguishing current-compiler docs from the v1 charter.
+  - Disambiguated the two "V1"s: the product V1 charter (`docs/planning/V1_CHARTER.md`) and the CoreLX language v1 charter (`docs/specifications/CORELX_SYNTAX_V1.md`) now cross-reference each other.
+- **Makefile `test-full` scoped to project packages**
+  - `test-full` no longer sweeps vendored reference code under `Resources/` (which requires C libraries the project does not depend on), and now also runs the `testrom_tools`-gated NitroPackInDemo ROM-builder tests as a second pass.
 
 ### Removed
 - **GalaxyForce prototype workspace**
   - Removed `Games/GalaxyForce/` for now so the active repo stays focused on the ROM-first `NitroPackInDemo` proof-of-concept and current emulator/dev-kit priorities.
+- **Repository clutter**
+  - Removed an accidentally committed third-party installer (`autodesk_fusion_installer_x86-64.sh`) and local build artifacts/logs from the working tree (all rebuildable; already gitignored).
 
 ### Fixed
 - **Vertical projected quad ground anchoring / projection correctness**
@@ -38,6 +57,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added dedicated PPU tests covering approach behavior and center-anchor agreement for vertical projected quads in `internal/ppu/features_test.go`.
 - **NitroPackInDemo scene and projection checks**
   - Added ROM-side assertions that the demo building plane inherits the overworld floor camera model in `Games/NitroPackInDemo/build_rom_test.go`.
+- **SpriteProbe ship test**
+  - `TestShip_Visible` now skips cleanly when its local-only `ship.corelx` source is absent (lost in a machine migration) instead of failing the suite.
 
 ---
 

@@ -16,9 +16,14 @@ test-emulator:
 test-commands:
 	$(GO_TEST_COMMON) ./cmd/... -timeout 120s
 
-# Full default local baseline (works without SDL2_ttf dev libs)
+# Full default local baseline (works without SDL2_ttf dev libs).
+# Scoped to project packages: ./... would sweep vendored reference code under
+# Resources/ that needs C libraries this project doesn't depend on.
+# Second pass runs the testrom_tools-gated ROM-builder tests (kept separate
+# because test/roms holds many tag-gated main packages that cannot co-compile).
 test-full:
-	$(GO_TEST_COMMON) ./... -timeout 120s
+	$(GO_TEST_COMMON) ./cmd/... ./internal/... ./Games/... ./test/... -timeout 180s
+	$(GO) test -tags "$(GO_TEST_TAGS) testrom_tools" ./Games/NitroPackInDemo -timeout 120s
 
 # Explicit long-running timing tests
 test-long:

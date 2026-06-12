@@ -52,6 +52,7 @@ func (a *Asm) AndImm(reg uint8, v uint16)  { a.Inst(rom.EncodeAND(1, reg, 0)); a
 func (a *Asm) CmpImm(reg uint8, v uint16)  { a.Inst(rom.EncodeCMP(7, reg, 0)); a.Imm(v) }
 func (a *Asm) CmpReg(r1, r2 uint8)         { a.Inst(rom.EncodeCMP(0, r1, r2)) }
 func (a *Asm) ShrImm(reg uint8, v uint16)  { a.Inst(rom.EncodeSHR(1, reg, 0)); a.Imm(v) }
+func (a *Asm) SarImm(reg uint8, v uint16)  { a.Inst(rom.EncodeSHR(3, reg, 0)); a.Imm(v) }
 
 func (a *Asm) branch(op uint16, label string) {
 	a.Inst(op)
@@ -122,14 +123,12 @@ func Write16Reg(a *Asm, addr uint16, reg uint8) {
 	Write8Reg(a, addr+1, 7)
 }
 
+// Write16RegBytes writes the low and high bytes of reg to addr and addr+1.
+// When reg==4, Write8Reg would pick R4 as its address register and clobber
+// the source before the high byte is read. Delegate to Write16Reg which
+// handles reg==4 safely by using R7 as the address register in that case.
 func Write16RegBytes(a *Asm, addr uint16, reg uint8) {
-	a.MovReg(7, reg)
-	a.AndImm(7, 0x00FF)
-	Write8Reg(a, addr, 7)
-	a.MovReg(7, reg)
-	a.ShrImm(7, 8)
-	a.AndImm(7, 0x00FF)
-	Write8Reg(a, addr+1, 7)
+	Write16Reg(a, addr, reg)
 }
 
 func EmitText(a *Asm, x uint16, y uint8, r, g, b uint8, text string) {

@@ -159,6 +159,9 @@ func TestSpriteProbeFourTiles_CompareOutput(t *testing.T) {
 // region is not all black (so we can verify compiler/PPU fixes). Writes ASCII dump to
 // testdata/ship_actual.txt for inspection.
 func TestShip_Visible(t *testing.T) {
+	if _, err := os.Stat("ship.corelx"); os.IsNotExist(err) {
+		t.Skip("ship.corelx not present (local-only source lost in machine migration); roms/ship.rom remains as the built artifact")
+	}
 	romData := compileROM(t, filepath.Join("ship.corelx"))
 
 	emu := emulator.NewEmulator()

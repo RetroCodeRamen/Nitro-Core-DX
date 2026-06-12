@@ -5,6 +5,8 @@
 
 > This guide is intentionally hands-on and aligned to the current Dev Kit + CoreLX workflow.
 > For broader platform context and reference material, also see `PROGRAMMING_MANUAL.md` and `docs/CORELX.md`.
+>
+> **Scope note (2026-06-12):** examples here target the current shipping compiler. The CoreLX v1 language (in development) is specified in `docs/specifications/CORELX_SYNTAX_V1.md`; this guide and the programming manual will be rewritten against v1 once the language is finished.
 
 ---
 
