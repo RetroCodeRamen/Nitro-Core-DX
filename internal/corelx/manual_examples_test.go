@@ -97,4 +97,17 @@ func TestExampleFloor(t *testing.T) {
 	if emu.PPU.MatrixPlanes[0].CameraY != 0 {
 		t.Error("floor.corelx: plane CameraY not synced to clamped cam_y")
 	}
+	// The floor actually renders pixels (not a blank screen).
+	buf := emu.GetOutputBuffer()
+	floorPx := 0
+	for y := 120; y < 180; y++ {
+		for x := 0; x < 320; x++ {
+			if buf[y*320+x] != 0 {
+				floorPx++
+			}
+		}
+	}
+	if floorPx < 1000 {
+		t.Errorf("floor.corelx: floor not rendering (%d pixels in floor region)", floorPx)
+	}
 }
