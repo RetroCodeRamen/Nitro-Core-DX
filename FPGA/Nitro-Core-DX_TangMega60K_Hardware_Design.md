@@ -2,8 +2,8 @@
 
 ## Comprehensive Hardware Design Document
 
-**Version:** 1.0  
-**Date:** February 2026  
+**Version:** 1.1  
+**Date:** June 2026 (CPU ISA, I/O register map, and audio sections reconciled against the current emulator implementation — the authoritative hardware contract)  
 **Target Platform:** Sipeed Tang Mega 60K (GW5AT-LV60PG484A)
 
 ---
@@ -103,6 +103,41 @@ The Nitro-Core-DX system consists of four main components implemented within the
 - Interrupt controller
 - Instruction decoder
 
+**Authoritative instruction set** (opcode in bits [15:12]; mode in [11:8];
+reg1 in [7:4]; reg2 in [3:0]). This is the encoding the emulator executes
+(`internal/cpu/cpu.go` dispatch, `internal/cpu/instructions.go`) and is the
+contract the FPGA core must match:
+
+| Opcode | Instruction | Notes |
+|--------|-------------|-------|
+| 0x0 | NOP | |
+| 0x1 | MOV | modes: 0 reg, 1 #imm, 2 [R] load16, 3 [R] store16, 4 PUSH, 5 POP, 6 [R] load8 (zero-ext), 7 [R] store8, 9 [R+imm] load, 10 [R+imm] store |
+| 0x2 | ADD | mode 0 reg, 1 #imm; modes 2/3 = 8-bit (.B) |
+| 0x3 | SUB | mode 0 reg, 1 #imm; modes 2/3 = 8-bit (.B); two's-complement wrap |
+| 0x4 | MUL | 16×16 → low 16 bits |
+| 0x5 | DIV | unsigned; div-by-zero → 0xFFFF and sets flag D |
+| 0x6 | AND | mode 0 reg, 1 #imm |
+| 0x7 | OR | mode 0 reg, 1 #imm |
+| 0x8 | XOR | mode 0 reg, 1 #imm |
+| 0x9 | NOT | |
+| 0xA | SHL | mode 0 reg, 1 #imm |
+| 0xB | SHR | modes 0/1 logical right; modes 2/3 SAR (arithmetic, sign-extending); mode 4 ROL, mode 5 ROR (through carry) |
+| 0xC | CMP + branches | CMP mode 0 reg / mode 7 #imm; +0x100 BEQ, +0x200 BNE, +0x300 BGT, +0x400 BLT, +0x500 BGE, +0x600 BLE |
+| 0xD | JMP | PC-relative |
+| 0xE | CALL | |
+| 0xF | RET | |
+
+Flags: Z (zero), N (negative, bit 15), C (carry), D (division by zero).
+SP initializes to 0x1FFF and grows downward; PC is 24-bit (8-bit bank +
+16-bit offset).
+
+> **⚠️ Verilog reconciliation required before bring-up.** The current
+> `src/cpu/cpu_core.v` opcode map has drifted from this authoritative
+> emulator encoding (it uses a unified shift opcode at 0x8 and places
+> MUL/DIV at 0x9/0xA). The Verilog must be brought back to the table above
+> so a ROM that runs on the emulator runs identically on hardware. Verify by
+> executing the same ROMs through both and comparing machine state.
+
 #### PPU - Picture Processing Unit (~15,000 LUTs)
 - 4 background layer renderers
 - Sprite engine (128 sprites)
@@ -167,22 +202,49 @@ The 512MB DDR3 is organized as follows:
 
 ### I/O Register Map
 
+> **Authoritative source:** these addresses are taken from the current
+> emulator implementation (`internal/memory/bus.go`, `internal/ppu/ppu.go`,
+> `internal/apu/apu.go`, `internal/input/input.go`), which the FPGA core must
+> match bit-for-bit. The full per-register table with code citations lives in
+> `docs/specifications/COMPLETE_HARDWARE_SPECIFICATION_V2.1.md`; the summary
+> below is the high-level routing plus the highest-traffic registers.
+
+**Top-level MMIO routing** (bank 0; `bus.go:131-146`):
+
+| Range | Block | Notes |
+|-------|-------|-------|
+| 0x8000 - 0x8FFF | PPU | All video registers (single block, not sub-paged) |
+| 0x9000 - 0x9FFF | APU | Audio registers |
+| 0xA000 - 0xAFFF | Input | Controller registers |
+
+I/O is **8-bit only**: 16-bit reads zero-extend an 8-bit read; 16-bit writes
+write only the low byte.
+
+**Key PPU registers (0x8000-0x8FFF):**
+
 | Address | Register | Description |
 |---------|----------|-------------|
-| 0x8000 - 0x80FF | PPU_CTRL | PPU Control registers |
-| 0x8100 - 0x81FF | PPU_SCROLL | Scroll registers (4 layers) |
-| 0x8200 - 0x82FF | PPU_MATRIX | Matrix mode registers |
-| 0x8300 - 0x83FF | SPRITE_OAM | Sprite attribute memory |
-| 0x8400 - 0x84FF | CGRAM | Color palette RAM |
-| 0x9000 - 0x900F | APU_CTRL | Audio channel control |
-| 0x9010 - 0x901F | APU_FREQ | Audio frequency registers |
-| 0x9020 - 0x902F | APU_VOL | Audio volume registers |
-| 0x9030 | APU_MASTER | Master volume control |
-| 0x9031 | CHANNEL_COMPLETION_STATUS | Audio completion flags |
-| 0xA000 - 0xA00F | INPUT_CTRL | Controller input registers |
-| 0x803E | VBLANK_FLAG | VBlank synchronization flag |
-| 0x803F | FRAME_COUNTER_LOW | Frame counter (low byte) |
-| 0x8040 | FRAME_COUNTER_HIGH | Frame counter (high byte) |
+| 0x8008 / 0x8009 / 0x8021 / 0x8026 | BGn_CONTROL | BG0/1/2/3 enable, tile size, priority, tilemap size |
+| 0x8000-0x800D, 0x8022-0x8025 | BGn_SCROLL | Per-layer scroll X/Y (low/high) |
+| 0x800E / 0x800F | VRAM_ADDR_L / _H | VRAM address |
+| 0x8010 | VRAM_DATA | VRAM data (auto-increment) |
+| 0x8012 / 0x8013 | CGRAM_ADDR / CGRAM_DATA | Palette index / RGB555 data (low byte then high byte) |
+| 0x8014 / 0x8015 | OAM_ADDR / OAM_DATA | Sprite ID / sprite data (auto-increment) |
+| 0x8018 | MATRIX_CONTROL | Affine enable, mirror H/V, outside mode, direct color |
+| 0x806C-0x806F | BGn_TRANSFORM_BIND | Bind a layer to a transform channel (0-3) |
+| 0x8070-0x8076 | TEXT port | X(16-bit), Y, R, G, B, char (debug/HUD text) |
+| 0x8080-0x80A9 | MATRIX_PLANE | Dedicated matrix-plane select/control, tilemap/pattern/bitmap data, projection (mode, horizon, camera, heading, focal length, scale) |
+| 0x803E | VBLANK_FLAG | VBlank flag (bit 0), cleared on read |
+| 0x803F | FRAME_COUNTER_LOW | Frame counter low byte |
+
+**APU registers (0x9000-0x9FFF):** per-channel control/frequency/volume,
+`0x9020` MASTER_VOLUME, `0x9021` COMPLETION_STATUS. V1 audio target is a
+YM2608/OPNA FM path (see Audio Subsystem) layered on this MMIO shell.
+
+**Input registers (0xA000-0xAFFF):** `0xA000`/`0xA001` controller 1 (low/high;
+`0xA001` also drives latch control), `0xA002`/`0xA003` controller 2.
+Latch-then-read serial model matching real controller hardware
+(`input.go:7-52`).
 
 ---
 
@@ -268,23 +330,27 @@ The Tang Mega 60K's HDMI interface uses TMDS signaling:
 
 ### Audio Specifications
 
+> **V1 audio target is YM2608/OPNA FM** (`docs/specifications/APU_FM_OPM_EXTENSION_SPEC.md`).
+> The legacy PSG-style channel path is preserved underneath and runtime FM is
+> driven through a YM2608/OPNA backend layered on the same MMIO shell
+> (`0x9000-0x9FFF`). The FPGA FM implementation must match the emulator's
+> backend behavioral profile.
+
 | Parameter | Value |
 |-----------|-------|
-| Channels | 4 independent |
+| FM channels | YM2608/OPNA FM (4-operator) |
+| Legacy channels | PSG-style waveform channels (preserved compatibility path) |
 | Sample Rate | 44,100 Hz |
 | Bit Depth | 16-bit |
-| Waveforms | Sine, Square, Saw, Noise |
 | Output | Stereo (2× 3W speakers + 3.5mm headphone) |
 
 ### Channel Features
 
-Each audio channel supports:
-
 | Feature | Range |
 |---------|-------|
-| Frequency | 20 Hz - 20 kHz |
-| Volume | 0 - 255 (8-bit) |
-| Panning | Left - Center - Right |
+| Master volume | 0x9020, 0 - 255 (8-bit) |
+| Completion status | 0x9021, per-channel flags (cleared on read) |
+| Frequency / volume | Per-channel registers in the 0x9000-0x9FFF block |
 
 ### I2S Audio Interface
 
@@ -553,6 +619,14 @@ The system supports 2 game controllers via PMOD connectors:
 3. **Package:** PBG484A
 
 ### Project Structure
+
+> **Status:** No Verilog implementation currently exists in the repository.
+> An earlier exploratory Verilog skeleton was removed to avoid it drifting
+> from the console design while CoreLX and the emulator (the authoritative
+> hardware contract) are still evolving. When FPGA bring-up begins, the core
+> is to be built **fresh from the current emulator implementation** and the
+> register/ISA tables in this document — not resurrected from the old
+> skeleton. The layout below is the recommended target structure.
 
 ```
 nitro_core_dx_fpga/

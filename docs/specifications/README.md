@@ -29,10 +29,11 @@ This directory contains hardware specifications, pin definitions, FPGA documenta
 - `FPGA_READINESS_COMPARISON.md`
 - `SPEC_AUDIT_DISCREPANCIES.md`
 - FPGA docs in this section describe the **target FPGA architecture/specification direction**.
-- They are not a guarantee that the in-tree RTL is already at full emulator parity.
-- Current RTL-vs-emulator implementation status should be cross-checked against:
-  - `../HARDWARE_FEATURES_STATUS.md`
-  - current FPGA source under `FPGA/nitro_core_dx_fpga/src/`
+- There is currently **no RTL in the repository** — the exploratory Verilog
+  skeleton was removed so it could not drift from the console design while
+  CoreLX and the emulator (the authoritative hardware contract) evolve. When
+  FPGA bring-up begins, the RTL is to be built fresh from the current emulator
+  implementation and the tables in `../../FPGA/Nitro-Core-DX_TangMega60K_Hardware_Design.md`.
 - Implementation status snapshots:
   - `../HARDWARE_FEATURES_STATUS.md`
   - `SPEC_AUDIT_DISCREPANCIES.md`
