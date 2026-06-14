@@ -758,6 +758,91 @@ function Start()
 
 ---
 
+## What a Game Actually Is on Disk
+
+So far you've been writing code. But a *game* is more than code — it's code
+plus art plus sound, and all of that has to live somewhere. On the DX, a whole
+game is a single file: **`MyGame.ncdx`**.
+
+Open one in the Studio and you see a project. Look at it in your file browser
+and you see one icon, one file. That's deliberate — a game should be one thing
+you can hand to a friend, not a folder of loose pieces to lose track of.
+
+> **Fletcher:** Here's the honest truth under the hood, because you'll want to
+> know it the first time something goes weird: a `.ncdx` is a **zip file**
+> wearing a different hat. Inside it there's your `main.corelx`, your image
+> assets, and a little `project.toml` with the title and such. The Studio packs
+> and unpacks it for you so you never think about it. But it's a zip. Remember
+> that. We'll use it in a minute.
+
+### Why your art isn't *in* your code
+
+You write code as text. You'd think a picture could be text too — and it can,
+technically — but a single floor image is over a hundred thousand characters of
+hex. Paste that into your `main.corelx` and you'd scroll past a wall of
+gibberish for ten minutes to find your `while` loop. So we don't.
+
+Instead, each image is its own file — a **`.cxasset`** — sitting next to your
+code inside the project. You make one by running an image through the importer,
+which converts your PNG into the DX's format once:
+
+```
+corelx_import  park.png  ParkFloor  32  1  park_floor.cxasset
+```
+
+Then in code you just *name* it and use it:
+
+```corelx
+asset ParkFloor: image "park_floor.cxasset"
+
+function Start()
+    matrix_plane.load_bitmap(ParkFloor, 0)
+    ...
+```
+
+> **Fletcher's Warning Label:** The compiler is strict about the project and the
+> code agreeing, in *both* directions, and it will refuse to build if they
+> don't. Reference a `.cxasset` that isn't in the project? Error. Leave a
+> `.cxasset` in the project that no code uses? Also an error — a "you forgot to
+> wire this up, or you forgot to delete it" error. This is on purpose. A game
+> that compiles is a game where every piece of art has a job and every job has
+> its art. No mystery files, no dead weight.
+
+### Editing the guts like an admin boss
+
+Ninety-nine times out of a hundred, you let the Studio handle the `.ncdx` and
+you never touch the zip. But sometimes you need to get in there — swap an asset
+by hand, diff two versions, script a batch change. You can. The `.ncdx` is a
+zip, so:
+
+1. Make a copy (always work on a copy when you're going in by hand).
+2. Rename `MyGame.ncdx` → `MyGame.zip`.
+3. Unzip it. There's your `main.corelx`, your `.cxasset` files, your
+   `project.toml`.
+4. Do your surgery. Edit the text, replace an asset, whatever you came for.
+5. Zip the *contents* back up (the files at the root of the zip, not a folder
+   containing them — that trips people up).
+6. Rename `.zip` → `.ncdx`.
+
+> **Fletcher:** That's the escape hatch, and I'm showing it to you because
+> someday you'll need it and I'd rather you learn it from me than from a forum
+> post at 3 a.m. But mind the one rule that bites everyone: when you re-zip, the
+> files go at the **top level** of the archive — `main.corelx` should be right
+> there when you open the zip, not buried inside a `MyGame/` folder. The
+> compiler looks for `main.corelx` at the root. Get that wrong and it'll tell
+> you the project is missing its main file, and you'll swear the file is *right
+> there*, because it is — just one folder too deep.
+
+> **Raccoon Engineering:** Because a `.ncdx` is just a zip, every tool you
+> already own works on it. Git can store it, a script can rip an asset out of a
+> hundred of them, a diff tool can show you what changed between two builds (work
+> on the unzipped folders for that — zips diff badly). The single-file
+> convenience and the open-it-up power are the same fact wearing two hats. That's
+> not an accident; it's why we picked a zip instead of some sealed custom format
+> you'd need our blessing to open.
+
+---
+
 *Chapters land here as their features get built and verified on the machine.
 Next in the workshop: sprites that move, and more of what the matrix planes can
 do once you start tilting the whole world.*

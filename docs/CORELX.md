@@ -2,16 +2,23 @@
 
 **For Nitro Core DX — documents the current shipping compiler**
 
-> **Scope note (2026-06-12):** This is the reference for the compiler as
-> implemented today in `internal/corelx`. The CoreLX **v1 language** is
-> specified separately and is being built now:
-> [CORELX_SYNTAX_V1.md](specifications/CORELX_SYNTAX_V1.md) (syntax charter),
-> [CORELX_CARTRIDGE_FORMAT.md](specifications/CORELX_CARTRIDGE_FORMAT.md)
-> (cartridge format), and the decision record in
-> [Games/NitroPackInDemo/CORELX_EXTRACTION.md](../Games/NitroPackInDemo/CORELX_EXTRACTION.md).
-> Where this document and the v1 charter differ (e.g. `ASSET_` prefixes,
-> C-style `for`, the `&` operator), the charter is the destination; this
-> document tracks what compiles today.
+> **⚠️ Scope note (updated 2026-06-14):** This document predates the M8
+> language work and is **partially stale** — it does **not** list the features
+> and builtins added during M8 (`fixed`, arrays, `for i = 0 to N`,
+> `input.poll/held/pressed`, `text.draw`/`text.draw_int`, `mem.read16/write16`,
+> the matrix-plane projection/camera/surface builtins, `load_bitmap`, the
+> `.cxasset`/`.ncdx`/`.cart` pipeline), and some of what it describes has
+> changed (the `&` operator and C-style `for` were removed; the `ASSET_`
+> prefix is gone).
+>
+> **For the current implemented surface, read
+> [CORELX_V1_IMPLEMENTATION_STATUS.md](CORELX_V1_IMPLEMENTATION_STATUS.md)
+> first.** The authoritative live builtin list is the registration block in
+> `internal/corelx/semantic.go`. The v1 language design is frozen in
+> [specifications/CORELX_SYNTAX_V1.md](specifications/CORELX_SYNTAX_V1.md).
+> This file is retained for the still-accurate explanations of the older
+> builtins (bg/matrix/oam/sprite/gfx/raster/apu) and will be folded into the
+> Programming Guide once v1 is complete.
 
 > **CoreLX** (pronounced *core elix*) is the native compiled programming language for the **Nitro Core DX** console.  
 > CoreLX is a **compiled-only**, **hardware-first** language with **no interpreter**, **no virtual machine**, and **no runtime scripting layer**.  

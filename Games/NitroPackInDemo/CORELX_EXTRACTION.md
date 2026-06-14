@@ -354,22 +354,27 @@ level rather than per-game.
 ## 12. Build-order recommendation for M8
 
 Dependency-ordered; each step is independently testable against the ROM
-reference:
+reference. **Live status is tracked in
+[docs/CORELX_V1_IMPLEMENTATION_STATUS.md](../../docs/CORELX_V1_IMPLEMENTATION_STATUS.md)**;
+markers below summarize as of 2026-06-14.
 
-1. **Language core**: globals, constants, arrays, string literals,
-   `mem.read16/write16` (§11) — everything else leans on these
-2. **Image assets + bitmap planes** (§1) — unblocks rendering parity
-3. **Projection/camera/billboard builtins** (§2, §3 low-level)
-4. **`input.poll/held/pressed`** (§5)
-5. **`text.draw`** (§8)
-6. **Genre-neutral devkit modules written in CoreLX itself**: `anim`
-   (sprite animation over OAM builtins) and `sfx` — these validate the
-   module system without baking any game's design in. Walker, dialogue,
-   and collision (§6, §7, §9) are **demo game code**, not modules; each is
-   a post-v1 promotion candidate only when a second game proves the reuse.
-7. **Rebuild demo as `main.corelx`**, validate with the existing
-   frame-capture test approach (`build_rom_test.go` scene-flow tests as the
-   behavioral spec)
+1. ✅ **DONE — Language core**: globals, constants, arrays (+ initializers),
+   string literals, `fixed`, `mem.read16/write16` (§11)
+2. ✅ **DONE — Image assets + bitmap planes** (§1): external `.cxasset` files,
+   `corelx_import`, ROM data region, `matrix_plane.load_bitmap` (DMA), the
+   `.ncdx` project container, `.cart` output
+3. ✅ **DONE — Projection/camera/surface builtins** (§2, §3 low-level)
+4. ✅ **DONE — `input.poll/held/pressed/released`** (§5) + button constants
+5. ✅ **DONE — `text.draw`** (§8) + `text.draw_int`
+6. ⬜ **PENDING — Genre-neutral devkit modules written in CoreLX itself**:
+   `anim` (sprite animation over OAM builtins) and `sfx` — these validate the
+   module system (`--!` directives) without baking any game's design in.
+   Walker, dialogue, and collision (§6, §7, §9) are **demo game code**, not
+   modules; each is a post-v1 promotion candidate only when a second game
+   proves the reuse.
+7. ⬜ **IN PROGRESS — Rebuild demo as `main.corelx`**: overworld floor renders
+   from the real `park.png`; remaining: building billboard, smooth turning,
+   door. Validate with the frame-capture test approach.
 
 The split in step 6/7 is the design fulcrum: if the walker, dialogue, and
 collision systems can be written *as plain CoreLX game code* and feel good,

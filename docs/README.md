@@ -8,6 +8,9 @@ This file is the primary navigation entry for docs maintenance.
 
 - `../README.md`
   - Project overview, current status snapshot, quick start
+- `CORELX_V1_IMPLEMENTATION_STATUS.md`
+  - **Read first for CoreLX work** — what is built/verified vs pending, the
+    asset/project pipeline, build/test/run commands, where decisions live
 - `specifications/CORELX_SYNTAX_V1.md`
   - CoreLX v1 language syntax charter (decided 2026-06-12)
 - `specifications/CORELX_CARTRIDGE_FORMAT.md`
