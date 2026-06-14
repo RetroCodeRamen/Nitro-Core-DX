@@ -1,0 +1,60 @@
+-- floor.corelx
+-- Walking the Floor: a pseudo-3D matrix floor you drive with the D-pad.
+-- This is the demo that pulls the whole language core together:
+--   * a tile asset for the floor pattern
+--   * matrix-plane setup (enable, bind a layer, load tiles)
+--   * the projection + camera register builtins
+--   * global camera state, input.held movement, and a HUD
+-- UP/DOWN drive forward/back, LEFT/RIGHT strafe. The floor rushes toward you.
+
+asset Floor: tiles8 hex
+    11 11 22 22 11 11 22 22
+    11 11 22 22 11 11 22 22
+    22 22 11 11 22 22 11 11
+    22 22 11 11 22 22 11 11
+    11 11 22 22 11 11 22 22
+    11 11 22 22 11 11 22 22
+    22 22 11 11 22 22 11 11
+    22 22 11 11 22 22 11 11
+
+const MOVE = 6
+
+var cam_x: int = 512
+var cam_y: int = 768
+
+function Start()
+    gfx.init_default_palettes()
+    bg.enable(0)
+    bg.bind_transform(0, 0)
+    matrix.enable(0)
+    matrix.identity(0)
+    matrix_plane.enable(0, 128)
+    matrix_plane.load_tiles(ASSET_Floor, 0, 0)
+    matrix_plane.clear(0, 1, 0)
+    matrix_plane.set_projection(0, 1, 113)
+    matrix_plane.set_depth(0, 0x0C00, 0xC000, 0x00C0)
+    ppu.enable_display()
+
+    while true
+        wait_vblank()
+        input.poll()
+        if input.held(UP)
+            cam_y = cam_y - MOVE
+        if input.held(DOWN)
+            cam_y = cam_y + MOVE
+        if input.held(LEFT)
+            cam_x = cam_x - MOVE
+        if input.held(RIGHT)
+            cam_x = cam_x + MOVE
+        -- Keep the camera inside the world (the floor is 1024 units across).
+        if cam_x < 0
+            cam_x = 0
+        if cam_x > 1023
+            cam_x = 1023
+        if cam_y < 0
+            cam_y = 0
+        if cam_y > 1023
+            cam_y = 1023
+        matrix_plane.set_camera(0, cam_x, cam_y, 0, 256)
+        text.draw(8, 8, 255, 255, 255, "WALK THE FLOOR")
+        text.draw(8, 184, 160, 200, 255, "DPAD TO MOVE")

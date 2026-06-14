@@ -170,6 +170,16 @@ func (p *PPU) GetTextCount() int {
 	return p.textCount
 }
 
+// GetBufferedText returns the characters currently buffered for end-of-frame
+// text rendering, in order (for debugging and tests).
+func (p *PPU) GetBufferedText() string {
+	runes := make([]rune, 0, p.textCount)
+	for i := 0; i < p.textCount; i++ {
+		runes = append(runes, p.textCmds[i].char)
+	}
+	return string(runes)
+}
+
 // BackgroundLayer represents a background layer
 type BackgroundLayer struct {
 	ScrollX     int16

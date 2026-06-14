@@ -33,7 +33,8 @@ type CodeGenerator struct {
 
 	// Arithmetic helper routines emitted once after user functions when
 	// referenced (signed 8.8 multiply needs 32-bit-correct partials).
-	needFixmul bool
+	needFixmul  bool
+	needDrawInt bool
 
 	// Function call support
 	functionAddrs map[string]int // function name -> code word index of function start
@@ -355,6 +356,9 @@ func (cg *CodeGenerator) Generate() error {
 	// Emit arithmetic helper routines (referenced via CALL patches).
 	if cg.needFixmul {
 		cg.emitFixmulHelper()
+	}
+	if cg.needDrawInt {
+		cg.emitDrawIntHelper()
 	}
 
 	// Patch all pending CALL offsets now that every function address is known.
@@ -1510,6 +1514,36 @@ func (cg *CodeGenerator) generateCall(call *CallExpr, destReg uint8) error {
 			cg.builder.AddImmediate(uint16(ch))
 			cg.builder.AddInstruction(rom.EncodeMOV(7, 7, 0)) // MOV [R7], R0 (8-bit store)
 		}
+		return nil
+	}
+
+	// text.draw_int(x, y, r, g, b, value) draws a signed integer as decimal
+	// digits at the text port (so games can show scores, counters, positions).
+	if funcName == "text.draw_int" {
+		if len(call.Args) != 6 {
+			return fmt.Errorf("text.draw_int expects (x, y, r, g, b, value), got %d args", len(call.Args))
+		}
+		// Port setup: X 16-bit, Y, R, G, B (same registers as text.draw).
+		if err := cg.generateExpr(call.Args[0], 0); err != nil {
+			return err
+		}
+		cg.storeIOByte(0x8070, 0)
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 6, 0))
+		cg.builder.AddInstruction(rom.EncodeSHR(1, 6, 0))
+		cg.builder.AddImmediate(8)
+		cg.storeIOByte(0x8071, 6)
+		for i, addr := range []uint16{0x8072, 0x8073, 0x8074, 0x8075} {
+			if err := cg.generateExpr(call.Args[i+1], 0); err != nil {
+				return err
+			}
+			cg.storeIOByte(addr, 0)
+		}
+		// Value into R0, then the digit-rendering routine.
+		if err := cg.generateExpr(call.Args[5], 0); err != nil {
+			return err
+		}
+		cg.needDrawInt = true
+		cg.emitHelperCall("__drawint")
 		return nil
 	}
 
@@ -5159,4 +5193,60 @@ func (cg *CodeGenerator) writePlaneReg16(expr Expr, addrLow uint16) error {
 	cg.hShrImm(6, 8)                       // R6 = value >> 8
 	cg.storeIOByte(addrLow+1, 6)           // high byte
 	return nil
+}
+
+// emitDrawIntHelper emits __drawint: render the signed 16-bit value in R0 as
+// decimal digits to the text port (0x8076), leading zeros suppressed, with a
+// leading '-' for negatives. The port's X/Y/color must already be set. Uses
+// unsigned DIV on the magnitude (works for -32768 since 0x8000 unsigned is its
+// own magnitude). Clobbers R0-R3, R6, R7.
+func (cg *CodeGenerator) emitDrawIntHelper() {
+	cg.functionAddrs["__drawint"] = cg.builder.GetCodeLength()
+
+	// sign = value >> 15 (logical). If set, emit '-' and negate.
+	cg.builder.AddInstruction(rom.EncodeMOV(0, 6, 0)) // R6 = value
+	cg.hShrImm(6, 15)
+	cg.hCmpImm(6, 0)
+	posBranch := cg.hBranch(rom.EncodeBEQ())
+	// emit '-'
+	cg.hMovImm(7, 0x8076)
+	cg.hMovImm(6, 0x2D)
+	cg.builder.AddInstruction(rom.EncodeMOV(7, 7, 6)) // [0x8076] = '-'
+	// value = -value
+	cg.hMovImm(6, 0)
+	cg.builder.AddInstruction(rom.EncodeSUB(0, 6, 0)) // R6 = 0 - value
+	cg.builder.AddInstruction(rom.EncodeMOV(0, 0, 6)) // R0 = magnitude
+	cg.hPatchToHere(posBranch)
+
+	// R3 = started flag = 0
+	cg.hMovImm(3, 0)
+
+	// Extract each high place: 10000, 1000, 100, 10.
+	for _, place := range []uint16{10000, 1000, 100, 10} {
+		cg.hMovImm(1, place)
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 2, 0)) // R2 = R0
+		cg.builder.AddInstruction(rom.EncodeDIV(0, 2, 1)) // R2 = R0 / place (digit)
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 6, 2)) // R6 = digit
+		cg.builder.AddInstruction(rom.EncodeMUL(0, 6, 1)) // R6 = digit * place
+		cg.builder.AddInstruction(rom.EncodeSUB(0, 0, 6)) // R0 = remainder
+		// emit if digit != 0 OR started != 0.
+		cg.hCmpImm(2, 0)
+		emit := cg.hBranch(rom.EncodeBNE()) // digit != 0 -> emit
+		cg.hCmpImm(3, 0)
+		skip := cg.hBranch(rom.EncodeBEQ()) // digit == 0 and not started -> skip
+		cg.hPatchToHere(emit)
+		cg.hMovImm(3, 1) // started = 1
+		cg.hMovImm(7, 0x8076)
+		cg.hMovImm(6, 0x30)
+		cg.builder.AddInstruction(rom.EncodeADD(0, 6, 2)) // R6 = '0' + digit
+		cg.builder.AddInstruction(rom.EncodeMOV(7, 7, 6)) // emit
+		cg.hPatchToHere(skip)
+	}
+
+	// Units digit: always emit (R0 is 0..9).
+	cg.hMovImm(7, 0x8076)
+	cg.hMovImm(6, 0x30)
+	cg.builder.AddInstruction(rom.EncodeADD(0, 6, 0)) // R6 = '0' + units
+	cg.builder.AddInstruction(rom.EncodeMOV(7, 7, 6)) // emit
+	cg.builder.AddInstruction(rom.EncodeRET())
 }

@@ -130,7 +130,7 @@ func (a *SemanticAnalyzer) registerBuiltinFunctions() {
 	builtins := []string{
 		"Start", "__Boot", // Entry points
 		"int", "fixed", // charter D4 numeric conversions
-		"text.draw", // HUD text via the text port
+		"text.draw", "text.draw_int", // HUD text via the text port
 		"wait_vblank", "frame_counter",
 		"sprite.set_pos", "oam.write", "oam.write_sprite_data", "oam.clear_sprite", "oam.flush",
 		"apu.enable", "apu.set_channel_wave", "apu.set_channel_freq",

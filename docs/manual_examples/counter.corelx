@@ -1,0 +1,17 @@
+-- counter.corelx
+-- Press A to count up. Shows two ideas working together:
+--   * input.pressed(A) fires exactly once per press (not once per frame held)
+--   * text.draw_int draws a live number on screen
+-- Hold A and the count still only climbs by one per press. That is the point.
+
+var count: int = 0
+
+function Start()
+    while true
+        wait_vblank()
+        input.poll()
+        if input.pressed(A)
+            count = count + 1
+        text.draw(72, 64, 255, 255, 255, "PRESS A TO COUNT")
+        text.draw(132, 96, 120, 255, 120, "COUNT")
+        text.draw_int(150, 116, 255, 255, 0, count)

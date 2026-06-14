@@ -1,0 +1,8 @@
+-- hello.corelx
+-- The smallest complete CoreLX program that puts words on the screen.
+-- Build it, run it, and you should see "HELLO NITRO" in cyan, centred-ish.
+
+function Start()
+    while true
+        wait_vblank()
+        text.draw(96, 96, 64, 220, 255, "HELLO NITRO")
