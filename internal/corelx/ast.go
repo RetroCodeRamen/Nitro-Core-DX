@@ -40,7 +40,8 @@ type GlobalVarDecl struct {
 	ArrayLen int // 0 = scalar; N>0 = fixed-size array type[N]
 	HasPin   bool
 	PinAddr  uint16
-	Init     Expr
+	Init     Expr   // scalar initializer
+	InitList []Expr // array initializer: var a: int[N] = [v0, v1, ...]
 }
 
 // AssetDecl represents an asset declaration

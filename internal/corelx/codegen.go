@@ -212,8 +212,13 @@ func (cg *CodeGenerator) allocateGlobals() error {
 		if g.ArrayLen > 0 {
 			size = elemSize * uint16(g.ArrayLen)
 			if g.Init != nil {
-				return fmt.Errorf("line %d: global array %s cannot take a scalar initializer (arrays zero-initialize)", g.Position.Line, g.Name)
+				return fmt.Errorf("line %d: global array %s cannot take a scalar initializer (use [v0, v1, ...] or leave it zero)", g.Position.Line, g.Name)
 			}
+			if len(g.InitList) > 0 && len(g.InitList) != g.ArrayLen {
+				return fmt.Errorf("line %d: global array %s has %d initializers but length %d", g.Position.Line, g.Name, len(g.InitList), g.ArrayLen)
+			}
+		} else if len(g.InitList) > 0 {
+			return fmt.Errorf("line %d: global %s is not an array but has a list initializer", g.Position.Line, g.Name)
 		}
 
 		var addr uint16
@@ -268,10 +273,30 @@ func (cg *CodeGenerator) allocateGlobals() error {
 // emitGlobalInits stores each global's initializer at program entry.
 func (cg *CodeGenerator) emitGlobalInits() error {
 	for _, g := range cg.program.Globals {
+		info := cg.globals[g.Name]
+		// Array list initializer: write each element to its slot.
+		if len(g.InitList) > 0 {
+			for i, el := range g.InitList {
+				if v, err := evalConstExpr(el, cg.consts); err == nil {
+					cg.builder.AddInstruction(rom.EncodeMOV(1, 0, 0))
+					cg.builder.AddImmediate(uint16(v))
+				} else if err := cg.generateExpr(el, 0); err != nil {
+					return fmt.Errorf("global %s[%d] initializer: %w", g.Name, i, err)
+				}
+				addr := info.StackAddr + uint16(i)*uint16(info.ElemWidth)
+				cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
+				cg.builder.AddImmediate(addr)
+				if info.ElemWidth == 2 {
+					cg.builder.AddInstruction(rom.EncodeMOV(3, 7, 0)) // 16-bit store
+				} else {
+					cg.builder.AddInstruction(rom.EncodeMOV(7, 7, 0)) // 8-bit store
+				}
+			}
+			continue
+		}
 		if g.Init == nil {
 			continue
 		}
-		info := cg.globals[g.Name]
 		if v, err := evalConstExpr(g.Init, cg.consts); err == nil {
 			cg.builder.AddInstruction(rom.EncodeMOV(1, 0, 0)) // MOV R0, #value
 			cg.builder.AddImmediate(uint16(v))

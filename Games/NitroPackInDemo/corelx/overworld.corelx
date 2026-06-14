@@ -1,0 +1,99 @@
+-- overworld.corelx
+-- The first chunk of the NitroPackInDemo rebuilt in CoreLX: a walkable
+-- pseudo-3D overworld. You stand on a matrix floor that turns and rushes
+-- toward you as you move.
+--
+--   LEFT / RIGHT : turn (tap) in 45-degree steps
+--   UP / DOWN    : walk forward / back along your facing
+--
+-- This is the acceptance-test-in-progress: everything here is real CoreLX,
+-- compiled and run against the emulator by the test suite.
+
+asset Floor: tiles8 hex
+    11 11 22 22 11 11 22 22
+    11 11 22 22 11 11 22 22
+    22 22 11 11 22 22 11 11
+    22 22 11 11 22 22 11 11
+    11 11 22 22 11 11 22 22
+    11 11 22 22 11 11 22 22
+    22 22 11 11 22 22 11 11
+    22 22 11 11 22 22 11 11
+
+asset Player: tiles8 hex
+    00 00 01 01 01 00 00 00
+    00 01 01 01 01 01 00 00
+    00 01 01 01 01 01 00 00
+    00 00 02 02 02 00 00 00
+    00 02 02 02 02 02 00 00
+    00 02 02 02 02 02 00 00
+    00 02 00 02 00 02 00 00
+    00 02 00 00 00 02 00 00
+
+-- 8 compass directions. Heading vectors are 8.8 fixed (magnitude ~256);
+-- move vectors are the per-step world delta when walking forward.
+-- Index: 0=N 1=NE 2=E 3=SE 4=S 5=SW 6=W 7=NW
+var heading_x: int[8] = [0, 181, 256, 181, 0, 0 - 181, 0 - 256, 0 - 181]
+var heading_y: int[8] = [0 - 256, 0 - 181, 0, 181, 256, 181, 0, 0 - 181]
+var move_x: int[8]    = [0, 4, 6, 4, 0, 0 - 4, 0 - 6, 0 - 4]
+var move_y: int[8]    = [0 - 6, 0 - 4, 0, 4, 6, 4, 0, 0 - 4]
+
+var cam_x: int = 512
+var cam_y: int = 768
+var facing: int = 0
+
+function Start()
+    gfx.init_default_palettes()
+    bg.enable(0)
+    bg.bind_transform(0, 0)
+    matrix.enable(0)
+    matrix.identity(0)
+    matrix_plane.enable(0, 128)
+    matrix_plane.load_tiles(ASSET_Floor, 0, 0)
+    matrix_plane.clear(0, 1, 0)
+    matrix_plane.set_projection(0, 1, 113)
+    matrix_plane.set_depth(0, 0x0C00, 0xC000, 0x00C0)
+
+    player_base := gfx.load_tiles(ASSET_Player, 8)
+    hero := Sprite()
+    hero.tile = player_base
+    hero.attr = SPR_PAL(1)
+    hero.ctrl = SPR_ENABLE() | SPR_SIZE_8()
+
+    ppu.enable_display()
+
+    while true
+        wait_vblank()
+        input.poll()
+
+        -- Turn in 45-degree steps on a tap (one step per press).
+        if input.pressed(LEFT)
+            facing = (facing + 7) & 7
+        if input.pressed(RIGHT)
+            facing = (facing + 1) & 7
+
+        -- Walk forward / back along the current facing.
+        if input.held(UP)
+            cam_x = cam_x + move_x[facing]
+            cam_y = cam_y + move_y[facing]
+        if input.held(DOWN)
+            cam_x = cam_x - move_x[facing]
+            cam_y = cam_y - move_y[facing]
+
+        -- Stay inside the 1024-unit world.
+        if cam_x < 0
+            cam_x = 0
+        if cam_x > 1023
+            cam_x = 1023
+        if cam_y < 0
+            cam_y = 0
+        if cam_y > 1023
+            cam_y = 1023
+
+        matrix_plane.set_camera(0, cam_x, cam_y, heading_x[facing], heading_y[facing])
+
+        -- Player stands centred; HUD on top.
+        sprite.set_pos(hero, 156, 132)
+        oam.write(0, hero)
+        oam.flush()
+        text.draw(8, 8, 255, 255, 255, "NITRO OVERWORLD")
+        text.draw(8, 184, 160, 200, 255, "LR TURN  UD MOVE")

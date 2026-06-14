@@ -142,7 +142,19 @@ func (p *Parser) parseGlobalVarDecl() (*GlobalVarDecl, error) {
 
 	if p.check(TOKEN_EQUAL) {
 		p.advance()
-		decl.Init = p.parseExpr()
+		if p.check(TOKEN_LBRACKET) {
+			// Array initializer: = [v0, v1, ...]
+			p.advance()
+			for !p.check(TOKEN_RBRACKET) && !p.isAtEnd() {
+				decl.InitList = append(decl.InitList, p.parseExpr())
+				if p.check(TOKEN_COMMA) {
+					p.advance()
+				}
+			}
+			p.consume(TOKEN_RBRACKET, "Expected ']' to close array initializer")
+		} else {
+			decl.Init = p.parseExpr()
+		}
 	}
 	if !p.isAtEnd() && !p.check(TOKEN_NEWLINE) && !p.check(TOKEN_DEDENT) {
 		return nil, p.error(p.peek(), "Unexpected token after variable declaration")
