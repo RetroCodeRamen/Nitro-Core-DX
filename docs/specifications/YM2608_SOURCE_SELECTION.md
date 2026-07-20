@@ -5,7 +5,7 @@ Prevent cross-chip contamination during YM2608 conformance tuning by explicitly 
 
 ## Runtime Context (2026-03-19)
 - cgo-backed emulator/devkit entrypoints currently default `NCDX_YM_BACKEND` to `ymfm` and expose `-audio-backend ymfm`.
-- The in-tree OPM-lite model remains a code-level fallback when YMFM is unavailable.
+- *(Internal:)* an in-tree OPM-lite model exists as a code-level path for non-YMFM builds — an implementation detail, not a user-facing audio identity. YM2608/OPNA via the YMFM-backed runtime is the audio subsystem.
 - This policy file governs conformance/reference inputs only; it does not force runtime backend mode.
 
 ## Active Allowlist

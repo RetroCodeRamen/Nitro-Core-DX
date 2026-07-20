@@ -102,8 +102,9 @@ func (p *Parser) parseConstDecl() (*ConstDecl, error) {
 }
 
 // parseGlobalVarDecl parses:
-//   var name: type [= expr]
-//   var name at 0xNNNN: type [= expr]
+//
+//	var name: type [= expr]
+//	var name at 0xNNNN: type [= expr]
 func (p *Parser) parseGlobalVarDecl() (*GlobalVarDecl, error) {
 	pos := p.position()
 	p.consume(TOKEN_VAR, "Expected 'var'")
@@ -174,16 +175,17 @@ func (p *Parser) parseAsset() (*AssetDecl, error) {
 		return nil, p.error(p.previous(), fmt.Sprintf("Invalid asset type: %s", assetType))
 	}
 
-	// image assets reference an external .cxasset file by path (hard split:
-	// bitmap data lives in a side file, not inline).
-	if assetType == "image" {
-		pathTok := p.consume(TOKEN_STRING, "Expected a quoted .cxasset file path after 'image'")
+	// image and music assets reference an external file by path (hard split:
+	// large binary data lives in a side file, not inline). image -> .cxasset
+	// bitmap; music -> .ncdxmusic YM2608 stream.
+	if assetType == "image" || assetType == "music" {
+		pathTok := p.consume(TOKEN_STRING, "Expected a quoted file path after '"+assetType+"'")
 		path := strings.Trim(pathTok.Literal, "\"")
 		// consume trailing newline if present
 		for p.check(TOKEN_NEWLINE) || p.check(TOKEN_INDENT) || p.check(TOKEN_DEDENT) {
 			p.advance()
 		}
-		return &AssetDecl{Position: pos, Name: name, Type: "image", FilePath: path}, nil
+		return &AssetDecl{Position: pos, Name: name, Type: assetType, FilePath: path}, nil
 	}
 
 	// Encoding can be on same line or next line

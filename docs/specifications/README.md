@@ -15,7 +15,7 @@ This directory contains hardware specifications, pin definitions, FPGA documenta
 - `PPU_MATRIX_PLANE_MEMORY_SPEC.md`
   - Matrix-plane source-size and dedicated-memory baseline spec (minimum 1024x1024 per plane, outside behavior, emulator-first implementation direction)
 - `APU_FM_OPM_EXTENSION_SPEC.md`
-  - Current FM extension runtime design + implementation status (YM2608-targeted host interface + backend selection/fallback model)
+  - YM2608 audio subsystem runtime design + implementation status (host interface; the legacy 4-channel path is temporary migration scaffolding)
 - `CARTRIDGE_PIN_SPECIFICATION.md`
   - Cartridge connector pinout/spec
 - `CONTROLLER_PIN_SPECIFICATION.md`

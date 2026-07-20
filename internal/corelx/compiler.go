@@ -256,10 +256,26 @@ func CompileSource(source, sourcePath string, opts *CompileOptions) (result *Com
 		return result, &DiagnosticsError{Diagnostics: result.Diagnostics}
 	}
 
+	// Load external music (.ncdxmusic) YM2608 streams, placed in the same ROM
+	// data region immediately after the image bytes.
+	musicAssets, musicRegion, musErr := loadMusicAssets(program, sourcePath, len(imageRegion))
+	if musErr != nil {
+		result.Diagnostics = append(result.Diagnostics, Diagnostic{
+			Category: CategoryAssetParseError,
+			Code:     "E_MUSIC_ASSET",
+			Message:  musErr.Error(),
+			File:     sourcePath,
+			Severity: SeverityError,
+			Stage:    StageAsset,
+		})
+		return result, &DiagnosticsError{Diagnostics: result.Diagnostics}
+	}
+
 	builder := rom.NewROMBuilder()
 	generator := NewCodeGenerator(program, builder)
 	generator.SetNormalizedAssets(assets)
 	generator.SetImageAssets(imageAssets)
+	generator.SetMusicAssets(musicAssets)
 	currentStage = StageCodegen
 	if err := generator.Generate(); err != nil {
 		result.Diagnostics = append(result.Diagnostics, Diagnostic{
@@ -273,8 +289,10 @@ func CompileSource(source, sourcePath string, opts *CompileOptions) (result *Com
 		return result, &DiagnosticsError{Diagnostics: result.Diagnostics}
 	}
 
-	if len(imageRegion) > 0 {
-		builder.SetDataRegion(imageDataStartBank, imageRegion)
+	// Image and music bytes share one contiguous ROM data region (images first,
+	// then music — matching the bank/offset cursor used during placement).
+	if dataRegion := append(append([]byte{}, imageRegion...), musicRegion...); len(dataRegion) > 0 {
+		builder.SetDataRegion(imageDataStartBank, dataRegion)
 	}
 
 	currentStage = StagePack

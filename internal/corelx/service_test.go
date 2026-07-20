@@ -9,7 +9,7 @@ func TestServiceCompileBundleSourceSuccess(t *testing.T) {
 	svc := NewService()
 	src := `
 function Start()
-    apu.enable()
+    wait_vblank()
 `
 	bundle, res, err := svc.CompileBundleSource(src, "svc_success.corelx", nil)
 	if err != nil {
@@ -29,7 +29,7 @@ function Start()
 func TestServiceCompileBundleFileError(t *testing.T) {
 	svc := NewService()
 	path := filepath.Join(t.TempDir(), "svc_error.corelx")
-	src := "function Nope()\n    apu.enable()\n"
+	src := "function Nope()\n    wait_vblank()\n"
 
 	bundle, res, err := svc.CompileBundleSource(src, path, nil)
 	if err == nil {

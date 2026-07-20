@@ -15,7 +15,7 @@ func TestServiceBuildSourceSuccessArtifacts(t *testing.T) {
 
 	src := `
 function Start()
-    apu.enable()
+    wait_vblank()
 `
 	build, err := svc.BuildSource(src, "main.corelx")
 	if err != nil {
@@ -50,7 +50,7 @@ func TestServiceBuildSourceErrorDiagnostics(t *testing.T) {
 	tmpDir := t.TempDir()
 	svc := NewService(tmpDir)
 
-	src := "function Nope()\n    apu.enable()\n"
+	src := "function Nope()\n    wait_vblank()\n"
 	build, err := svc.BuildSource(src, "bad.corelx")
 	if err == nil {
 		t.Fatalf("expected build error")
@@ -80,7 +80,7 @@ func TestServiceEmulatorSessionSmoke(t *testing.T) {
 	// Keep ROM execution stable by idling in a vblank loop after init.
 	src := `
 function Start()
-    apu.enable()
+    wait_vblank()
     while true
         wait_vblank()
 `
@@ -154,7 +154,7 @@ func TestServiceTickReturnsFrameAndAudio(t *testing.T) {
 
 	src := `
 function Start()
-    apu.enable()
+    wait_vblank()
     while true
         wait_vblank()
 `
@@ -199,7 +199,7 @@ func TestServiceTickPausedPresentsWithoutStepping(t *testing.T) {
 
 	src := `
 function Start()
-    apu.enable()
+    wait_vblank()
     while true
         wait_vblank()
 `
@@ -503,7 +503,7 @@ func TestServiceStepFrameWhilePaused(t *testing.T) {
 
 	src := `
 function Start()
-    apu.enable()
+    wait_vblank()
     while true
         wait_vblank()
 `
@@ -541,7 +541,7 @@ func TestServiceStepCPUAndSnapshots(t *testing.T) {
 
 	src := `
 function Start()
-    apu.enable()
+    wait_vblank()
     while true
         wait_vblank()
 `

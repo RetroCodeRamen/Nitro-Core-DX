@@ -33,7 +33,7 @@
 | **Max Sprites** | 128 sprites |
 | **Background Layers** | 4 independent layers (BG0, BG1, BG2, BG3) |
 | **Matrix Mode** | Mode 7-style per-layer transforms; vertical sprites remain future work |
-| **Audio Channels** | 4 legacy channels plus FM extension host/backend path |
+| **Audio** | YM2608/OPNA audio subsystem (FM + SSG + rhythm + ADPCM) — final audio hardware; a legacy 4-channel synth remains as temporary migration scaffolding |
 | **Audio Sample Rate** | 44,100 Hz |
 | **CPU Speed** | ~7.67 MHz (127,820 cycles per frame at 60 FPS) |
 | **Memory** | 64KB per bank, 256 banks (16MB total address space) |
@@ -63,10 +63,10 @@
 │  ├─ Windowing System                                   │
 │  └─ HDMA (per-scanline scroll/transform/control)       │
 ├─────────────────────────────────────────────────────────┤
-│  APU (Audio Processing Unit)                           │
-│  ├─ 4 Legacy Audio Channels                            │
-│  ├─ Waveforms: Sine, Square, Saw, Noise                │
-│  ├─ FM Extension Host Interface                         │
+│  APU (Audio Processing Unit) — YM2608 / OPNA           │
+│  ├─ FM, SSG, Rhythm, ADPCM (YM2608)                    │
+│  ├─ YM2608 Host Interface + Timer/IRQ                  │
+│  ├─ (legacy 4-ch synth: temporary scaffolding)        │
 │  └─ Master Volume Control                               │
 ├─────────────────────────────────────────────────────────┤
 │  Input System                                          │
@@ -323,7 +323,7 @@ When migrating to FPGA:
 - ✅ **CPU Core**: Complete instruction set implementation
 - ✅ **Memory System**: Complete banked memory architecture
 - ✅ **PPU (Graphics)**: Basic rendering pipeline, sprite system, background layers
-- ✅ **APU (Audio)**: Complete legacy 4-channel synthesis plus operational FM extension backend path
+- ✅ **APU (Audio)**: YM2608/OPNA audio subsystem operational (conformance refinement in progress); legacy 4-channel synth remains as temporary migration scaffolding
 - ✅ **Input System**: Complete input handling with dual controllers
 - ✅ **ROM Loader**: Complete ROM loading with header parsing
 
@@ -421,12 +421,13 @@ A fantasy console that delivers **SNES-quality graphics** with **Genesis-level p
 - **Windowing System**: 2 windows with OR/AND/XOR/XNOR logic
 - **HDMA**: Per-scanline scroll, transform, rebind, priority, tilemap-base, and source-mode updates
 
-### APU (Audio System)
+### APU (Audio System) — YM2608 / OPNA
 
-- **4 Audio Channels**: Sine, square, saw, noise waveforms
+- **YM2608/OPNA**: FM, SSG, rhythm, and ADPCM — the final audio subsystem
+- **YM2608 Host Interface + Timer/IRQ**: register path, played through the YMFM-backed runtime
 - **44,100 Hz Sample Rate**: CD quality audio
-- **Master Volume Control**: Global volume adjustment
-- **Duration Control**: Automatic note duration with completion status
+- **Conformance**: operational and under active refinement
+- **Legacy 4-channel synth** (sine/square/saw/noise, master volume, duration/completion): retained only as temporary migration scaffolding — not final hardware
 
 ### Input System
 

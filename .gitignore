@@ -1,4 +1,5 @@
 # Binaries (all binaries should be built, not committed)
+/bin/
 /nitro-core-dx
 /emulator
 /audiotest

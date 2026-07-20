@@ -356,6 +356,19 @@ func (p *PPU) ResetDerivedRuntimeCachesForStateLoad() {
 	p.activeScanlineSpriteCount = 0
 }
 
+// ClearScreen blanks both the back (OutputBuffer) and front (DisplayBuffer)
+// framebuffers to black and drops any buffered text overlay. Used on
+// stop/reset so the presented image does not stay frozen on the last frame.
+func (p *PPU) ClearScreen() {
+	for i := range p.OutputBuffer {
+		p.OutputBuffer[i] = 0x000000
+	}
+	for i := range p.DisplayBuffer {
+		p.DisplayBuffer[i] = 0x000000
+	}
+	p.textCount = 0
+}
+
 func (p *PPU) getBackgroundLayer(layerNum int) *BackgroundLayer {
 	switch layerNum {
 	case 0:

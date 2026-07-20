@@ -39,17 +39,16 @@ This document tracks the implementation status of all hardware features for the 
   - ✅ Per-scanline HDMA matrix updates
 - ✅ HDMA per-layer scroll/matrix table processing in emulator runtime
 
-### APU (Audio)
-- ✅ 4 audio channels
-- ✅ All waveform types (sine, square, saw, noise)
-- ✅ Frequency control
-- ✅ Volume control (per channel + master)
-- ✅ Duration control with loop mode
+### APU (Audio) — YM2608 / OPNA (final audio subsystem)
+- ✅ YM2608/OPNA MMIO host interface (`0x9100-0x91FF`) — FM, SSG, rhythm, ADPCM
 - ✅ Sample generation at 44,100 Hz
-- ✅ PCM playback support (per-channel)
-- ✅ FM extension MMIO host interface (`0x9100-0x91FF`)
-- ✅ YM2608 runtime backend path operational through YMFM-backed builds
-- ✅ cgo-backed entrypoints default `NCDX_YM_BACKEND` to `ymfm`
+- ✅ YM2608 audio operational through the YMFM-backed runtime
+- 🚧 YM2608 hardware conformance under active refinement (not yet fully verified)
+
+**Legacy 4-channel synth — temporary migration scaffolding (not final hardware):**
+- ⚠️ 4 audio channels, waveforms (sine/square/saw/noise), per-channel
+  frequency/volume/duration, master volume, PCM playback — retained only to keep
+  existing CoreLX/ROMs working during the YM2608 migration; slated for removal.
 
 ### Input System
 - ✅ Controller 1 & 2 support
@@ -132,16 +131,18 @@ This document tracks the implementation status of all hardware features for the 
 - CPU: ✅ Complete (including interrupts)
 - Memory: ✅ Complete
 - PPU: ✅ Core-complete (priority, blending, mosaic, DMA, Matrix Mode enhancements)
-- APU: ✅ Complete (legacy + FM host + YM2608 backend operational) with 🚧 conformance refinement in progress
+- APU: ✅ YM2608/OPNA audio subsystem operational with 🚧 conformance refinement in progress (legacy 4-channel synth retained only as temporary migration scaffolding)
 - Input: ✅ Complete
 - Matrix Mode: ✅ Per-layer transforms complete (outside-screen handling and direct color implemented)
 - DMA/HDMA: ✅ Complete in emulator runtime (VRAM/CGRAM/OAM DMA plus per-scanline HDMA scroll/matrix updates)
 
 **Optional Enhancements (Not Required for Core System):**
 - Vertical sprites for Matrix Mode (advanced 3D feature - can be added later)
-- FM extension accuracy/polish (already started; continue incrementally)
 - Large world tilemap workflows
+
+(YM2608 conformance accuracy/polish is core audio work, not an optional
+enhancement — tracked under APU Features above.)
 
 **System Status:** ✅ **READY FOR SOFTWARE DEVELOPMENT**
 
-All core hardware features are implemented and functional for game/application development. Audio is operational with YM2608-capable runtime backend selection and fallback behavior; current remaining work is conformance/polish, not basic functionality.
+All core hardware features are implemented and functional for game/application development. The YM2608/OPNA audio subsystem is operational through the YMFM-backed runtime; current remaining work is conformance/polish, not basic functionality. (A legacy 4-channel synth remains in the tree only as temporary migration scaffolding.)

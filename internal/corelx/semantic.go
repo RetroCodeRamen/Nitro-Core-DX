@@ -133,8 +133,13 @@ func (a *SemanticAnalyzer) registerBuiltinFunctions() {
 		"text.draw", "text.draw_int", // HUD text via the text port
 		"wait_vblank", "frame_counter",
 		"sprite.set_pos", "oam.write", "oam.write_sprite_data", "oam.clear_sprite", "oam.flush",
+		// LEGACY (scaffolding): apu.* drives the legacy 4-channel synth and is
+		// transitional only. The final audio subsystem is YM2608/OPNA; these
+		// builtins are pending replacement by the future music.* YM2608 API.
 		"apu.enable", "apu.set_channel_wave", "apu.set_channel_freq",
 		"apu.set_channel_volume", "apu.note_on", "apu.note_off",
+		// YM2608 audio subsystem: low-level register escape hatch (port 0 / port 1).
+		"ym.write", "ym.write_port1",
 		"ppu.enable_display", "gfx.load_tiles", "gfx.set_palette", "gfx.set_palette_color", "gfx.init_default_palettes",
 		"input.read", "input.poll", "input.held", "input.pressed", "input.released",
 		"SPR_PAL", "SPR_HFLIP", "SPR_VFLIP", "SPR_PRI",
@@ -360,7 +365,7 @@ func (a *SemanticAnalyzer) analyzeExpr(expr Expr) {
 		builtinNamespaces := map[string]bool{
 			"ppu": true, "sprite": true, "oam": true, "apu": true, "gfx": true, "input": true,
 			"mem": true, "bg": true, "matrix": true, "matrix_plane": true, "raster": true,
-			"text": true,
+			"text": true, "ym": true,
 		}
 		if builtinNamespaces[e.Name] {
 			// Built-in namespace, valid

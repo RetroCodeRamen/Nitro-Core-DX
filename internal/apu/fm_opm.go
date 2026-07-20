@@ -7,11 +7,12 @@ import (
 )
 
 const (
-	// FMExtensionOffsetBase is the APU-internal offset base for the FM extension.
-	// CPU-visible address 0x9100 maps to APU offset 0x0100.
+	// FMExtensionOffsetBase is the APU-internal offset base for the YM2608 audio
+	// subsystem host interface. CPU-visible address 0x9100 maps to APU offset
+	// 0x0100. (Name kept for API stability.)
 	FMExtensionOffsetBase = 0x0100
 
-	// FM host interface registers (relative to FMExtensionOffsetBase).
+	// YM2608 host interface registers (relative to FMExtensionOffsetBase).
 	FMRegAddr    = 0x00 // OPM register address select
 	FMRegData    = 0x01 // OPM register data port
 	FMRegStatus  = 0x02 // Busy/timer/IRQ flags (stubbed in phase 1)
@@ -83,9 +84,10 @@ type fmVoice struct {
 	envLevel     uint16 // 0..256 simple attack envelope for pop reduction in phase-2
 }
 
-// FMOPM is a hardware-oriented YM2151/OPM-compatible extension skeleton.
-// Phase 1 intentionally implements the MMIO contract first so ROMs/tools can
-// target a stable interface before full FM synthesis is added.
+// FMOPM is the YM2608 / OPNA audio subsystem: a hardware-oriented host
+// interface plus FM synthesis. The MMIO contract is implemented so ROMs/tools
+// target a stable interface. (Type name kept for API stability; the active
+// runtime uses the YMFM backend, with an in-tree model as a non-cgo path.)
 type FMOPM struct {
 	logger  *debug.Logger
 	backend fmRuntimeBackend
@@ -103,7 +105,8 @@ type FMOPM struct {
 
 	// OPM register file shadow (0x00-0xFF) for software validation.
 	Regs [256]uint8
-	// Phase-2 audible subset (OPM-lite, hardware-oriented placeholder).
+	// In-tree FM synthesis voices (internal non-cgo compatibility path; the
+	// active runtime uses the YMFM backend).
 	Voices [fmVoiceCount]fmVoice
 
 	// Phase-1 timer/status subset (hardware-friendly deterministic counters).
@@ -248,6 +251,12 @@ func (f *FMOPM) writeControl(value uint8) {
 	}
 }
 
+// Reset clears all FM state, equivalent to a hardware reset (bit 7 of the
+// control register). Exposed so the APU can silence the chip on power-off.
+func (f *FMOPM) Reset() {
+	f.reset()
+}
+
 func (f *FMOPM) reset() {
 	f.Addr = 0
 	f.Status = 0
@@ -272,14 +281,15 @@ func (f *FMOPM) reset() {
 	}
 }
 
-// GenerateSampleFloat returns the FM extension contribution for the current sample.
-// Phase 2 implements an audible OPM-lite subset (8 voices, 2-op FM placeholder).
+// GenerateSampleFloat returns the YM2608 audio contribution for the current sample.
+// (In-tree non-cgo FM synthesis path; the active runtime uses the YMFM backend.)
 func (f *FMOPM) GenerateSampleFloat() float32 {
 	return ConvertFixedToFloat(f.GenerateSampleFixed())
 }
 
-// GenerateSampleFixed returns the FM contribution as a 16-bit sample.
-// Phase 2 implements an audible OPM-lite subset while keeping MMIO/timer behavior intact.
+// GenerateSampleFixed returns the YM2608 audio contribution as a 16-bit sample.
+// (In-tree non-cgo FM synthesis path, kept behind the YMFM-backed runtime;
+// MMIO/timer behavior is preserved.)
 func (f *FMOPM) GenerateSampleFixed() int16 {
 	if !f.Enabled || f.Muted {
 		return 0
@@ -662,7 +672,7 @@ func fmMulToRatio(mul uint8) float64 {
 }
 
 func fmKeyToHz(kc, kf uint8) float64 {
-	// Phase-2 OPM-lite pitch mapping:
+	// In-tree FM pitch mapping (non-cgo path):
 	// Treat KeyCode as a semitone index relative to MIDI note 24 (C1),
 	// with KeyFrac providing fractional semitone precision.
 	semi := float64(int(kc) - 24)

@@ -56,6 +56,34 @@ func (b *Bus) SetLogger(logger *debug.Logger) {
 	b.logger = logger
 }
 
+// InitSystemVectors writes the default interrupt/reset vectors into the top of
+// bank 0. Called on power-on (construction and Reset). A ROM may override these
+// at runtime; clearing RAM on power-off wipes them, so they must be restored
+// whenever the machine is powered back on.
+func (b *Bus) InitSystemVectors() {
+	// IRQ vector (0xFFE0-0xFFE1): bank, offset_high. Default bank 1, 0x8000.
+	b.SystemVectors[0xFFE0-0xFFE0] = 0x01
+	b.SystemVectors[0xFFE1-0xFFE0] = 0x80
+	// NMI vector (0xFFE2-0xFFE3): bank, offset_high. Default bank 1, 0x8000.
+	b.SystemVectors[0xFFE2-0xFFE0] = 0x01
+	b.SystemVectors[0xFFE3-0xFFE0] = 0x80
+}
+
+// ClearRAM zeroes all volatile RAM: work RAM, extended work RAM, and the system
+// vectors. Models a full power-off — no prior state survives. The cartridge
+// (inserted ROM) is left intact so the machine can be powered back on.
+func (b *Bus) ClearRAM() {
+	for i := range b.WRAM {
+		b.WRAM[i] = 0
+	}
+	for i := range b.WRAMExtended {
+		b.WRAMExtended[i] = 0
+	}
+	for i := range b.SystemVectors {
+		b.SystemVectors[i] = 0
+	}
+}
+
 // Read8 reads an 8-bit value from memory
 func (b *Bus) Read8(bank uint8, offset uint16) uint8 {
 	// Bank 0: WRAM (0x0000-0x7FFF) or I/O (0x8000+)
@@ -254,6 +282,8 @@ func (b *Bus) writeIO8(offset uint16, value uint8) {
 	}
 }
 
+// executeYMBurst streams a block of (port, addr, data) triplets from ROM into
+// the YM2608 audio subsystem host interface, for bulk register loading.
 func (b *Bus) executeYMBurst() {
 	if b.APUHandler == nil || b.Cartridge == nil || b.ymBurstCount == 0 {
 		return

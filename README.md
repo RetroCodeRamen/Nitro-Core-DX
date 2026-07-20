@@ -158,11 +158,10 @@ Either ROM/cart can also be loaded in the integrated Dev Kit's embedded emulator
   - Matrix Mode with outside-screen handling and direct color mode
   - Dedicated matrix-plane path with bitmap-backed planes, perspective row projection, and vertical projected quads
   - Mosaic effect, DMA transfers, sprite-to-background priority
-- **Audio System**: 4-channel legacy audio synthesis with PCM playback support
-  - Waveform generation (sine, square, saw, noise)
-  - PCM sample playback with loop and one-shot modes
-  - Volume control and duration management
-  - FM extension host interface + YM2608-capable runtime backend path (with compatibility fallback controls)
+- **Audio System**: **YM2608/OPNA audio subsystem** — the final audio hardware (FM, SSG, rhythm, and ADPCM)
+  - YM2608 host interface and register path, played through the YMFM-backed runtime
+  - YM2608 conformance is operational and under active refinement (not yet 100% verified)
+  - A legacy 4-channel synth (sine/square/saw/noise + PCM) remains in the tree only as **temporary migration scaffolding** — it is not final hardware and will be removed
 - **Interrupt System**: Complete IRQ/NMI handling with vector table
 - **ROM Loading**: Complete ROM header parsing and execution
 - **Test Suite**: Broad regression coverage across CPU/PPU/APU/emulator paths (includes some long-running timing tests)
@@ -198,7 +197,6 @@ Either ROM/cart can also be loaded in the integrated Dev Kit's embedded emulator
 ### ❌ Optional Enhancements (Not Required)
 
 - **Vertical Sprites**: 3D sprite scaling for Matrix Mode (can be added later)
-- **FM Synthesis**: Current runtime uses a YM2608-capable backend path with ongoing conformance refinement; V1 release target remains YM2608
 
 For detailed status and documentation navigation, see [docs/README.md](docs/README.md) and [docs/HARDWARE_FEATURES_STATUS.md](docs/HARDWARE_FEATURES_STATUS.md).
 
@@ -215,7 +213,7 @@ For detailed status and documentation navigation, see [docs/README.md](docs/READ
 | **Max Sprites** | 128 sprites |
 | **Background Layers** | 4 independent layers (BG0, BG1, BG2, BG3) |
 | **Matrix Mode** | Mode 7-style effects with per-layer transforms, HDMA updates, outside-screen handling, and direct color |
-| **Audio Channels** | 4 legacy channels + operational YM2608-capable FM backend path (with ongoing conformance refinement) |
+| **Audio** | YM2608/OPNA audio subsystem (FM + SSG + rhythm + ADPCM); conformance refinement in progress |
 | **Audio Sample Rate** | 44,100 Hz |
 | **CPU Speed** | ~7.67 MHz (127,820 cycles per frame at 60 FPS, Genesis-like) |
 | **Memory** | 64KB per bank, 256 banks (16MB total address space) |
@@ -435,7 +433,7 @@ The project documentation is organized into several main documents:
 - **[docs/specifications/CORELX_CARTRIDGE_FORMAT.md](docs/specifications/CORELX_CARTRIDGE_FORMAT.md)**: project/cartridge format (`.cxasset`/`.ncdx`/`.cart`)
 - **[docs/CORELX.md](docs/CORELX.md)**: older CoreLX reference (partially stale — predates the M8 builtins; see its banner)
 - **[docs/specifications/COMPLETE_HARDWARE_SPECIFICATION_V2.1.md](docs/specifications/COMPLETE_HARDWARE_SPECIFICATION_V2.1.md)**: evidence-based hardware specification (authoritative)
-- **[docs/specifications/APU_FM_OPM_EXTENSION_SPEC.md](docs/specifications/APU_FM_OPM_EXTENSION_SPEC.md)**: FM extension design + implementation status
+- **[docs/specifications/APU_FM_OPM_EXTENSION_SPEC.md](docs/specifications/APU_FM_OPM_EXTENSION_SPEC.md)**: YM2608 audio subsystem design + implementation status (file to be renamed in a later step)
 - **[SYSTEM_MANUAL.md](SYSTEM_MANUAL.md)** / **[PROGRAMMING_MANUAL.md](PROGRAMMING_MANUAL.md)**: older manuals, under revision (will be superseded by the two books above at v1)
 
 ### Additional Documentation
@@ -465,12 +463,12 @@ The project documentation is organized into several main documents:
   - Windowing system with proper logic
   - HDMA for per-scanline effects
 
-- **Legacy APU + FM Extension Path**
-  - 4 legacy audio channels with waveforms (sine, square, saw, noise)
+- **YM2608/OPNA Audio Subsystem** (the final audio hardware)
+  - FM, SSG, rhythm, and ADPCM audio through YM2608
+  - YM2608 host interface + timer/IRQ path, played through the YMFM-backed runtime
   - 44,100 Hz sample rate
-  - PCM playback support
-  - Master volume control
-  - FM extension MMIO + timer/IRQ path with YM2608/OPNA playback through the YMFM-backed runtime
+  - Conformance is operational and under active refinement
+  - A legacy 4-channel synth (sine/square/saw/noise + PCM) remains as temporary migration scaffolding only — not final hardware
 
 - **Precise Memory Mapping**
   - Banked memory architecture (256 banks × 64KB = 16MB address space; ROM uses 32KB LoROM windows in banks 1-125)

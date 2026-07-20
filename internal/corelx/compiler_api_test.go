@@ -10,7 +10,7 @@ import (
 func TestCompileSourceStructuredDiagnosticsMissingStart(t *testing.T) {
 	src := `
 function Nope()
-    apu.enable()
+    wait_vblank()
 `
 
 	res, err := CompileSource(src, "missing_start.corelx", nil)
@@ -68,7 +68,7 @@ func TestCompileProjectParserDiagnosticIncludesLocation(t *testing.T) {
 func TestCompileSourceReturnsManifestSkeleton(t *testing.T) {
 	src := `
 function Start()
-    apu.enable()
+    wait_vblank()
 `
 	res, err := CompileSource(src, "manifest_test.corelx", nil)
 	if err != nil {
@@ -119,7 +119,7 @@ asset Tiles: tiles8 hex
     00 00 00 00
 
 function Start()
-    apu.enable()
+    wait_vblank()
 `
 	res, err := CompileSource(src, "dup_asset.corelx", nil)
 	if err == nil {
@@ -153,7 +153,7 @@ asset TileA: tiles8 hex
     00 11 22 33 44 55 66 77 88 99 AA BB CC DD EE FF
 
 function Start()
-    apu.enable()
+    wait_vblank()
 `
 	res, err := CompileSource(src, "asset_manifest.corelx", nil)
 	if err != nil {
@@ -199,7 +199,7 @@ asset BadTile: tiles8 hex
     00 GG
 
 function Start()
-    apu.enable()
+    wait_vblank()
 `
 	res, err := CompileSource(src, "bad_asset.corelx", nil)
 	if err == nil {
@@ -247,7 +247,7 @@ asset Sprite: tiles16 hex
     00 11 22 33 44 55 66 77 88 99 AA BB CC DD EE FF
 
 function Start()
-    apu.enable()
+    wait_vblank()
 `
 	res, err := CompileSource(src, "expanded_tiles16.corelx", nil)
 	if err != nil {
@@ -271,7 +271,7 @@ func TestCompileSourceManifestJSONOutput(t *testing.T) {
 	bundlePath := filepath.Join(dir, "build_bundle.json")
 	src := `
 function Start()
-    apu.enable()
+    wait_vblank()
 `
 	res, err := CompileSource(src, "manifest_json_test.corelx", &CompileOptions{
 		ManifestOutputPath: manifestPath,
@@ -369,7 +369,7 @@ func TestCompileSourceDiagnosticsJSONOutputOnError(t *testing.T) {
 	bundlePath := filepath.Join(dir, "bundle.json")
 	src := `
 function Nope()
-    apu.enable()
+    wait_vblank()
 `
 	res, err := CompileSource(src, "diag_error.corelx", &CompileOptions{
 		DiagnosticsOutputPath: diagPath,
@@ -413,14 +413,14 @@ asset Pal: palette text
 asset Map: tilemap text
     "0,1,2,3"
 
-asset Music: music text
+asset Sfx: sfx text
     "tempo=120; note C4 4"
 
 asset Data: gamedata text
     "lives=3"
 
 function Start()
-    apu.enable()
+    wait_vblank()
 `
 	res, err := CompileSource(src, "multi_sections.corelx", nil)
 	if err != nil {
@@ -457,7 +457,7 @@ asset TileA: tiles8 hex
     00 11 22 33 44 55 66 77 88 99 AA BB CC DD EE FF
 
 function Start()
-    apu.enable()
+    wait_vblank()
 `
 	res, err := CompileSource(src, "budget_section.corelx", &CompileOptions{
 		SectionBudgets: map[string]uint32{
@@ -488,7 +488,7 @@ function Start()
 func TestCompileSourceROMBudgetOverflowDiagnostic(t *testing.T) {
 	src := `
 function Start()
-    apu.enable()
+    wait_vblank()
 `
 	res, err := CompileSource(src, "budget_rom.corelx", &CompileOptions{
 		MaxROMBytes: 16,

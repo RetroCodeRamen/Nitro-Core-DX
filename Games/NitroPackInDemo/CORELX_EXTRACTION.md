@@ -567,8 +567,57 @@ game's design lives in its own cartridge. The M8 acceptance test for the
 language is behavioral: rebuild the demo in CoreLX and compare outputs
 against the ROM reference frame by frame.
 
+**YM2608 music API + data format (decided 2026-06-15).**
+Audio is YM2608/OPNA only (legacy `apu.*` is scaffolding). The CoreLX-facing
+audio surface has two tiers:
+
+- *Tier 1 (builtins) — high-level music:* `music.*` plays YM2608 song data.
+  - `music.play(asset)` — play once
+  - `music.play_loop(asset)` — play, looping at end
+  - `music.stop()` — stop and silence (FM key-off all channels, mute SSG, stop
+    rhythm/ADPCM — the proven `emitSilenceYM2608` sequence)
+  - `music.set_volume(value)` — master music volume
+  - `music.fade_to(value, frames)` — fade volume over N frames
+  - `music.play_jingle(asset)` — play a short track, then resume the looping BGM
+- *Tier 1 (builtins) — low-level escape hatch:* `ym.write(addr, value)` (port 0)
+  and `ym.write_port1(addr, value)` (port 1) — direct YM2608 register access for
+  SFX and instrument programming. Hardware registers ⇒ builtins (tier test).
+
+**Music data format:** the existing compact YM2608 write-stream
+(`internal/ymstream`, `NCDXMUS1` magic: frame-sample rate + per-frame
+write/burst opcodes). It is **tool-generated binary**, so by the hard-split
+rule it lives in an **external file** (parallel to images/samples), referenced
+as a music asset:
+
+```corelx
+asset Theme: music "theme.ncdxmusic"
+function Start()
+    music.play_loop(Theme)
+```
+
+The compiler places the stream in ROM data banks (reusing the image
+ROM-data-region machinery); `music.play*` references its location.
+
+**Delivery path (reuse, don't reinvent):** `internal/ymstream` (encode/decode),
+the **bus-side YM burst streamer at `0x9110-0x9115`** (bulk per-frame register
+load), and the YM2608 host interface (`0x9100-0x9105`). A small per-frame
+playback engine advances the song and streams that frame's writes; `music.stop`
+emits the YM2608 silence sequence. The VGM→stream tool
+(`cmd/vgm_to_ncdxmusic`) already produces `.ncdxmusic`.
+
+**Out of scope for the first implementation:** inline tracker-note text (a
+future authoring convenience that compiles *down to* `.ncdxmusic`); a CoreLX-
+native composition format; per-subsystem helpers (SSG/rhythm/ADPCM); `ym.burst`
+bulk-load-from-asset (optimization); full VGM-conversion polish; tracker UI /
+Sound Studio / live instrument editor; and removing legacy `apu.*`. This
+supersedes the cartridge-format §5 "inline tracker notes / instruments are
+semantic text" sketch (those become future authoring tools, not the v1 path),
+and refines the charter §D10 `music` keyword to mean an external music asset
+reference. v1 music completeness = the `music.*` + `ym.*` builtins above over
+the external `.ncdxmusic` format.
+
 ## 14. Open questions
 
 None. All design questions raised by this extraction are settled; §13 is
-the decision record. Remaining work is specification detail (audio format
-grammar with the music API) and implementation (M8 build order, §12).
+the decision record (including the YM2608 `music.*` API + `.ncdxmusic` format,
+decided 2026-06-15). Remaining work is implementation (M8 build order, §12).

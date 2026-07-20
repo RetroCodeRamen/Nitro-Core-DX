@@ -57,6 +57,7 @@ Every item below compiles and runs on the emulator with a passing test in
 | `text.draw_int(x,y,r,g,b,value)` | signed integer → digits (scores/counters) | `drawint_test.go` |
 | `matrix_plane.set_projection/set_depth/set_camera/set_surface` | generic plane projection (perspective + vertical-quad), camera, surface placement | `projection_test.go` |
 | `matrix_plane.load_bitmap(asset, channel)` | palette → CGRAM, bitmap-source plane control, chunked DMA from ROM | `loadbitmap_test.go` |
+| `ym.write(addr,value)` / `ym.write_port1(addr,value)` | YM2608 register escape hatch via host port 0 (0x9100/0x9101) and port 1 (0x9104/0x9105) | `ym_test.go` |
 
 (Pre-existing builtins — `bg.*`, `matrix.*`, `matrix_plane.load_tiles/...`,
 `oam.*`, `sprite.*`, `gfx.*`, `raster.*`, `apu.*` — are listed in
@@ -112,8 +113,14 @@ error; a `.cxasset` in the project that nothing references is an error.
   initializers), door proximity + A-to-enter.
 - **Modules:** the `--!` directive system and the genre-neutral `anim` + `sfx`
   modules (CORELX_EXTRACTION.md §12 step 6).
-- **Audio:** the fuller music API + the `.cxasset`/inline audio text format
-  (co-design — CORELX_CARTRIDGE_FORMAT.md §5).
+- **Audio (YM2608):** low-level `ym.write` / `ym.write_port1` **implemented and
+  tested** (`ym_test.go`). External `music` assets (`asset X: music
+  "file.ncdxmusic"`) are **recognized, validated, and placed in the ROM data
+  region** (`music_asset_test.go`) — same pipeline as image assets. Still
+  **pending**: the `music.*` playback builtins (play/play_loop/stop/set_volume/
+  fade_to/play_jingle) + the per-frame playback engine over the burst streamer
+  (`0x9110-0x9115`); designed in CORELX_EXTRACTION.md §13. Legacy `apu.*` remains
+  temporary scaffolding.
 - **Scenes/dialogue/credits** as demo game code (patterns, not language).
 
 ---
@@ -136,7 +143,8 @@ make test-full          # whole project
 
 ## 6. Open design questions (not yet decided)
 
-- Audio text format + music API specifics (CORELX_CARTRIDGE_FORMAT.md §5).
+- ~~YM2608 music data format + `music.*` API~~ — **decided 2026-06-15**
+  (CORELX_EXTRACTION.md §13); implementation pending.
 - `project.toml` schema (currently just carried in the container; fields TBD).
 - Whether sprite art moves to `.cxasset` too, or stays inline per the hard split
   (current decision: small sprite/tile data stays inline; only bitmap planes and

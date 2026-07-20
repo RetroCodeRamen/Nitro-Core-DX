@@ -1,72 +1,89 @@
-# Nitro-Core-DX APU FM Extension Specification (Transitional Reference)
+# Nitro-Core-DX YM2608 Audio Subsystem Specification
 
-**Version 0.4 (Draft, Transitional)**  
-**Date:** March 19, 2026  
-**Purpose:** Document the current FM host interface and compatibility constraints during YM2608 migration.
+**Version 0.5 (Draft)**  
+**Date:** March 19, 2026 (audio-direction reframe 2026-06-14)  
+**Purpose:** Specify the YM2608/OPNA audio subsystem — the final audio
+subsystem of Nitro-Core-DX — including its host MMIO interface and emulator
+runtime.
 
-> **Design Direction:** Preserve stable legacy APU behavior while driving runtime FM through a YM2608/OPNA backend path. Older OPM-oriented naming remains only where the host MMIO shell still depends on it.
+> **File-rename note:** this file is still named `APU_FM_OPM_EXTENSION_SPEC.md`
+> for link stability; a rename to a YM2608-named file is a later cleanup step.
 
-> **Planning Update (2026-03-19):**
-> - V1 release audio target is **YM2608/OPNA**.
-> - Emulator/devkit frontends currently default to YMFM and only expose `-audio-backend ymfm`.
-> - `NCDX_YM_BACKEND` is still used internally; cgo entrypoints set it to `ymfm` by default.
-> - The in-tree OPM-lite model remains a code-level fallback for non-YMFM builds, but it is no longer the primary documented runtime target.
-> - Use `docs/planning/V1_CHARTER.md` and `docs/planning/V1_ACCEPTANCE.md` for release-target scope and gates.
+> **Audio direction (2026-06-14):** Nitro-Core-DX has **one final audio
+> subsystem: YM2608 / OPNA** (FM, SSG, rhythm, ADPCM). The older 4-channel
+> "fantasy APU" is **temporary migration scaffolding only** — not final
+> hardware — and will be removed. "OPM-lite," the `NCDX_YM_BACKEND` selector,
+> and any non-YMFM path are **internal implementation/compatibility details**,
+> not part of the console's audio identity.
 
-> **Implementation Snapshot (2026-03-19):**
-> - FM host MMIO interface at `0x9100-0x91FF` is implemented in the emulator/APU.
-> - Active YM2608 path uses `0x9100/0x9101` for port 0, `0x9102` for shared host status, `0x9103` for control, and `0x9104/0x9105` for port 1 (legacy aliases `FM_MIX_L/R`).
-> - `FM_STATUS` timer/busy/IRQ flags and FM timer IRQ bridge are implemented (deterministic placeholder timing model).
-> - YM2608 runtime playback path is operational through YMFM-backed builds.
-> - Legacy in-tree path is retained as a compatibility fallback when YMFM is unavailable.
-> - The active emulator runtime uses fixed-point sample generation; legacy floating-point phase/sample helpers remain compatibility-only and are not the primary clock-driven path.
+> **Release scope:**
+> - The audio subsystem is **YM2608/OPNA**.
+> - Emulator/devkit frontends use the YMFM-backed runtime (`-audio-backend ymfm`).
+> - Use `docs/planning/V1_CHARTER.md` and `docs/planning/V1_ACCEPTANCE.md` for
+>   release-target scope and gates.
+
+> **Implementation snapshot (honest status):**
+> - YM2608 host MMIO interface at `0x9100-0x91FF` is implemented in the emulator.
+> - The active path uses `0x9100/0x9101` for port 0, `0x9102` for host status,
+>   `0x9103` for control, and `0x9104/0x9105` for port 1.
+> - `FM_STATUS` timer/busy/IRQ flags and the timer IRQ bridge are implemented.
+> - YM2608 runtime playback is **operational through YMFM-backed builds**;
+>   hardware conformance is **still being refined and is not yet fully verified**.
+> - The active emulator runtime uses fixed-point sample generation.
+> - *(Internal:)* an in-tree OPM-lite model exists as a code-level path for
+>   non-YMFM builds; it is an implementation detail, not a user-facing option.
 
 ---
 
 ## Goals
 
-- Add a **YM2608/OPNA-targeted FM synthesis extension** as an APU subsystem while preserving compatibility with older OPM-oriented tooling where practical
-- Preserve existing `0x9000+` APU behavior and ROM compatibility
+- Specify the **YM2608/OPNA** audio subsystem as the console's single, final audio hardware
+- Define the YM2608 host MMIO interface (`0x9100-0x91FF`) and emulator runtime
 - Provide a **software emulator implementation first** for validation and tooling
 - Keep the design **FPGA-implementable** and suitable for future hardware integration
-- Enable future CoreLX APIs that are easy to use while still exposing low-level FM control
+- Enable future CoreLX audio APIs (the planned `music.*` surface) that are easy to use while still exposing low-level YM2608 control
 
 ## Non-Goals (This Phase)
 
-- Replacing the current APU/PSG+PCM path
 - Audio “sound design polish” features unrelated to hardware behavior
 - Finalizing every YM2608 analog/output characteristic in the first pass
 - Building the FPGA implementation immediately (this doc defines the path)
+- Designing the CoreLX `music.*` API here (tracked separately)
+
+(The legacy `0x9000-0x90FF` 4-channel path is **migration scaffolding** that
+stays only until the YM2608 audio surface is complete; it is not a long-term
+goal of this subsystem.)
 
 ---
 
 ## High-Level Architecture
 
-### APU v2 (Recommended)
+### Target architecture
 
-The Nitro-Core-DX audio subsystem evolves into a mixed architecture:
+The final Nitro-Core-DX audio subsystem is **YM2608 / OPNA**:
 
-- **APU Core (existing):** Simple PSG/PCM-style channels (developer-friendly)
-- **FM Extension (new):** YM2608/OPNA-oriented dual-port host interface + FM synthesis engine
-- **Mixer (new/expanded):** Combines legacy APU output + FM output into a unified stream
+- **YM2608/OPNA subsystem:** dual-port host interface (`0x9100-0x91FF`) + FM, SSG, rhythm, and ADPCM synthesis, played through the YMFM-backed runtime
+- **Legacy 4-channel path (scaffolding):** the `0x9000-0x90FF` PSG/PCM registers remain only during migration so existing ROMs keep working; they are slated for removal
 
 ```
 CPU writes audio regs
     │
-    ├── Legacy APU regs (0x9000-0x90FF) ──► Existing APU (PSG/PCM)
-    │
-    └── FM host regs  (new range)       ──► FM Extension (YM2608/OPNA-oriented model)
-                                             │
-                             Legacy APU out ─┼─► Unified Mixer ─► Audio backend
-                                   FM out ───┘
+    ├── YM2608 host regs (0x9100-0x91FF) ──► YM2608/OPNA subsystem (FM/SSG/rhythm/ADPCM)
+    │                                          │
+    └── Legacy regs (0x9000-0x90FF) ──────────┤   (temporary scaffolding)
+        [migration scaffolding, to be removed] │
+                                               └─► Audio backend (YMFM)
 ```
 
-### Why Extension Instead of Replacement
+### Why the legacy path remains (temporarily)
 
-- Preserves existing ROMs and test ROMs
-- Maintains easy audio programming for simple projects
-- Reduces bring-up/debug risk while FM block matures
-- Fits the long-term “development kit” goal (simple + advanced paths)
+The legacy `0x9000-0x90FF` path is kept *only as migration scaffolding* during
+the transition to YM2608-only audio:
+
+- existing ROMs and CoreLX code keep compiling/playing while the YM2608 surface is built
+- it reduces bring-up risk during the migration
+- it is **not** a permanent dual-architecture design — once the YM2608 audio
+  API and demos are in place, the legacy path is removed
 
 ---
 
@@ -76,9 +93,9 @@ CPU writes audio regs
 
 - `0x9000 - 0x90FF` : Existing Nitro-Core-DX APU registers
 
-### New FM Extension (Proposed)
+### YM2608 Host Registers
 
-- `0x9100 - 0x91FF` : FM extension host interface + status
+- `0x9100 - 0x91FF` : YM2608 host interface + status
 - `0x9200 - 0x92FF` : Optional mirror/debug windows (phase 2, optional)
 
 ### FM Host Interface (Current Runtime Contract)
@@ -125,7 +142,7 @@ Notes:
 
 ## Software Emulation First (Required)
 
-The FM extension must be emulated in software before FPGA implementation.
+The YM2608 audio subsystem must be emulated in software before FPGA implementation.
 
 ### Why
 
@@ -146,8 +163,8 @@ Integrate with:
 - `internal/emulator/emulator.go` (FM timer IRQ bridge to CPU interrupt source)
 
 Note:
-- No additional `internal/memory/bus.go` range routing was required because the bus already forwards `0x9000-0x9FFF` to the APU. The FM extension lives inside the APU offset space (`0x0100-0x01FF` => CPU `0x9100-0x91FF`).
-- In the current emulator runtime, fixed-point generation is the authoritative audio path. Legacy `GenerateSample()` behavior and float phase state are retained only for compatibility and controlled fallback scenarios.
+- No additional `internal/memory/bus.go` range routing was required because the bus already forwards `0x9000-0x9FFF` to the APU. The YM2608 host interface lives inside the APU offset space (`0x0100-0x01FF` => CPU `0x9100-0x91FF`).
+- In the current emulator runtime, fixed-point generation is the authoritative audio path. Legacy `GenerateSample()` behavior and float phase state are retained only as migration-scaffolding compatibility.
 
 ### Implementation Model Requirements
 
@@ -243,8 +260,8 @@ This fits the target-profile approach already described in:
 
 - `docs/specifications/CORELX_NITRO_CORE_8_COMPILER_DESIGN.md`
 
-The FM extension can be target-gated:
-- `dx` target supports legacy APU + FM extension
+The YM2608 audio subsystem can be target-gated:
+- `dx` target uses the YM2608 audio subsystem (the legacy APU path is temporary migration scaffolding)
 - `portable` target may limit to high-level audio API only
 
 ---
@@ -285,7 +302,7 @@ Same ROM + same input sequence must yield:
 
 ### Design Intent
 
-The software FM extension should model the same externally visible behavior expected from a hardware OPM-compatible block.
+The software YM2608 model should reproduce the externally visible behavior expected from the YM2608/OPNA hardware block.
 
 ### Future FPGA Partitioning
 
@@ -306,7 +323,7 @@ Using an FPGA OPM-compatible approach (AURA-style direction) supports:
 
 ## Development Phases
 
-### Phase 1: Emulator FM Extension Skeleton ✅ (Implemented)
+### Phase 1: Emulator YM2608 Skeleton ✅ (Implemented)
 
 - ✅ MMIO register range reserved and reachable at `0x9100-0x91FF`
 - ✅ FM host interface registers implemented
@@ -317,7 +334,7 @@ Using an FPGA OPM-compatible approach (AURA-style direction) supports:
 
 - ✅ Timer/status behavior (deterministic placeholder timing model)
 - ✅ FM timer IRQ bridge to CPU interrupt system
-- ✅ YM2608 runtime backend path operational through YMFM-backed builds
+- ✅ YM2608 runtime operational through the YMFM-backed runtime
 - ✅ Test ROM coverage for FM MMIO/timer and audible demos
 - ❌ Full conformance parity across expanded YM2608 reference vectors
 - ❌ Final envelope/timbre model and polish
@@ -353,7 +370,7 @@ Mitigation:
 
 Mitigation:
 - Treat FM as modular/optional block
-- Keep legacy APU operational as fallback path
+- Keep the legacy APU path operational as temporary migration scaffolding
 
 ---
 

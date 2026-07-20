@@ -299,6 +299,22 @@ asset Ship: tileset
         ...
 ```
 
+### External assets (large binary data)
+
+Large binary assets live in separate files referenced by path (hard split; see
+`docs/specifications/CORELX_CARTRIDGE_FORMAT.md`). The compiler reads them at
+build time, validates them, and places their bytes in the ROM data region:
+
+```corelx
+asset ParkFloor: image "park_floor.cxasset"   -- bitmap matrix-plane image
+asset Theme:     music "theme.ncdxmusic"        -- YM2608 music stream
+```
+
+A referenced file that is missing — or an asset file present in the project but
+not referenced by any declaration (orphan) — is a compile error. `image` assets
+are used via `matrix_plane.load_bitmap`; `music` assets are recognized and
+placed in ROM now, with the `music.*` playback API still to come.
+
 ### Loading tiles into VRAM
 
 ```corelx
@@ -355,7 +371,7 @@ For setup order, tile indices, palettes, and multiple sprites, see **docs/guides
 
 ## Audio (APU)
 
-Note: CoreLX currently exposes the legacy 4-channel APU built-ins documented below. The FM extension exists in the emulator/APU (`0x9100-0x91FF`) but does not yet have stable CoreLX language-level APIs. Current cgo-backed entrypoints default `NCDX_YM_BACKEND` to `ymfm`, and the V1 release target is YM2608/OPNA.
+Note: the final audio subsystem is **YM2608 / OPNA** (host interface at `0x9100-0x91FF`). CoreLX does not have a YM2608 audio API yet; the `apu.*` built-ins documented below drive the **legacy 4-channel synth, which is temporary migration scaffolding** and will be replaced by the planned YM2608 `music.*` API. YM2608 control is currently MMIO-driven from ROM/tooling.
 
 ### Enabling APU
 
@@ -548,7 +564,11 @@ Reference demo ROM:
 - `apu.set_channel_volume(ch, vol)` - Set volume
 - `apu.note_on(ch)` - Start note
 - `apu.note_off(ch)` - Stop note
-- `fm.*` APIs - Planned (FM extension exists at hardware/MMIO level; CoreLX API integration is not finalized yet)
+- YM2608 audio API - low-level register access **implemented**; high-level music **pending**. (CORELX_EXTRACTION.md §13)
+  - `ym.write(addr, value)` - **implemented**: write a YM2608 register via host port 0 (address-select 0x9100, data 0x9101).
+  - `ym.write_port1(addr, value)` - **implemented**: write via the YM2608 upper port (port-1 address 0x9104, data 0x9105).
+  - `music.play/play_loop/stop/set_volume/fade_to/play_jingle` over an external `.ncdxmusic` YM2608 stream asset - **designed, pending**.
+  - The `apu.*` built-ins above are temporary migration scaffolding to be replaced by this API.
 
 ### Input
 

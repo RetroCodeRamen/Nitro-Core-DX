@@ -20,7 +20,7 @@ This file is the primary navigation entry for docs maintenance.
 - `specifications/COMPLETE_HARDWARE_SPECIFICATION_V2.1.md`
   - Current evidence-based hardware specification (base hardware)
 - `specifications/APU_FM_OPM_EXTENSION_SPEC.md`
-  - Current FM extension design + implementation status (YM2608-targeted FM path with backend fallback controls)
+  - YM2608 audio subsystem design + implementation status
 - `CORELX.md`
   - Reference for the **current shipping compiler** (the v1 charter above is where the language is going)
 - `testing/README.md`
@@ -51,7 +51,7 @@ The project ships two distinct manuals for two audiences:
 ## Documentation Organization
 
 - `specifications/`
-  - Language specs (CoreLX v1), hardware specs, pinouts, FPGA docs, FM extension spec
+  - Language specs (CoreLX v1), hardware specs, pinouts, FPGA docs, YM2608 audio subsystem spec
 - `planning/`
   - Active product planning: `V1_CHARTER.md` (product V1 scope — distinct from
     the CoreLX *language* v1 charter), `V1_ACCEPTANCE.md`, `V1_RISKS.md`,

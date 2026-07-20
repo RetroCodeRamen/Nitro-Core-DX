@@ -3,8 +3,8 @@
 ## Current Runtime Snapshot (2026-03-19)
 - YM2608/OPNA playback is operational through the FM host MMIO window (`0x9100-0x91FF`) in YMFM-backed builds.
 - cgo-backed emulator/devkit entrypoints default `NCDX_YM_BACKEND` to `ymfm` and currently expose `-audio-backend ymfm`.
-- The in-tree OPM-lite model remains a code-level fallback when YMFM is unavailable, but it is no longer the primary documented runtime target.
-- CoreLX language-level audio APIs are still legacy-oriented; YM2608 control is currently MMIO-driven from ROM/tooling paths.
+- YM2608/OPNA through the YMFM-backed runtime is the audio subsystem. *(Internal: an in-tree OPM-lite model exists as a code-level path for non-YMFM builds — an implementation detail, not a user-facing audio identity.)*
+- The CoreLX YM2608 audio API is not built yet; YM2608 control is currently MMIO-driven from ROM/tooling. The legacy `apu.*` builtins are temporary migration scaffolding.
 
 ## Repository Snapshot Note
 - This document includes historical slice-log entries from earlier implementation stages.
@@ -28,7 +28,7 @@ The current runtime surface that matters for this repository snapshot is:
 - Host-visible shared status at `0x9102` and control at `0x9103`
 - Timer A / Timer B behavior and IRQ propagation into the APU -> CPU bridge
 - YMFM-backed playback in cgo builds
-- Legacy 4-channel APU kept alongside the FM extension
+- Legacy 4-channel APU kept as temporary migration scaffolding alongside the YM2608 host interface
 
 Historical slice entries below may reference a broader prototype surface than the currently shipped wrapper. Read them as provenance, not as the authoritative current MMIO contract.
 
@@ -45,7 +45,7 @@ Used sections:
 
 ## Architectural Notes
 - Runtime FM path is implemented through `internal/apu/fm_opm.go` plus the YMFM bridge in cgo builds.
-- Legacy 4-channel APU path still exists for compatibility and alongside the YM2608 host interface.
+- Legacy 4-channel APU path still exists only as temporary migration scaffolding, alongside the YM2608 host interface.
 - Host-cycle to YM-master-clock conversion is explicit and deterministic:
   - Host domain default: `7.67 MHz`
   - YM master clock default: `8.00 MHz`
@@ -1286,7 +1286,7 @@ Non-Blocking Conformance Debt (deferred to deep calibration phase):
 - Rhythm block currently uses deterministic synthetic playback model, not final sample/mix behavior from hardware-verified references.
 - Mixer calibration (absolute gain law, headroom, clipping character, panning law) is stable but not yet hardware-calibrated.
 - ACC-AUDIO-3 (audio reference thresholds) still needs stronger measured/hardware-grade reference vectors.
-- ACC-AUDIO-4 wording in `V1_ACCEPTANCE.md` references legacy+YM mixed playback; runtime is now YM2608-only and this acceptance text should be revised.
+- ACC-AUDIO-4 in `V1_ACCEPTANCE.md` was revised (2026-06-14) to a transitional migration non-regression gate; the audio identity is YM2608-only.
 
 ## Next Safe Step (Stage 6, Calibration Track 1)
 - Begin deep conformance calibration without destabilizing usable baseline:

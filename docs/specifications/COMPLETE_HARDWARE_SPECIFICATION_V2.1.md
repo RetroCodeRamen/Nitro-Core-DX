@@ -6,7 +6,7 @@
 
 > **📌 Evidence-Based**: This specification is derived directly from the emulator source code. Every behavior, register, and timing specification is backed by code evidence. Unverified or inferred behaviors are explicitly marked.
 >
-> **APU/FM Note:** This spec covers the current legacy APU behavior and documents the implemented FM host interface/MMIO window at `0x9100-0x91FF`. For FM extension design and current implementation status details, also see `docs/specifications/APU_FM_OPM_EXTENSION_SPEC.md`.
+> **Audio Note:** The final audio subsystem is **YM2608 / OPNA** (host interface/MMIO window at `0x9100-0x91FF`). This evidence-based spec also still documents the legacy 4-channel APU registers (`0x9000-0x90FF`) because they remain in the code as **temporary migration scaffolding** — they are not final hardware and will be removed. For the YM2608 audio subsystem design and status, see `docs/specifications/APU_FM_OPM_EXTENSION_SPEC.md`.
 
 ---
 
@@ -43,7 +43,7 @@
 | **Max Sprites** | 128 sprites | `internal/ppu/ppu.go:17, 328` |
 | **Background Layers** | 4 independent layers (BG0, BG1, BG2, BG3) | `internal/ppu/ppu.go:20` |
 | **Matrix Mode** | 4 transform channels + 4 dedicated matrix planes with affine, row, and generic projection support | `internal/ppu/ppu.go:127-135, 647-827` |
-| **Audio Channels** | 4 channels (sine, square, saw, noise waveforms) | `internal/apu/apu.go:19, 56-87` |
+| **Audio** | YM2608/OPNA audio subsystem (FM, SSG, rhythm, ADPCM) at `0x9100-0x91FF`; legacy 4-channel APU at `0x9000-0x90FF` is temporary migration scaffolding | `internal/apu/apu.go`, `internal/apu/fm_opm.go` |
 | **Audio Sample Rate** | 44,100 Hz | `internal/emulator/emulator.go:76, 116` |
 | **CPU Speed** | ~7.67 MHz (127,820 cycles per frame at 60 FPS) | `internal/emulator/emulator.go:114, 147` |
 | **Memory** | 64KB per bank, 256 banks (16MB total address space) | `internal/memory/bus.go:7, 10` |
@@ -77,10 +77,9 @@
 │  ├─ Windowing System                                   │
 │  └─ HDMA (per-scanline scroll/matrix)                 │
 ├─────────────────────────────────────────────────────────┤
-│  APU (Audio Processing Unit)                           │
-│  ├─ 4 Audio Channels                                   │
-│  ├─ Waveforms: Sine, Square, Saw, Noise               │
-│  └─ Master Volume Control                              │
+│  APU (Audio Processing Unit) — YM2608 / OPNA           │
+│  ├─ FM, SSG, Rhythm, ADPCM (YM2608, 0x9100-0x91FF)     │
+│  └─ (legacy 4-ch synth: temporary scaffolding)         │
 ├─────────────────────────────────────────────────────────┤
 │  Input System                                          │
 │  ├─ Controller 1 & 2 (12-button support)               │
@@ -498,7 +497,12 @@ All instructions are 16-bit words:
 
 ## APU (Audio) Specification
 
-### Audio Channels
+The final audio subsystem is **YM2608 / OPNA** (FM, SSG, rhythm, ADPCM) via the
+host interface at `0x9100-0x91FF` (documented below). The 4-channel section that
+follows documents the **legacy APU — temporary migration scaffolding** that
+remains in the code so existing ROMs keep working; it is not final hardware.
+
+### Legacy Audio Channels (migration scaffolding)
 
 **Evidence:** `internal/apu/apu.go:19, 56-87`
 
@@ -507,7 +511,10 @@ All instructions are 16-bit words:
 - **Sample Rate**: 44,100 Hz (`emulator.go:76`)
 - **Output**: Mono (single channel, can be mixed to stereo by host)
 - **PCM Support**: Per-channel PCM playback mode (shared channel slots)
-- **FM Extension**: YM2608/OPNA-oriented FM host interface via `0x9100-0x91FF` (documented below)
+- **Status**: temporary migration scaffolding, slated for removal once the
+  YM2608 audio surface is complete
+- **YM2608 audio subsystem**: the final audio — FM host interface via
+  `0x9100-0x91FF` (documented below)
 
 ### Channel Parameters
 
@@ -814,9 +821,9 @@ All instructions are 16-bit words:
 
 **Note:** Spec v2.0 incorrectly listed MASTER_VOLUME at 0x9040. Actual address is 0x9020.
 
-#### FM Extension Host Interface (0x9100-0x91FF, Active Runtime Path)
+#### YM2608 Host Interface (0x9100-0x91FF, Active Runtime Path)
 
-The FM extension is implemented as an APU sub-block. The memory bus already routes `0x9000-0x9FFF` to the APU; addresses `0x9100-0x91FF` are handled by the APU as an FM host interface window.
+The YM2608/OPNA host interface is implemented as an APU sub-block. The memory bus already routes `0x9000-0x9FFF` to the APU; addresses `0x9100-0x91FF` are handled by the APU as an FM host interface window.
 
 | Address | Name | Size | Description |
 |---------|------|------|-------------|
@@ -843,7 +850,7 @@ Current implementation status:
 - ✅ Timer/status behavior and IRQ bridge (deterministic placeholder timer timing)
 - ✅ YM2608 runtime path operational through the YMFM backend in cgo builds
 - ✅ Emulator/devkit entrypoints default `NCDX_YM_BACKEND` to `ymfm` and currently expose `-audio-backend ymfm`
-- ✅ In-tree OPM-lite path retained as a code-level fallback for non-YMFM builds
+- ✅ *(Internal:)* an in-tree OPM-lite path exists as a code-level path for non-YMFM builds (implementation detail, not a user-facing audio option)
 - 🚧 Conformance/polish remains in progress (timbre/pitch parity and broader subsystem coverage)
 
 ### Input Registers (0xA000-0xAFFF)

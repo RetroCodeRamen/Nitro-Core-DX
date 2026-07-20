@@ -22,9 +22,9 @@ func NormalizeAssets(program *Program, sourcePath string) ([]AssetIR, []Diagnost
 	diags := make([]Diagnostic, 0)
 
 	for _, a := range program.Assets {
-		// Image assets are external .cxasset files handled by loadImageAssets,
-		// not inline-normalized here.
-		if a.Type == "image" {
+		// Image and music assets are external files (.cxasset / .ncdxmusic)
+		// handled by loadImageAssets / loadMusicAssets, not inline-normalized here.
+		if a.Type == "image" || a.Type == "music" {
 			continue
 		}
 		ir, errDiag := normalizeAssetDecl(a, sourcePath)

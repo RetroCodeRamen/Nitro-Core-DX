@@ -99,12 +99,17 @@ This document defines release-blocking acceptance gates tied to `V1_CHARTER.md`.
 ### ACC-AUDIO-3 Audio Reference
 - Curated patch/test set passes approved reference comparison thresholds.
 
-### ACC-AUDIO-4 Mixed Audio Non-Regression
-- Legacy APU + YM2608 mixed playback remains stable and deterministic.
+### ACC-AUDIO-4 Migration Non-Regression
+- During the migration, the legacy 4-channel path (temporary scaffolding) must
+  not destabilize YM2608 playback; existing ROMs keep working until legacy is
+  removed. This is a transitional gate, not a permanent dual-architecture
+  requirement.
 
 ### ACC-AUDIO-5 V1 Target Identity
-- V1 release docs, APIs, and acceptance references target YM2608 as the canonical FM chip.
-- YM2151/OPM-lite is not the V1 release target.
+- The single, final audio subsystem is **YM2608 / OPNA**. V1 release docs, APIs,
+  and acceptance references target YM2608.
+- The legacy 4-channel APU is temporary migration scaffolding, not final hardware.
+- YM2151/OPM-lite is not the V1 release target or audio identity.
 
 ## 7. NitroPackInDemo + Documentation Gates
 

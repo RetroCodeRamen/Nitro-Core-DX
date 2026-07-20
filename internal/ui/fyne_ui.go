@@ -472,7 +472,7 @@ func createMenus(window fyne.Window, emu *emulator.Emulator, ui *FyneUI) {
 		fyne.NewMenuItem("Stop", func() {
 			emu.Stop()
 		}),
-		fyne.NewMenuItem("Reset", func() {
+		fyne.NewMenuItem("Restart", func() {
 			emu.Reset()
 		}),
 		fyne.NewMenuItem("Step Frame", func() {
@@ -766,6 +766,7 @@ func (ui *FyneUI) updateLoop() {
 	uiTickCount := 0
 	lastTick := time.Now()
 	accumulator := time.Duration(0)
+	wasRunning := ui.emulator.Running
 
 	for ui.running {
 		<-ticker.C
@@ -786,8 +787,11 @@ func (ui *FyneUI) updateLoop() {
 		ui.updateInputFromKeys()
 
 		framesStepped := 0
-		if ui.emulator.Paused {
-			// Do not accumulate emulation debt while paused.
+		if !ui.emulator.Running || ui.emulator.Paused {
+			// Stopped or paused: halt the machine completely. Do not step the
+			// emulator, do not queue audio, and do not accumulate emulation
+			// debt. (Stop has already zeroed all volatile state via powerOff;
+			// nothing should run until Start/Resume.)
 			accumulator = 0
 		} else {
 			accumulator += delta
@@ -815,7 +819,12 @@ func (ui *FyneUI) updateLoop() {
 		// FrameComplete flag ensures we don't read mid-frame, but RunFrame() guarantees completion
 		var img image.Image
 		var imgErr error
-		if framesStepped > 0 || (ui.emulator.Paused && uiTickCount%8 == 0) {
+		// Render a frame when the emulator advanced, when paused (to keep the
+		// last frame fresh), or exactly once when it has just stopped so the
+		// cleared (black) framebuffer is pushed to the display.
+		justStopped := wasRunning && !ui.emulator.Running
+		wasRunning = ui.emulator.Running
+		if framesStepped > 0 || (ui.emulator.Paused && uiTickCount%8 == 0) || justStopped {
 			img, imgErr = ui.renderEmulatorScreen()
 		}
 

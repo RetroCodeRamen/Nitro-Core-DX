@@ -19,7 +19,7 @@
 6. [CoreLX Basics (Beginner-Friendly)](#corelx-basics-beginner-friendly)
 7. [Game Loop Basics (Frames, VBlank, Input)](#game-loop-basics-frames-vblank-input)
 8. [Graphics: Tiles, Palettes, Sprites, OAM](#graphics-tiles-palettes-sprites-oam)
-9. [Audio: Legacy APU First, FM Extension Next](#audio-legacy-apu-first-fm-extension-next)
+9. [Audio: The YM2608 / OPNA Subsystem (with Legacy Scaffolding During Migration)](#audio-the-ym2608--opna-subsystem-with-legacy-scaffolding-during-migration)
 10. [Assets and Data in CoreLX](#assets-and-data-in-corelx)
 11. [Build and Run Workflows](#build-and-run-workflows)
 12. [Assembly (Advanced Users)](#assembly-advanced-users)
@@ -66,8 +66,8 @@ You can already test:
 - sprites and movement
 - palette changes
 - input
-- legacy APU audio
-- FM extension behavior/audio experiments (currently via hardware/MMIO path and test ROMs)
+- YM2608/OPNA audio (via the hardware/MMIO host interface and test ROMs)
+- legacy `apu.*` built-ins (temporary migration scaffolding)
 
 ---
 
@@ -874,19 +874,36 @@ Use `wrap` when you want classic repeating floor behavior.
 
 ---
 
-## Audio: Legacy APU First, FM Extension Next
+## Audio: The YM2608 / OPNA Subsystem (with Legacy Scaffolding During Migration)
 
-Audio is in transition (in a good way).
+Nitro-Core-DX has **one final audio subsystem: YM2608 / OPNA** (FM, SSG,
+rhythm, and ADPCM). The old 4-channel "fantasy APU" is **not final hardware** —
+it remains in the tree only as temporary migration scaffolding while the YM2608
+CoreLX surface is built, and it will be removed.
 
-## The Current Audio Architecture
+## The Audio Architecture
 
-### Legacy APU (Stable Path for CoreLX)
+### YM2608 / OPNA (the final audio subsystem)
 
-CoreLX currently exposes the original APU built-ins (the easy path).
+The emulator runs YM2608/OPNA audio through a hardware/MMIO host interface
+(`0x9100-0x91FF`):
 
-This is the recommended path for now when writing CoreLX gameplay code.
+- host MMIO interface + register path
+- timer/status/IRQ behavior
+- YM2608/OPNA playback through the YMFM-backed runtime
 
-Typical examples include:
+Current status (honest):
+
+- YM2608 conformance is **operational and under active refinement** — not yet
+  fully verified against hardware.
+- The CoreLX **music API for YM2608 is not built yet**; advanced FM programming
+  is currently done through low-level ROM code / the host registers.
+
+### Legacy `apu.*` built-ins (temporary scaffolding)
+
+Until the YM2608 music API lands, CoreLX still exposes the older 4-channel
+built-ins. **Treat these as transitional** — they target the legacy synth, not
+the final YM2608 subsystem, and will be replaced:
 
 - `apu.enable()`
 - `apu.set_channel_wave(...)`
@@ -895,26 +912,13 @@ Typical examples include:
 - `apu.note_on(...)`
 - `apu.note_off(...)`
 
-### FM Extension (Current Runtime) and YM2608 Plan
+> **Why This Matters:** keeping the old built-ins working during the migration
+> means existing CoreLX code keeps compiling while the YM2608 audio surface is
+> designed and built — then audio converges fully on YM2608.
 
-The emulator currently includes an in-progress **FM extension block** at the hardware/MMIO level (`0x9100-0x91FF`) with:
+## Recommended Audio Channel Convention (Legacy Scaffolding Only)
 
-- host MMIO interface
-- timer/status/IRQ behavior (deterministic placeholder timing model)
-- YM2608/OPNA playback path through the YMFM-backed runtime
-- in-tree OPM-lite path retained only as a compatibility fallback when YMFM is unavailable
-
-Current constraints:
-
-- `fm.*` CoreLX APIs are **not finalized yet**
-- advanced FM programming is currently best done through assembly or low-level ROM code
-- the V1 release audio target is **YM2608/OPNA**, and current frontends default to the `ymfm` backend
-
-> **Why This Matters:** This lets us keep CoreLX simple for beginners while still building toward richer, FPGA-friendly FM audio.
-
-## Recommended Audio Channel Convention (Current Default Guidance)
-
-For the legacy APU path, a practical default is:
+For the temporary legacy `apu.*` path, a practical default is:
 
 - `CH0-CH1` = music voices (lead/harmony)
 - `CH2` = bass or ambience layer
@@ -1261,7 +1265,7 @@ Use these for deeper details after you finish this manual.
 - `docs/specifications/CORELX_CARTRIDGE_FORMAT.md` - CoreLX cartridge/asset format (v1 draft)
 - `docs/DEVKIT_ARCHITECTURE.md` - backend/frontend split for Nitro-Core-DX (Dev Kit architecture)
 - `docs/specifications/COMPLETE_HARDWARE_SPECIFICATION_V2.1.md` - current hardware spec reference
-- `docs/specifications/APU_FM_OPM_EXTENSION_SPEC.md` - current FM extension runtime architecture/status (transitional)
+- `docs/specifications/APU_FM_OPM_EXTENSION_SPEC.md` - YM2608 audio subsystem runtime architecture/status (file to be renamed in a later step)
 - `test/roms/devkit_moving_box_test.corelx` - current CoreLX Nitro-Core-DX input/sprite validation example
 
 ---

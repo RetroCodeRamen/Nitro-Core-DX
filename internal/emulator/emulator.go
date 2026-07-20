@@ -96,6 +96,7 @@ func NewEmulatorWithLogger(logger *debug.Logger) *Emulator {
 	ppu.InterruptCallback = func(interruptType uint8) {
 		cpu.TriggerInterrupt(interruptType)
 	}
+	// YM2608 audio subsystem timer IRQ -> CPU interrupt.
 	apu.FMTimerIRQCallback = func() {
 		cpu.TriggerInterrupt(timerIRQType)
 	}
@@ -105,16 +106,9 @@ func NewEmulatorWithLogger(logger *debug.Logger) *Emulator {
 		return bus.Read8(bank, offset)
 	}
 
-	// Initialize interrupt vectors in memory (bank 0, addresses 0xFFE0-0xFFE3)
-	// Default vectors point to ROM entry point (can be overridden by ROM)
-	// Vector format: 2 bytes per vector (bank, offset_high)
-	// Offset low byte is always 0x00 (ROM addresses start at 0x8000+)
-	// IRQ vector (0xFFE0-0xFFE1): bank, offset_high
-	bus.Write8(0, 0xFFE0, 0x01) // Default bank 1
-	bus.Write8(0, 0xFFE1, 0x80) // Default offset high byte (0x8000)
-	// NMI vector (0xFFE2-0xFFE3): bank, offset_high
-	bus.Write8(0, 0xFFE2, 0x01) // Default bank 1
-	bus.Write8(0, 0xFFE3, 0x80) // Default offset high byte (0x8000)
+	// Initialize interrupt/reset vectors in memory (bank 0, 0xFFE0-0xFFE3).
+	// Default vectors point to the ROM entry point and may be overridden by a ROM.
+	bus.InitSystemVectors()
 
 	// Create clock scheduler (~7.67 MHz CPU, ~7.67 MHz PPU, 44,100 Hz APU)
 	// Genesis-like speed: 7,670,000 Hz
@@ -209,8 +203,10 @@ func (e *Emulator) RunFrame() error {
 		return nil
 	}
 
-	// Frame-level APU updates (duration countdown/completion flags) happen once per emulated frame.
-	// This is separate from sample-rate stepping and is required for ROMs that use duration/completion APIs.
+	// LEGACY (scaffolding): frame-level updates for the 4-channel synth's
+	// duration countdown / completion flags, once per emulated frame. Separate
+	// from sample-rate stepping; required only by ROMs using the legacy
+	// duration/completion APIs. (Not part of the YM2608 audio subsystem.)
 	e.APU.UpdateFrame()
 
 	// Track CPU cycles before frame
@@ -361,35 +357,60 @@ func (e *Emulator) RunFrame() error {
 	return nil
 }
 
-// Start starts the emulator
+// Start starts (powers on) the emulator. It does not clear state, so it can
+// resume a machine that was only paused as well as boot a freshly reset one.
 func (e *Emulator) Start() {
 	e.Running = true
 	e.Paused = false
 }
 
-// Stop stops the emulator
+// Stop powers the machine off. Execution halts and all volatile state is
+// cleared — work RAM, the framebuffer, CPU registers, and frame counters — so
+// the screen goes black and nothing from the previous run survives. There is no
+// restore. The inserted ROM remains, so the machine can be powered back on with
+// Start or Reset.
 func (e *Emulator) Stop() {
 	e.Running = false
+	e.powerOff()
 }
 
-// Pause pauses the emulator
+// Pause freezes the machine. All activity halts but every bit of state is kept,
+// and the last rendered frame stays on screen. Resume continues exactly where
+// it left off.
 func (e *Emulator) Pause() {
 	e.Paused = true
 }
 
-// Resume resumes the emulator
+// Resume continues a paused machine without altering any state.
 func (e *Emulator) Resume() {
 	e.Paused = false
 }
 
-// Reset resets the emulator
-func (e *Emulator) Reset() {
+// powerOff clears all volatile machine state — work RAM, the framebuffer, CPU
+// registers, the clock, and frame counters — modelling a full power-off with no
+// restore. The cartridge (inserted ROM) is deliberately left intact so the
+// machine can be powered back on. Callers set Running/Paused as appropriate.
+func (e *Emulator) powerOff() {
+	e.Bus.ClearRAM()
+	e.PPU.ClearScreen()
 	e.CPU.Reset()
 	e.Clock.Reset()
+	e.APU.Silence()
 	e.FrameCount = 0
 	e.fpsFrameCount = 0
 	e.FPS = 0
 	e.FPSUpdateTime = time.Now()
+	e.AudioSampleIndex = 0
+}
+
+// Reset restarts the machine: a full power-off immediately followed by a
+// power-on. All volatile state is cleared (as in Stop), the boot vectors and
+// ROM entry point are re-established, and execution resumes running.
+func (e *Emulator) Reset() {
+	e.powerOff()
+	e.Bus.InitSystemVectors()
+	e.Running = true
+	e.Paused = false
 	if e.Cartridge.HasROM() {
 		bank, offset, err := e.Cartridge.GetROMEntryPoint()
 		if err != nil {

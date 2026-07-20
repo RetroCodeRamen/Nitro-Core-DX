@@ -114,7 +114,11 @@ func TestCoreLXCompilation(t *testing.T) {
 	}
 }
 
-// TestAPUFunctions tests APU function code generation and execution
+// TestAPUFunctions tests APU function code generation and execution.
+//
+// LEGACY: intentionally validates the legacy 4-channel apu.* builtins (migration
+// scaffolding). This test will be removed/replaced when those builtins are
+// retired in favor of the YM2608 music.* API.
 func TestAPUFunctions(t *testing.T) {
 	// Test program that exercises all APU functions
 	source := `function Start()
@@ -212,7 +216,10 @@ func TestAPUFunctions(t *testing.T) {
 	}
 }
 
-// TestAPUFunctionIndividual tests each APU function individually
+// TestAPUFunctionIndividual tests each APU function individually.
+//
+// LEGACY: intentionally validates the legacy 4-channel apu.* builtins (migration
+// scaffolding); to be retired alongside those builtins.
 func TestAPUFunctionIndividual(t *testing.T) {
 	tests := []struct {
 		name     string

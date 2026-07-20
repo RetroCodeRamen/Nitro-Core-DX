@@ -9,7 +9,7 @@ Note: `Resources/fmopna_impl.h` is GPL-licensed reference material. It is used o
 
 ## Current Runtime State
 - cgo-backed emulator/devkit entrypoints currently default `NCDX_YM_BACKEND` to `ymfm` and expose `-audio-backend ymfm`.
-- The in-tree OPM-lite model remains a code-level fallback when YMFM is unavailable, but it is not the primary user-facing runtime path.
+- YM2608/OPNA through the YMFM-backed runtime is the audio subsystem. *(Internal: an in-tree OPM-lite model is a code-level path for non-YMFM builds — an implementation detail, not a user-facing audio identity.)*
 - YM2608 host MMIO path is active at `0x9100-0x91FF` with register/timer/status plumbing implemented.
 - Active port layout:
   - `0x9100/0x9101` = port 0 address/data
@@ -17,7 +17,7 @@ Note: `Resources/fmopna_impl.h` is GPL-licensed reference material. It is used o
   - `0x9103` = host control
   - `0x9104/0x9105` = port 1 address/data
 - Song replay via YM write streams is operational in ROM diagnostics and in gameplay loops.
-- Legacy 4-channel APU behavior remains available alongside the FM extension.
+- Legacy 4-channel APU behavior remains only as temporary migration scaffolding, alongside the YM2608 audio subsystem.
 
 ## Cross-Check Matrix
 
@@ -69,7 +69,7 @@ Manual expectation:
 - 6 channels, 4 operators, envelope and phase modulation behavior
 
 Current:
-- Operational runtime now includes a working YM2608 playback backend path (YMFM when available).
+- Operational runtime includes working YM2608 playback through the YMFM-backed runtime.
 - Deterministic ROM-driven capture/compare fixtures remain the main regression infrastructure.
 - Practical integration checks now include ROM-driven playback and in-game background music replay.
 

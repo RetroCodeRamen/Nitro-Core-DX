@@ -29,8 +29,9 @@ type CodeGenerator struct {
 	consts      map[string]int64
 	constFixed  map[string]bool
 	imageAssets map[string]*ImageAsset
-	globals    map[string]*VariableInfo
-	memoryMap  []MemoryMapEntry
+	musicAssets map[string]*MusicAsset
+	globals     map[string]*VariableInfo
+	memoryMap   []MemoryMapEntry
 
 	// Arithmetic helper routines emitted once after user functions when
 	// referenced (signed 8.8 multiply needs 32-bit-correct partials).
@@ -315,6 +316,10 @@ func (cg *CodeGenerator) emitGlobalInits() error {
 
 // SetImageAssets injects parsed external image assets (with ROM bank/offset).
 func (cg *CodeGenerator) SetImageAssets(a map[string]*ImageAsset) { cg.imageAssets = a }
+
+// SetMusicAssets injects parsed external music assets (with ROM bank/offset).
+// Stored for the future music.* playback builtins; not consumed yet.
+func (cg *CodeGenerator) SetMusicAssets(a map[string]*MusicAsset) { cg.musicAssets = a }
 
 // SetNormalizedAssets injects compiler-normalized assets so codegen can avoid re-parsing source asset text.
 func (cg *CodeGenerator) SetNormalizedAssets(assets []AssetIR) {
@@ -2229,7 +2234,12 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		cg.builder.AddInstruction(rom.EncodeMOV(0, destReg, 5)) // MOV R{destReg}, R5
 		return nil
 
-	// APU Functions
+	// APU Functions.
+	//
+	// LEGACY (scaffolding): the apu.* builtins below target the legacy 4-channel
+	// synth (registers 0x9000-0x9021) and are transitional only. The final audio
+	// subsystem is YM2608/OPNA; these are pending replacement by the future
+	// music.* YM2608 API.
 	case "apu.enable":
 		// apu.enable() - Enable APU master volume
 		// Write 0xFF to MASTER_VOLUME (0x9020)
@@ -2467,8 +2477,8 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		if err := cg.generateExpr(args[0], 1); err != nil { // R1 = mask
 			return err
 		}
-		cg.hLoad16(0, inputCurrSlot)                       // R0 = curr
-		cg.builder.AddInstruction(rom.EncodeAND(0, 0, 1))  // R0 = curr & mask
+		cg.hLoad16(0, inputCurrSlot)                      // R0 = curr
+		cg.builder.AddInstruction(rom.EncodeAND(0, 0, 1)) // R0 = curr & mask
 		if destReg != 0 {
 			cg.builder.AddInstruction(rom.EncodeMOV(0, destReg, 0))
 		}
@@ -2525,6 +2535,30 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		}
 		cg.builder.AddInstruction(rom.EncodeMOV(0, 4, 0))       // MOV R4, R0 (addr)
 		cg.builder.AddInstruction(rom.EncodeMOV(2, destReg, 4)) // MOV R{dest}, [R4] (16-bit read)
+		return nil
+
+	case "ym.write":
+		// ym.write(addr: u8, value: u8) - YM2608 audio subsystem, port 0.
+		// Writes the register address to the host address-select register
+		// (FMRegAddr, 0x9100) then the data to the host data port (FMRegData,
+		// 0x9101). Args: R0 = addr, R1 = value (storeIOByte uses only R7).
+		if len(args) != 2 {
+			return fmt.Errorf("ym.write requires 2 arguments (addr, value)")
+		}
+		cg.storeIOByte(0x9100, 0) // FMRegAddr: select register
+		cg.storeIOByte(0x9101, 1) // FMRegData: data
+		return nil
+
+	case "ym.write_port1":
+		// ym.write_port1(addr: u8, value: u8) - YM2608 audio subsystem, port 1
+		// (upper port). Uses the host port-1 address/data registers (0x9104 /
+		// 0x9105), the same path the bus/backend use for upper-port YM writes.
+		// Args: R0 = addr, R1 = value.
+		if len(args) != 2 {
+			return fmt.Errorf("ym.write_port1 requires 2 arguments (addr, value)")
+		}
+		cg.storeIOByte(0x9104, 0) // port-1 address select
+		cg.storeIOByte(0x9105, 1) // port-1 data
 		return nil
 
 	case "bg.set_scroll":
@@ -5059,6 +5093,17 @@ const (
 	scratchIndexStore = runtimeBlockBase + 0x00 // array-store value stash
 	inputCurrSlot     = runtimeBlockBase + 0x20 // input.poll current frame state
 	inputPrevSlot     = runtimeBlockBase + 0x22 // input.poll previous frame state
+
+	// Music player state (music.play / music.stop). The __musicadvance helper,
+	// called once per wait_vblank when the program declares a music asset,
+	// reads these to stream the current frame's YM2608 writes and advance.
+	musicActiveSlot = runtimeBlockBase + 0x40 // 1 = playing, 0 = stopped
+	musicFrameSlot  = runtimeBlockBase + 0x42 // current frame index
+	musicCountSlot  = runtimeBlockBase + 0x44 // total frame count (one-shot end)
+	musicCBankSlot  = runtimeBlockBase + 0x46 // counts-table bank
+	musicCOffSlot   = runtimeBlockBase + 0x48 // counts-table offset
+	musicPBankSlot  = runtimeBlockBase + 0x4A // pointer-table bank
+	musicPOffSlot   = runtimeBlockBase + 0x4C // pointer-table offset
 )
 
 // emitHelperCall emits a CALL to a named helper routine, patched after all
@@ -5239,10 +5284,10 @@ func (cg *CodeGenerator) writePlaneReg16(expr Expr, addrLow uint16) error {
 	if err := cg.generateExpr(expr, 0); err != nil {
 		return err
 	}
-	cg.storeIOByte(addrLow, 0)             // low byte
+	cg.storeIOByte(addrLow, 0)                        // low byte
 	cg.builder.AddInstruction(rom.EncodeMOV(0, 6, 0)) // R6 = value
-	cg.hShrImm(6, 8)                       // R6 = value >> 8
-	cg.storeIOByte(addrLow+1, 6)           // high byte
+	cg.hShrImm(6, 8)                                  // R6 = value >> 8
+	cg.storeIOByte(addrLow+1, 6)                      // high byte
 	return nil
 }
 
@@ -5332,10 +5377,10 @@ func (cg *CodeGenerator) emitLoadBitmap(img *ImageAsset, channel uint8) {
 	}
 	control := uint8(0x01) | (sizeCode << 1) | 0x08 | (img.PaletteBank << 4)
 
-	cg.emitWriteIOByte(0x8080, channel)   // select plane
-	cg.emitWriteIOByte(0x8081, control)   // plane control (bitmap mode)
-	cg.emitWriteIOByte(0x808C, 0x00)      // flags: opaque
-	cg.emitWriteIOByte(0x8088, 0x00)      // reset bitmap dest offset
+	cg.emitWriteIOByte(0x8080, channel) // select plane
+	cg.emitWriteIOByte(0x8081, control) // plane control (bitmap mode)
+	cg.emitWriteIOByte(0x808C, 0x00)    // flags: opaque
+	cg.emitWriteIOByte(0x8088, 0x00)    // reset bitmap dest offset
 	cg.emitWriteIOByte(0x8089, 0x00)
 	cg.emitWriteIOByte(0x808A, 0x00)
 

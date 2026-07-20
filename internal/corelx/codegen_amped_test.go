@@ -42,7 +42,7 @@ function Start()
     pos := Vec2()
     pos.y = 0x1234
     out := pos.y
-    apu.enable()
+    wait_vblank()
 `
 
 	res, err := CompileSource(src, "vec2_indexed.corelx", nil)
@@ -70,7 +70,7 @@ func TestCodegenAmpedSpriteStillUsesByteMemberStore(t *testing.T) {
 function Start()
     hero := Sprite()
     hero.tile = 7
-    apu.enable()
+    wait_vblank()
 `
 
 	res, err := CompileSource(src, "sprite_byte_store.corelx", nil)

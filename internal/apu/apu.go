@@ -7,19 +7,25 @@ import (
 	"nitro-core-dx/internal/debug"
 )
 
-// APU represents the Audio Processing Unit
-// It implements the memory.IOHandler interface
+// APU represents the Audio Processing Unit.
+// It implements the memory.IOHandler interface.
 //
-// Design Philosophy:
-// - Developer-friendly: Easy to use, intuitive API
-// - Hardware-accurate: Behaves like real retro hardware
-// - Clean audio: No artifacts, clicks, or warbling
-// - Flexible: Supports various audio use cases
+// Final audio direction: the single, final audio subsystem is YM2608 / OPNA
+// (FM, SSG, rhythm, ADPCM), accessed via the FM host interface (the `FM` field
+// below, `0x9100-0x91FF`).
+//
+// The 4-channel synth and PCM path in this struct are LEGACY migration
+// scaffolding only — not final hardware — kept so existing ROMs keep working
+// during the transition to YM2608-only audio. They are slated for removal.
 type APU struct {
-	Channels           [4]AudioChannel
-	MasterVolume       uint8
-	SampleRate         uint32
-	debugFrameCount    int
+	// LEGACY (scaffolding): 4-channel synth state, slated for removal.
+	Channels     [4]AudioChannel
+	MasterVolume uint8
+
+	SampleRate      uint32
+	debugFrameCount int
+
+	// FM is the YM2608 / OPNA audio subsystem (the final audio).
 	FM                 *FMOPM
 	FMTimerIRQCallback func()
 	lastFMIRQPending   bool
@@ -35,17 +41,18 @@ type APU struct {
 	debugLoggingEnabled bool
 	debugLogStartTime   time.Time
 
-	// Channel completion status (developer-friendly!)
-	// Bits 0-3 indicate which channels just finished this frame
-	// ROM can read this once per frame to check for completion
-	// This register is automatically cleared after being read
+	// LEGACY (scaffolding): channel completion status for the 4-channel synth.
+	// Bits 0-3 indicate which channels just finished this frame; ROM reads it
+	// once per frame to check for completion. Cleared automatically after read.
 	ChannelCompletionStatus uint8
 
-	// PCM playback support
-	PCMChannels [4]PCMChannel // One PCM channel per audio channel
+	// LEGACY (scaffolding): PCM playback for the 4-channel synth.
+	PCMChannels [4]PCMChannel // One PCM channel per legacy audio channel
 }
 
-// PCMChannel represents a PCM playback channel
+// PCMChannel represents a PCM playback channel.
+//
+// LEGACY: part of the 4-channel migration-scaffolding synth, not final hardware.
 type PCMChannel struct {
 	Enabled      bool
 	SampleData   []int8 // PCM sample data (8-bit signed)
@@ -55,7 +62,10 @@ type PCMChannel struct {
 	Volume       uint8  // PCM volume (0-255)
 }
 
-// AudioChannel represents an audio channel
+// AudioChannel represents one channel of the legacy 4-channel synth.
+//
+// LEGACY: migration scaffolding, not final hardware. The final audio subsystem
+// is YM2608/OPNA (see APU.FM); this struct is slated for removal.
 type AudioChannel struct {
 	// Current state
 	Frequency uint16 // Current frequency (Hz)
@@ -105,9 +115,26 @@ func NewAPU(sampleRate uint32, logger *debug.Logger) *APU {
 	return apu
 }
 
+// Silence immediately stops all sound output. It disables every legacy synth
+// and PCM channel, clears their phase/duration state, and resets the YM2608 FM
+// subsystem. Used on power-off so a note that is sounding when the machine
+// stops does not keep playing.
+func (a *APU) Silence() {
+	for i := range a.Channels {
+		a.Channels[i] = AudioChannel{}
+	}
+	for i := range a.PCMChannels {
+		a.PCMChannels[i] = PCMChannel{}
+	}
+	a.ChannelCompletionStatus = 0
+	if a.FM != nil {
+		a.FM.Reset()
+	}
+}
+
 // Read8 reads an 8-bit value from APU registers
 func (a *APU) Read8(offset uint16) uint8 {
-	// FM extension host interface (0x9100-0x91FF => APU offsets 0x0100-0x01FF)
+	// YM2608 audio subsystem host interface (0x9100-0x91FF => APU offsets 0x0100-0x01FF)
 	if offset >= FMExtensionOffsetBase && offset < FMExtensionOffsetBase+0x100 {
 		if a.FM != nil {
 			return a.FM.Read8(offset - FMExtensionOffsetBase)
@@ -185,7 +212,12 @@ func (a *APU) Read8(offset uint16) uint8 {
 	}
 }
 
-// Write8 writes an 8-bit value to APU registers
+// Write8 writes an 8-bit value to APU registers.
+//
+// LEGACY (scaffolding): the per-channel register layout below belongs to the
+// 4-channel synth, which is temporary migration scaffolding (not final
+// hardware). YM2608/OPNA audio is reached via the host interface at
+// 0x9100-0x91FF (routed at the top of this method).
 //
 // Register Layout (per channel, 8 bytes each - expanded for developer convenience!):
 //
@@ -203,7 +235,7 @@ func (a *APU) Read8(offset uint16) uint8 {
 // - No need to manually count frames or loop iterations
 // - Duration in frames (60 frames = 1 second at 60 FPS)
 func (a *APU) Write8(offset uint16, value uint8) {
-	// FM extension host interface (0x9100-0x91FF => APU offsets 0x0100-0x01FF)
+	// YM2608 audio subsystem host interface (0x9100-0x91FF => APU offsets 0x0100-0x01FF)
 	if offset >= FMExtensionOffsetBase && offset < FMExtensionOffsetBase+0x100 {
 		if a.FM != nil {
 			a.FM.Write8(offset-FMExtensionOffsetBase, value)
@@ -256,8 +288,8 @@ func (a *APU) Write8(offset uint16, value uint8) {
 
 		// Update phase increment with new frequency (fixed-point)
 		a.updatePhaseIncrementFixed(channel)
-			// Keep the compatibility-only float path in sync for GenerateSample().
-			a.updatePhaseIncrementLegacy(channel)
+		// Keep the compatibility-only float path in sync for GenerateSample().
+		a.updatePhaseIncrementLegacy(channel)
 		// fmt.Printf("[APU] Channel %d: Frequency updated to %d Hz (0x%04X), PhaseIncrement=%f\n",
 		// 	channel, newFreq, newFreq, ch.PhaseIncrement)
 
@@ -267,8 +299,8 @@ func (a *APU) Write8(offset uint16, value uint8) {
 		if newFreq != oldFreq && newFreq != 0 {
 			// Frequency changed - reset phase for clean note start
 			// This matches real hardware behavior and prevents phase discontinuities
-				ch.PhaseFixed = 0
-				a.resetLegacyPhase(ch)
+			ch.PhaseFixed = 0
+			a.resetLegacyPhase(ch)
 
 			// Debug logging
 			now := time.Now()
@@ -409,6 +441,9 @@ func (a *APU) advanceLegacyPhase(ch *AudioChannel) {
 
 // GenerateSample generates a single audio sample using the legacy floating-point
 // waveform path. Runtime code should prefer GenerateSampleFixed().
+//
+// LEGACY (scaffolding): part of the 4-channel synth, not the YM2608 audio
+// subsystem; slated for removal.
 func (a *APU) GenerateSample() float32 {
 	var sample float32 = 0.0
 
@@ -514,9 +549,9 @@ func (a *APU) GenerateSample() float32 {
 		// Add to mix
 		sample += channelSample
 
-			// Advance the compatibility-only float phase accumulator.
-			a.advanceLegacyPhase(ch)
-		}
+		// Advance the compatibility-only float phase accumulator.
+		a.advanceLegacyPhase(ch)
+	}
 
 	// Apply master volume
 	masterVol := float32(a.MasterVolume) / 255.0
@@ -536,11 +571,12 @@ func (a *APU) GenerateSample() float32 {
 	return sample
 }
 
-// UpdateFrame is called once per frame to update timers
-// This handles note duration countdown automatically
-// Note: Duration=0 means "play indefinitely" (no auto-disable)
-// IMPORTANT: This runs BEFORE the CPU executes, so channel status is updated
-// before the ROM can check it. This makes the completion status register work correctly.
+// UpdateFrame is called once per frame to update the legacy synth's timers.
+//
+// LEGACY (scaffolding): handles 4-channel note duration countdown and the
+// completion-status register; not part of the YM2608 audio subsystem.
+// Duration=0 means "play indefinitely". Runs BEFORE the CPU executes so channel
+// status is updated before the ROM can check it.
 func (a *APU) UpdateFrame() {
 	// Note: Completion status is NOT cleared here anymore
 	// It's cleared immediately after being read (one-shot behavior)

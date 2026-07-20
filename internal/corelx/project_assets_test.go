@@ -14,9 +14,9 @@ func TestCompileSourceLoadsExternalAssetManifest(t *testing.T) {
 function Start()
     t := gfx.load_tiles(ASSET_Ship, 16)
     if t == 0
-        apu.enable()
+        wait_vblank()
     else
-        apu.enable()
+        wait_vblank()
 `
 	if err := os.WriteFile(srcPath, []byte(src), 0644); err != nil {
 		t.Fatalf("write source: %v", err)
@@ -61,7 +61,7 @@ asset Ship: tiles8 hex
     00 11 22 33
 
 function Start()
-    apu.enable()
+    wait_vblank()
 `
 	if err := os.WriteFile(srcPath, []byte(src), 0644); err != nil {
 		t.Fatalf("write source: %v", err)
@@ -99,7 +99,7 @@ function Start()
 func TestLoadProjectAssetsBadRecord(t *testing.T) {
 	dir := t.TempDir()
 	srcPath := filepath.Join(dir, "main.corelx")
-	if err := os.WriteFile(srcPath, []byte("function Start()\n    apu.enable()\n"), 0644); err != nil {
+	if err := os.WriteFile(srcPath, []byte("function Start()\n    wait_vblank()\n"), 0644); err != nil {
 		t.Fatalf("write source: %v", err)
 	}
 	manifestPath := filepath.Join(dir, defaultProjectAssetManifest)

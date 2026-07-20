@@ -1,6 +1,7 @@
 package corelx
 
 import (
+	"encoding/binary"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"strings"
 
 	"nitro-core-dx/internal/rom"
+	"nitro-core-dx/internal/ymstream"
 )
 
 // imageDataStartBank is the first ROM bank used for image bitmap data. Code
@@ -137,4 +139,135 @@ func parseCxAsset(name, text string) (*ImageAsset, error) {
 		return nil, fmt.Errorf("no bitmap data")
 	}
 	return img, nil
+}
+
+// MusicAsset is a parsed external .ncdxmusic YM2608 stream, decoded and laid
+// out in ROM for frame-by-frame playback. The minimal player (music.play) walks
+// the song one frame per VBlank: each frame it reads the write count from the
+// counts table and the (bank, offset) of that frame's writes from the pointer
+// table, then hands the run of (port, addr, data) triplets to the bus-side YM
+// burst streamer (0x9110-0x9115). The three sections are laid out contiguously:
+//
+//	counts table : 2 bytes/frame (uint16 LE write count)
+//	write stream : 3 bytes/write (port, addr, data), all frames concatenated
+//	pointer table: 4 bytes/frame (bank, offset_lo, offset_hi, 0) into the stream
+//
+// This is the same in-ROM shape the YM2608 demo ROM builders use. The
+// `.ncdxmusic` file format itself is unchanged; this is only its ROM image.
+type MusicAsset struct {
+	Name       string
+	FrameCount int    // number of song frames (one advance per VBlank)
+	CountsBank uint8  // ROM bank of the counts table
+	CountsOff  uint16 // ROM offset (0x8000-based) of the counts table
+	PtrBank    uint8  // ROM bank of the pointer table
+	PtrOff     uint16 // ROM offset (0x8000-based) of the pointer table
+}
+
+// dataAddr maps a flat byte cursor in the shared ROM data region (cursor 0 =
+// bank imageDataStartBank, offset 0x8000) to its (bank, 0x8000-based offset).
+func dataAddr(cursor int) (uint8, uint16) {
+	return uint8(imageDataStartBank + cursor/rom.ROMBankSizeBytes),
+		uint16(rom.ROMBankOffsetBase + (cursor % rom.ROMBankSizeBytes))
+}
+
+// loadMusicAssets reads and validates every `music` asset's external
+// .ncdxmusic file, decodes it, and lays out the playback tables (counts, write
+// stream, pointers) in the shared ROM data region, continuing from baseCursor
+// (the byte length already used by image assets) so music and image data never
+// overlap. Returns the assets (with table bank/offset filled in) and the bytes
+// to append to the data region.
+func loadMusicAssets(program *Program, sourcePath string, baseCursor int) (map[string]*MusicAsset, []byte, error) {
+	srcDir := filepath.Dir(sourcePath)
+	assets := make(map[string]*MusicAsset)
+	var region []byte
+	cursor := baseCursor
+
+	for _, a := range program.Assets {
+		if a.Type != "music" {
+			continue
+		}
+		path := a.FilePath
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(srcDir, path)
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return nil, nil, fmt.Errorf("music asset %s: %w", a.Name, err)
+		}
+		// Validate and decode the YM2608 stream at compile time.
+		song, err := ymstream.DecodeStream(raw)
+		if err != nil {
+			return nil, nil, fmt.Errorf("music asset %s (%s): invalid .ncdxmusic stream: %w", a.Name, path, err)
+		}
+
+		nf := len(song.Frames)
+		// The minimal player indexes the counts/pointer tables with the DBR
+		// pinned to a single bank, so each table must stay within its starting
+		// bank. (A long song still fits: ~16K frames for the counts table.)
+		countsBank, countsOff := dataAddr(cursor)
+		if int(countsOff)+nf*2 > 0x10000 {
+			return nil, nil, fmt.Errorf("music asset %s: too large for the minimal player (counts table crosses a ROM bank)", a.Name)
+		}
+		counts := make([]byte, nf*2)
+		totalWrites := 0
+		for i, fr := range song.Frames {
+			binary.LittleEndian.PutUint16(counts[i*2:i*2+2], uint16(len(fr)))
+			totalWrites += len(fr)
+		}
+
+		// Write stream (port, addr, data triplets) plus a pointer table whose
+		// entries hold the absolute (bank, offset) of each frame's triplets.
+		writesStart := cursor + nf*2
+		writes := make([]byte, 0, totalWrites*3)
+		ptrs := make([]byte, nf*4)
+		byteOffset := 0
+		for i, fr := range song.Frames {
+			b, o := dataAddr(writesStart + byteOffset)
+			ptrs[i*4] = b
+			binary.LittleEndian.PutUint16(ptrs[i*4+1:i*4+3], o)
+			ptrs[i*4+3] = 0
+			for _, w := range fr {
+				writes = append(writes, w.Port, w.Addr, w.Data)
+			}
+			byteOffset += len(fr) * 3
+		}
+		ptrStart := writesStart + len(writes)
+		ptrBank, ptrOff := dataAddr(ptrStart)
+		if int(ptrOff)+nf*4 > 0x10000 {
+			return nil, nil, fmt.Errorf("music asset %s: too large for the minimal player (pointer table crosses a ROM bank)", a.Name)
+		}
+
+		region = append(region, counts...)
+		region = append(region, writes...)
+		region = append(region, ptrs...)
+		cursor = ptrStart + len(ptrs)
+
+		assets[a.Name] = &MusicAsset{
+			Name:       a.Name,
+			FrameCount: nf,
+			CountsBank: countsBank,
+			CountsOff:  countsOff,
+			PtrBank:    ptrBank,
+			PtrOff:     ptrOff,
+		}
+	}
+
+	// Orphan check: every .ncdxmusic file in the project must be referenced by a
+	// music asset declaration (same policy as .cxasset image assets).
+	referenced := make(map[string]bool)
+	for _, a := range program.Assets {
+		if a.Type == "music" {
+			referenced[filepath.Base(a.FilePath)] = true
+		}
+	}
+	entries, _ := os.ReadDir(srcDir)
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".ncdxmusic") {
+			continue
+		}
+		if !referenced[e.Name()] {
+			return nil, nil, fmt.Errorf("music file %q is in the project but not referenced by any code (orphan); remove it or add `asset <Name>: music %q`", e.Name(), e.Name())
+		}
+	}
+	return assets, region, nil
 }
