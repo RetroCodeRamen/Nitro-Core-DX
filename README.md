@@ -241,13 +241,6 @@ For detailed status and documentation navigation, see [docs/README.md](docs/READ
   - **macOS**: `brew install sdl2`
   - **Windows**: Download from [SDL2 website](https://www.libsdl.org/download-2.0.php)
 
-**Optional - SDL2_ttf** (for system fonts):
-  - **Ubuntu/Debian**: `sudo apt-get install libsdl2-ttf-dev`
-  - **macOS**: `brew install sdl2_ttf`
-  - **Windows**: Download from [SDL2_ttf website](https://www.libsdl.org/projects/SDL_ttf/)
-  
-  *Note: The emulator works fine without SDL2_ttf—it has a built-in bitmap font.*
-
 ### Option A: Download a Release (Recommended)
 
 Download the latest prebuilt package for your platform:
