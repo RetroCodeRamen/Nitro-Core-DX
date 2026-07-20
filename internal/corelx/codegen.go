@@ -43,6 +43,9 @@ type CodeGenerator struct {
 	functionAddrs map[string]int // function name -> code word index of function start
 	callPatches   []callPatch    // pending CALL offset patches
 	globalStack   uint16         // tracks per-function stack base to avoid overlap
+
+	// Innermost-enclosing-loop stack, for break/continue target patching.
+	loopStack []*loopContext
 }
 
 // callPatch records a pending CALL that needs its offset patched once the
@@ -50,6 +53,17 @@ type CodeGenerator struct {
 type callPatch struct {
 	offsetPos int    // word index of the offset immediate
 	target    string // target function name
+}
+
+// loopContext tracks pending break/continue jumps for the innermost
+// enclosing while/for loop during codegen. Both are backpatched once their
+// target is known, the same way loop-exit branches already are: break to the
+// loop's exit point, continue to its "next iteration" point (condition
+// re-check for while; the increment step for for, so the loop variable still
+// advances).
+type loopContext struct {
+	breakPatches    []int // word indices of pending break JMP immediates
+	continuePatches []int // word indices of pending continue JMP immediates
 }
 
 const (
@@ -667,6 +681,12 @@ func (cg *CodeGenerator) generateStmt(stmt Stmt) error {
 	case *ForStmt:
 		return cg.generateFor(s)
 
+	case *BreakStmt:
+		return cg.generateBreak(s)
+
+	case *ContinueStmt:
+		return cg.generateContinue(s)
+
 	case *ReturnStmt:
 		return cg.generateReturn(s)
 
@@ -676,6 +696,34 @@ func (cg *CodeGenerator) generateStmt(stmt Stmt) error {
 	default:
 		return fmt.Errorf("unsupported statement type: %T", stmt)
 	}
+}
+
+// generateBreak emits an unconditional jump to the innermost enclosing
+// loop's exit point, backpatched once that point is known.
+func (cg *CodeGenerator) generateBreak(stmt *BreakStmt) error {
+	if len(cg.loopStack) == 0 {
+		return fmt.Errorf("break used outside of a loop")
+	}
+	loop := cg.loopStack[len(cg.loopStack)-1]
+	cg.builder.AddInstruction(rom.EncodeJMP())
+	offsetPos := cg.builder.GetCodeLength()
+	cg.builder.AddImmediate(0) // placeholder, patched when the loop's exit point is known
+	loop.breakPatches = append(loop.breakPatches, offsetPos)
+	return nil
+}
+
+// generateContinue emits an unconditional jump to the innermost enclosing
+// loop's next-iteration point, backpatched once that point is known.
+func (cg *CodeGenerator) generateContinue(stmt *ContinueStmt) error {
+	if len(cg.loopStack) == 0 {
+		return fmt.Errorf("continue used outside of a loop")
+	}
+	loop := cg.loopStack[len(cg.loopStack)-1]
+	cg.builder.AddInstruction(rom.EncodeJMP())
+	offsetPos := cg.builder.GetCodeLength()
+	cg.builder.AddImmediate(0) // placeholder, patched when the loop's continue target is known
+	loop.continuePatches = append(loop.continuePatches, offsetPos)
+	return nil
 }
 
 func (cg *CodeGenerator) generateVarDecl(stmt *VarDeclStmt) error {
@@ -928,10 +976,18 @@ func (cg *CodeGenerator) generateWhile(stmt *WhileStmt) error {
 	cg.builder.AddImmediate(0) // Placeholder
 
 	// Generate body
+	loop := &loopContext{}
+	cg.loopStack = append(cg.loopStack, loop)
 	for _, s := range stmt.Body {
 		if err := cg.generateStmt(s); err != nil {
 			return err
 		}
+	}
+	cg.loopStack = cg.loopStack[:len(cg.loopStack)-1]
+
+	// continue jumps here: back to the top of the loop, re-checking the condition.
+	for _, p := range loop.continuePatches {
+		cg.patchJumpTo(p, loopStartPos)
 	}
 
 	// Jump back to start
@@ -940,8 +996,11 @@ func (cg *CodeGenerator) generateWhile(stmt *WhileStmt) error {
 	offset := rom.CalculateBranchOffset(currentPC, uint16(loopStartPos*2))
 	cg.builder.AddImmediate(uint16(offset))
 
-	// Patch loop end
+	// Patch loop end (the condition-false branch, and any break statements)
 	cg.patchLabel(loopEnd, loopEndOffsetPos)
+	for _, p := range loop.breakPatches {
+		cg.patchLabel(0, p)
+	}
 	return nil
 }
 
@@ -1006,10 +1065,20 @@ func (cg *CodeGenerator) generateFor(stmt *ForStmt) error {
 	cg.builder.AddImmediate(0) // placeholder
 
 	// Body.
+	loop := &loopContext{}
+	cg.loopStack = append(cg.loopStack, loop)
 	for _, st := range stmt.Body {
 		if err := cg.generateStmt(st); err != nil {
 			return err
 		}
+	}
+	cg.loopStack = cg.loopStack[:len(cg.loopStack)-1]
+
+	// continue jumps here: increment i, then recheck the condition — skipping
+	// the increment would leave i unchanged and loop forever.
+	continueTarget := cg.builder.GetCodeLength()
+	for _, p := range loop.continuePatches {
+		cg.patchJumpTo(p, continueTarget)
 	}
 
 	// i = i + step
@@ -1028,7 +1097,11 @@ func (cg *CodeGenerator) generateFor(stmt *ForStmt) error {
 	currentPC := uint16(cg.builder.GetCodeLength() * 2)
 	cg.builder.AddImmediate(uint16(rom.CalculateBranchOffset(currentPC, uint16(loopStartPos*2))))
 
+	// Patch loop end (the limit-exceeded branch, and any break statements)
 	cg.patchLabel(loopEnd, loopEndOffsetPos)
+	for _, p := range loop.breakPatches {
+		cg.patchLabel(0, p)
+	}
 	return nil
 }
 
@@ -5170,10 +5243,17 @@ func (cg *CodeGenerator) newLabel() int {
 
 func (cg *CodeGenerator) patchLabel(label, offsetPos int) {
 	_ = label // Labels are currently patched immediately at their definition point.
-	// offsetPos is the word index where the branch/jump immediate placeholder was emitted.
-	// The CPU PC-relative branch offset is calculated from the address *after* the immediate.
+	cg.patchJumpTo(offsetPos, cg.builder.GetCodeLength())
+}
+
+// patchJumpTo backpatches a jump/branch immediate at offsetPos (word index of
+// the placeholder) to branch to targetPos (word index of the destination).
+// Unlike patchLabel, the target need not be the current end of code — used
+// for `continue`, whose target (a for loop's increment step) is already
+// behind the jump site by the time it's patched.
+func (cg *CodeGenerator) patchJumpTo(offsetPos, targetPos int) {
 	currentPC := uint16(offsetPos * 2)
-	targetPC := uint16(cg.builder.GetCodeLength() * 2)
+	targetPC := uint16(targetPos * 2)
 	offset := rom.CalculateBranchOffset(currentPC, targetPC)
 	cg.builder.SetImmediateAt(offsetPos, uint16(offset))
 }

@@ -112,6 +112,93 @@ func TestMemberAccessOnNonStructVariableRejected(t *testing.T) {
 	}
 }
 
+// TestTopLevelStructDeclarationCompiles verifies the frozen v1 syntax
+// spec's top-level `struct Name:` form (D10) — as opposed to the older
+// `type Name = struct` form — compiles and round-trips field values
+// correctly. This is the exact shape of the spec's own Player exemplar.
+func TestTopLevelStructDeclarationCompiles(t *testing.T) {
+	source := `struct Player:
+    x: fixed
+    y: fixed
+    lives: int
+
+var observed_lives: int = 0
+
+function Start()
+    player := Player()
+    player.lives = 3
+    observed_lives = player.lives
+    while true
+        wait_vblank()
+`
+	emu, result := compileAndBoot(t, source, 600)
+	addrs := map[string]uint16{}
+	for _, e := range result.MemoryMap {
+		addrs[e.Name] = e.Address
+	}
+	if got := read16(emu, addrs["observed_lives"]); got != 3 {
+		t.Errorf("observed_lives: want 3, got %d", got)
+	}
+}
+
+// TestTopLevelStructAndLegacyFormCoexist verifies both struct declaration
+// forms can be used for different types in the same program.
+func TestTopLevelStructAndLegacyFormCoexist(t *testing.T) {
+	source := `type Vec2Like = struct
+    x: i16
+    y: i16
+
+struct Player:
+    pos: int
+    lives: int
+
+function Start()
+    p := Player()
+    p.lives = 5
+    v := Vec2Like()
+    v.x = 10
+    while true
+        wait_vblank()
+`
+	if _, _, err := compileOnly(t, source); err != nil {
+		t.Fatalf("unexpected compile error: %v", err)
+	}
+}
+
+// TestTopLevelStructDuplicateNameRejected verifies declaring the same
+// struct name twice (across either or both declaration forms) is a compile
+// error, not silently accepted with one definition winning.
+func TestTopLevelStructDuplicateNameRejected(t *testing.T) {
+	source := `type Player = struct
+    x: int
+
+struct Player:
+    y: int
+
+function Start()
+    while true
+        wait_vblank()
+`
+	err := compileExpectError(t, source)
+	if !strings.Contains(err.Error(), "already defined") {
+		t.Errorf("expected 'already defined' duplicate-type error, got: %v", err)
+	}
+}
+
+// compileOnly compiles source and returns the source/output paths and any
+// compile error, without asserting success.
+func compileOnly(t *testing.T, source string) (string, string, error) {
+	t.Helper()
+	dir := t.TempDir()
+	srcPath := filepath.Join(dir, "main.corelx")
+	outPath := filepath.Join(dir, "main.rom")
+	if err := os.WriteFile(srcPath, []byte(source), 0644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	_, err := CompileProject(srcPath, &CompileOptions{OutputPath: outPath})
+	return srcPath, outPath, err
+}
+
 // compileExpectError compiles source and fails the test if compilation
 // succeeds; returns the compile error.
 func compileExpectError(t *testing.T, source string) error {

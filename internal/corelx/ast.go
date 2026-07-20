@@ -184,6 +184,22 @@ type ForStmt struct {
 
 func (*ForStmt) isStmt() {}
 
+// BreakStmt represents a `break` statement, exiting the innermost enclosing
+// while/for loop.
+type BreakStmt struct {
+	Position Position
+}
+
+func (*BreakStmt) isStmt() {}
+
+// ContinueStmt represents a `continue` statement, jumping to the next
+// iteration of the innermost enclosing while/for loop.
+type ContinueStmt struct {
+	Position Position
+}
+
+func (*ContinueStmt) isStmt() {}
+
 // ReturnStmt represents a return statement
 type ReturnStmt struct {
 	Position Position
@@ -304,6 +320,8 @@ func (i *IfStmt) Pos() Position { return i.Position }
 func (e *ElseIfClause) Pos() Position { return e.Position }
 func (w *WhileStmt) Pos() Position { return w.Position }
 func (f *ForStmt) Pos() Position { return f.Position }
+func (b *BreakStmt) Pos() Position { return b.Position }
+func (c *ContinueStmt) Pos() Position { return c.Position }
 func (r *ReturnStmt) Pos() Position { return r.Position }
 func (e *ExprStmt) Pos() Position { return e.Position }
 func (b *BinaryExpr) Pos() Position { return b.Position }

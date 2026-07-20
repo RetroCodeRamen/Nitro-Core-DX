@@ -60,6 +60,12 @@ func (p *Parser) Parse() (prog *Program, err error) {
 				return nil, err
 			}
 			prog.Types = append(prog.Types, typeDecl)
+		} else if p.check(TOKEN_STRUCT) {
+			typeDecl, err := p.parseStructDecl()
+			if err != nil {
+				return nil, err
+			}
+			prog.Types = append(prog.Types, typeDecl)
 		} else if p.check(TOKEN_FUNCTION) {
 			fn, err := p.parseFunction()
 			if err != nil {
@@ -81,7 +87,7 @@ func (p *Parser) Parse() (prog *Program, err error) {
 		} else if p.check(TOKEN_NEWLINE) {
 			p.advance()
 		} else {
-			return nil, p.error(p.peek(), fmt.Sprintf("Expected asset, type, const, var, or function declaration, got %v", p.peek().Type))
+			return nil, p.error(p.peek(), fmt.Sprintf("Expected asset, type, struct, const, var, or function declaration, got %v", p.peek().Type))
 		}
 	}
 
@@ -281,7 +287,55 @@ func (p *Parser) parseTypeDecl() (*TypeDecl, error) {
 	p.consume(TOKEN_EQUAL, "Expected '='")
 	p.consume(TOKEN_STRUCT, "Expected 'struct'")
 
-	// Parse struct fields
+	fields, err := p.parseStructFields()
+	if err != nil {
+		return nil, err
+	}
+
+	return &TypeDecl{
+		Position: pos,
+		Name:     name,
+		Type: &StructType{
+			Position: pos,
+			Fields:   fields,
+		},
+	}, nil
+}
+
+// parseStructDecl parses the frozen v1 top-level struct syntax (charter
+// D10):
+//
+//	struct Name:
+//	    field: type
+//	    ...
+//
+// Produces the same TypeDecl/StructType AST as the older `type Name =
+// struct` form, so codegen (which is generic over any declared struct,
+// see structLayoutFor) needs no changes to support it.
+func (p *Parser) parseStructDecl() (*TypeDecl, error) {
+	pos := p.position()
+	p.consume(TOKEN_STRUCT, "Expected 'struct'")
+	name := p.consume(TOKEN_IDENTIFIER, "Expected struct name").Literal
+	p.consume(TOKEN_COLON, "Expected ':' after struct name")
+
+	fields, err := p.parseStructFields()
+	if err != nil {
+		return nil, err
+	}
+
+	return &TypeDecl{
+		Position: pos,
+		Name:     name,
+		Type: &StructType{
+			Position: pos,
+			Fields:   fields,
+		},
+	}, nil
+}
+
+// parseStructFields parses an indented block of `name: type` field
+// declarations — the body shared by both struct declaration forms.
+func (p *Parser) parseStructFields() ([]*FieldDecl, error) {
 	fields := make([]*FieldDecl, 0)
 	if p.check(TOKEN_NEWLINE) {
 		p.advance()
@@ -300,15 +354,7 @@ func (p *Parser) parseTypeDecl() (*TypeDecl, error) {
 			p.consume(TOKEN_DEDENT, "Expected dedent after struct fields")
 		}
 	}
-
-	return &TypeDecl{
-		Position: pos,
-		Name:     name,
-		Type: &StructType{
-			Position: pos,
-			Fields:   fields,
-		},
-	}, nil
+	return fields, nil
 }
 
 func (p *Parser) parseField() (*FieldDecl, error) {
@@ -495,6 +541,14 @@ func (p *Parser) parseStmt() (Stmt, error) {
 			Position: pos,
 			Value:    value,
 		}, nil
+
+	case p.check(TOKEN_BREAK):
+		p.advance()
+		return &BreakStmt{Position: pos}, nil
+
+	case p.check(TOKEN_CONTINUE):
+		p.advance()
+		return &ContinueStmt{Position: pos}, nil
 
 	default:
 		// Try to parse as expression first

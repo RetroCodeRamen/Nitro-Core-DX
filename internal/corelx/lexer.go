@@ -29,6 +29,8 @@ const (
 	TOKEN_ELSE
 	TOKEN_WHILE
 	TOKEN_FOR
+	TOKEN_BREAK
+	TOKEN_CONTINUE
 	TOKEN_RETURN
 	TOKEN_TYPE
 	TOKEN_STRUCT
@@ -348,6 +350,8 @@ func (l *Lexer) identifierType(literal string) TokenType {
 		"else":     TOKEN_ELSE,
 		"while":    TOKEN_WHILE,
 		"for":      TOKEN_FOR,
+		"break":    TOKEN_BREAK,
+		"continue": TOKEN_CONTINUE,
 		"return":   TOKEN_RETURN,
 		"type":     TOKEN_TYPE,
 		"struct":   TOKEN_STRUCT,

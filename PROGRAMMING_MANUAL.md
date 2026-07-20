@@ -284,6 +284,19 @@ while true
         x = x + 1
 ```
 
+`break` exits the innermost `while` or `for` loop immediately; `continue`
+skips the rest of the current iteration and moves on to the next one (in a
+`for` loop, the loop variable still advances — `continue` never skips that):
+
+```corelx
+for i = 0 to 9
+    if i == skip_value
+        continue          -- skip just this iteration
+    if i == stop_value
+        break              -- stop the loop entirely
+    total = total + i
+```
+
 > **Why This Matters:** Most game code is just “read input -> update variables -> draw state” repeated every frame.
 
 ## Structs (You Will Use `Sprite` a Lot)
@@ -294,11 +307,30 @@ Typical pattern:
 
 ```corelx
 hero := Sprite()
-sprite.set_pos(&hero, 120, 80)
+sprite.set_pos(hero, 120, 80)
 hero.tile = 0
 hero.attr = SPR_PAL(1)
 hero.ctrl = SPR_ENABLE() | SPR_SIZE_16()
 ```
+
+Structs are reference types — passing `hero` to a function shares it, so the
+callee's edits are visible to the caller (no `&`, no pointers). You aren't
+limited to `Sprite()` — declare your own with `struct Name:` followed by an
+indented list of `field: type` lines:
+
+```corelx
+struct Player:
+    x: fixed
+    y: fixed
+    lives: int
+
+function Start()
+    player := Player()
+    player.lives = 3
+```
+
+Every field created this way works exactly like `Sprite`'s built-in fields —
+read, write, and pass the whole struct by name to functions.
 
 ---
 
