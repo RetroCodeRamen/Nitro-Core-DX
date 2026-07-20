@@ -16,10 +16,16 @@ type Position struct {
 // Program represents the root AST node
 type Program struct {
 	Position Position
-	Assets   []*AssetDecl
-	Types    []*TypeDecl
-	Consts   []*ConstDecl
-	Globals  []*GlobalVarDecl
+	// CoreLXVersion is the version string from a leading `--! corelx
+	// <version>` directive (charter D1), or "" if the file has none.
+	CoreLXVersion string
+	// Modules lists the module names requested by a leading `--! modules:
+	// name, name, ...` directive (charter D1), in source order.
+	Modules   []string
+	Assets    []*AssetDecl
+	Types     []*TypeDecl
+	Consts    []*ConstDecl
+	Globals   []*GlobalVarDecl
 	Functions []*FunctionDecl
 }
 

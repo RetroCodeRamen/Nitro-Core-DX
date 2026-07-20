@@ -39,6 +39,10 @@ func (p *Parser) Parse() (prog *Program, err error) {
 		Functions: make([]*FunctionDecl, 0),
 	}
 
+	if err := p.parseDirectives(prog); err != nil {
+		return nil, err
+	}
+
 	for !p.isAtEnd() {
 		// Skip newlines and indents at top level
 		for p.check(TOKEN_NEWLINE) || p.check(TOKEN_INDENT) || p.check(TOKEN_DEDENT) {
@@ -86,12 +90,69 @@ func (p *Parser) Parse() (prog *Program, err error) {
 			prog.Globals = append(prog.Globals, g)
 		} else if p.check(TOKEN_NEWLINE) {
 			p.advance()
+		} else if p.check(TOKEN_DIRECTIVE) {
+			return nil, p.error(p.peek(), "directives ('--!') are only legal at the top of the file, before any code")
 		} else {
 			return nil, p.error(p.peek(), fmt.Sprintf("Expected asset, type, struct, const, var, or function declaration, got %v", p.peek().Type))
 		}
 	}
 
 	return prog, nil
+}
+
+// parseDirectives consumes leading `--!` directive lines (charter D1:
+// directives are legal only at the top of the file, before any code).
+// Recognizes `corelx <version>` and `modules: name, name, ...`; any other
+// directive keyword is a compile error (this reserves the namespace for
+// additive growth, per the cartridge format spec).
+func (p *Parser) parseDirectives(prog *Program) error {
+	for {
+		for p.check(TOKEN_NEWLINE) {
+			p.advance()
+		}
+		if !p.check(TOKEN_DIRECTIVE) {
+			return nil
+		}
+		tok := p.advance()
+		if err := p.applyDirective(prog, tok); err != nil {
+			return err
+		}
+	}
+}
+
+// applyDirective parses and records a single directive's text (the content
+// of the token, i.e. everything after `--!`, already trimmed by the lexer).
+func (p *Parser) applyDirective(prog *Program, tok Token) error {
+	text := tok.Literal
+	switch {
+	case text == "":
+		return p.error(tok, "empty directive")
+
+	case text == "corelx" || strings.HasPrefix(text, "corelx "):
+		version := strings.TrimSpace(strings.TrimPrefix(text, "corelx"))
+		if version == "" {
+			return p.error(tok, "expected a version after 'corelx' directive, e.g. --! corelx 1.0")
+		}
+		prog.CoreLXVersion = version
+		return nil
+
+	case strings.HasPrefix(text, "modules:"):
+		rest := strings.TrimSpace(strings.TrimPrefix(text, "modules:"))
+		if rest == "" {
+			return p.error(tok, "expected at least one module name after 'modules:'")
+		}
+		for _, name := range strings.Split(rest, ",") {
+			name = strings.TrimSpace(name)
+			if name == "" {
+				return p.error(tok, "empty module name in 'modules:' directive")
+			}
+			prog.Modules = append(prog.Modules, name)
+		}
+		return nil
+
+	default:
+		return p.error(tok, fmt.Sprintf("unknown directive: --! %s", text))
+	}
 }
 
 // parseConstDecl parses: const NAME = expr

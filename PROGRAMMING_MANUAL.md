@@ -334,6 +334,91 @@ read, write, and pass the whole struct by name to functions.
 
 ---
 
+## Modules (`--!` Directives)
+
+`--!` lines are directives, not comments — they're only legal at the very top
+of the file, before any code, and declare things about the file itself:
+
+```corelx
+--! corelx 1.0
+--! modules: walker, dialog
+```
+
+- `--! corelx <version>` records which CoreLX version the file targets.
+- `--! modules: name, name, ...` pulls in one or more modules — plain
+  `.corelx` files that live in a `modules/` folder next to your project.
+  Functions inside a module are called the same way as builtins, namespaced
+  by the module's name:
+
+```corelx
+--! modules: walker
+
+function Start()
+    walker.update(1)
+    while true
+        wait_vblank()
+```
+
+A module is just a normal CoreLX file — functions, and any `const`/`var`
+declarations those functions need — nothing special about its own syntax. If
+`walker.corelx` isn't found in the `modules/` folder, you get a clear error
+(`module 'walker' not installed`) rather than a confusing "unknown function"
+at the call site. An unrecognized directive (a typo, or a directive keyword
+that doesn't exist yet) is also a compile error, not a silently-ignored line.
+
+### The `anim` Module (Sprite Animation)
+
+`anim` ships with the project (`modules/anim.corelx`) and handles the two
+genuinely reusable parts of sprite animation: frame timing and mirroring.
+Frame lists themselves stay as plain array constants in your own code — a
+module can only index arrays declared in the same file, so this keeps things
+working with today's language rather than waiting on new syntax:
+
+```corelx
+--! modules: anim
+
+const WALK_FRAME_COUNT = 4
+var walk_frames: int[4] = [1, 2, 3, 4]
+
+function Start()
+    hero := Sprite()
+    while true
+        wait_vblank()
+        idx := anim.frame_index(WALK_FRAME_COUNT, 8)  -- new frame every 8 ticks
+        hero.tile = walk_frames[idx]
+        anim.set_mirror(hero, 0)                      -- 1 to flip horizontally
+```
+
+`anim.frame_index(frame_count, ticks_per_frame)` returns which frame (0 to
+`frame_count - 1`) should be showing right now, looping back to 0 after the
+last one. `anim.set_mirror(sprite, mirror)` sets or clears horizontal flip —
+useful for getting a second direction (e.g. "walk right") out of frames you
+only drew once (e.g. "walk left").
+
+### The `sfx` Module (Sound Effect Triggers)
+
+`sfx` ships with the project (`modules/sfx.corelx`) and handles the one part
+every FM note needs and the one place a wrong register bit is easy to get
+subtly wrong: the key-on/key-off sequence. It doesn't set pitch or
+instrument sound — configure those yourself with `ym.write`/`ym.write_port1`
+(see the register map in `docs/specifications/`), then trigger and release
+the note:
+
+```corelx
+--! modules: sfx
+
+function Start()
+    -- (configure channel 0's pitch/instrument once via ym.write)
+    sfx.play(0)
+    -- ... later ...
+    sfx.stop(0)
+```
+
+Channel numbers are 0, 1, 2 for FM channels 1-3, and 4, 5, 6 for FM channels
+4-6 (channel 3 doesn't exist in this encoding).
+
+---
+
 ## Game Loop Basics (Frames, VBlank, Input)
 
 This section is the most important one for smooth movement.

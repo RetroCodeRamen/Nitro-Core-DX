@@ -17,14 +17,18 @@ type CompileOptions struct {
 	DiagnosticsOutputPath string
 	BundleOutputPath      string
 	AssetManifestPath     string
-	EntryBank             uint8
-	EntryOffset           uint16
-	MaxROMBytes           uint32
-	SectionBudgets        map[string]uint32
-	EmitROMBytes          bool
-	EmitManifestJSON      bool
-	EmitDiagnosticsJSON   bool
-	EmitBundleJSON        bool
+	// ModulesPath is the directory searched for `--! modules: name, ...`
+	// requests (each resolved to <ModulesPath>/<name>.corelx). Empty means
+	// the default: a "modules" directory next to the main source file.
+	ModulesPath         string
+	EntryBank           uint8
+	EntryOffset         uint16
+	MaxROMBytes         uint32
+	SectionBudgets      map[string]uint32
+	EmitROMBytes        bool
+	EmitManifestJSON    bool
+	EmitDiagnosticsJSON bool
+	EmitBundleJSON      bool
 }
 
 type CompileResult struct {
@@ -213,6 +217,13 @@ func CompileSource(source, sourcePath string, opts *CompileOptions) (result *Com
 		return result, &DiagnosticsError{Diagnostics: result.Diagnostics}
 	}
 	result.Program = program
+
+	currentStage = StageParser
+	moduleDiags := loadModules(program, sourcePath, cfg)
+	result.Diagnostics = append(result.Diagnostics, moduleDiags...)
+	if HasErrors(result.Diagnostics) {
+		return result, &DiagnosticsError{Diagnostics: result.Diagnostics}
+	}
 
 	currentStage = StageAsset
 	externalAssets, externalSources, externalDiags := loadProjectAssets(sourcePath, cfg)
@@ -403,6 +414,9 @@ func mergeCompileOptions(dst *CompileOptions, src CompileOptions) {
 	}
 	if src.AssetManifestPath != "" {
 		dst.AssetManifestPath = src.AssetManifestPath
+	}
+	if src.ModulesPath != "" {
+		dst.ModulesPath = src.ModulesPath
 	}
 	if src.EntryBank != 0 {
 		dst.EntryBank = src.EntryBank

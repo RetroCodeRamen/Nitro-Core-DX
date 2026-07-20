@@ -1,0 +1,45 @@
+-- anim: sprite animation over existing OAM builtins.
+--
+-- Frame lists are plain CoreLX array constants declared in your own game
+-- code (arrays can only be indexed where they're declared — see the
+-- Modules section of the programming manual), so this module handles the
+-- two genuinely reusable pieces instead: computing which frame index is
+-- "now" from the frame counter, and applying/clearing horizontal mirroring
+-- on a sprite via the existing SPR_HFLIP attribute bit.
+--
+-- Typical use:
+--     --! modules: anim
+--
+--     const WALK_UP_FRAMES = 4
+--     var walk_up: int[4] = [1, 2, 3, 4]
+--
+--     function Start()
+--         hero := Sprite()
+--         while true
+--             wait_vblank()
+--             idx := anim.frame_index(WALK_UP_FRAMES, 8)
+--             hero.tile = walk_up[idx]
+--             anim.set_mirror(hero, 0)
+
+-- frame_index returns which frame (0..frame_count-1) should be showing right
+-- now, advancing one frame every ticks_per_frame calls to wait_vblank(), and
+-- looping back to 0 after the last frame.
+function frame_index(frame_count: int, ticks_per_frame: int) -> int
+    idx := frame_counter() / ticks_per_frame
+    while idx >= frame_count
+        idx = idx - frame_count
+    return idx
+
+-- set_mirror sets or clears a sprite's horizontal-flip bit, so a single
+-- frame list can serve both directions of a symmetric animation (e.g. only
+-- author "walk_left" frames, then mirror them for "walk_right").
+function set_mirror(s: Sprite, mirror: int)
+    if mirror != 0
+        s.attr = s.attr | SPR_HFLIP()
+    else
+        -- Written as two statements, not `s.attr & ~SPR_HFLIP()`, to avoid a
+        -- known codegen bug: a unary op nested as the right-hand operand of a
+        -- binary `&`/`|` clobbers the left operand's saved value (both use
+        -- register R1). Splitting across statements avoids the collision.
+        unflip_mask := ~SPR_HFLIP()
+        s.attr = s.attr & unflip_mask

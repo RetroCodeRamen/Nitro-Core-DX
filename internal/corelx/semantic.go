@@ -371,6 +371,10 @@ func (a *SemanticAnalyzer) analyzeExpr(expr Expr) {
 			// Built-in namespace, valid
 			return
 		}
+		if a.isRequestedModule(e.Name) {
+			// A `--! modules: ...` namespace (e.g. `walker` in walker.update(...)), valid
+			return
+		}
 		if _, exists := a.symbols[e.Name]; !exists {
 			a.addDiagnostic(e.Position, CategorySymbolError, "E_IDENT_UNDEFINED", fmt.Sprintf("undefined identifier: %s", e.Name), "")
 		}
@@ -378,6 +382,17 @@ func (a *SemanticAnalyzer) analyzeExpr(expr Expr) {
 	case *NumberExpr, *StringExpr, *BoolExpr:
 		// Literals are fine
 	}
+}
+
+// isRequestedModule reports whether name is one of the program's `--!
+// modules:` namespaces (charter D1).
+func (a *SemanticAnalyzer) isRequestedModule(name string) bool {
+	for _, m := range a.program.Modules {
+		if m == name {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *SemanticAnalyzer) addDiagnostic(pos Position, category DiagnosticCategory, code, message, file string) {

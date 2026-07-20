@@ -2,6 +2,7 @@ package corelx
 
 import (
 	"fmt"
+	"strings"
 	"unicode"
 	"unicode/utf8"
 )
@@ -80,6 +81,11 @@ const (
 
 	// Comments
 	TOKEN_COMMENT
+
+	// Directives: `--!` lines (charter D1), e.g. `--! corelx 1.0`,
+	// `--! modules: anim, sfx`. Literal is the directive text after `--!`,
+	// trimmed of surrounding whitespace.
+	TOKEN_DIRECTIVE
 )
 
 // Token represents a lexical token
@@ -233,6 +239,10 @@ func (l *Lexer) scanToken() error {
 		if l.match('>') {
 			l.emitToken(TOKEN_ARROW, "->", line, column)
 		} else if l.match('-') {
+			if l.match('!') {
+				// Directive: --!
+				return l.scanDirective(line, column)
+			}
 			// Comment: --
 			return l.scanComment(line, column)
 		} else {
@@ -284,6 +294,20 @@ func (l *Lexer) scanComment(line, column int) error {
 	for !l.isAtEnd() && l.peek() != '\n' {
 		l.advance()
 	}
+	return nil
+}
+
+// scanDirective scans a `--!` directive line (charter D1). Unlike a plain
+// comment, its text becomes a token: the parser enforces that directives are
+// legal only at the top of the file, before any code, and rejects unknown
+// directives.
+func (l *Lexer) scanDirective(line, column int) error {
+	start := l.position
+	for !l.isAtEnd() && l.peek() != '\n' {
+		l.advance()
+	}
+	text := strings.TrimSpace(l.source[start:l.position])
+	l.emitToken(TOKEN_DIRECTIVE, text, line, column)
 	return nil
 }
 

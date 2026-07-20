@@ -619,6 +619,23 @@ and refines the charter §D10 `music` keyword to mean an external music asset
 reference. v1 music completeness = the `music.*` + `ym.*` builtins above over
 the external `.ncdxmusic` format.
 
+**`anim` module data representation (decided 2026-07-20).** Charter §D10
+sketches `anim` frame lists and mirroring (`anim walk_up: 1 2 3 4`,
+`anim walk_right: mirror_h walk_left`) as dedicated top-level data-declaration
+syntax the compiler emits ROM tables for. Building that syntax is a
+materially larger effort than the module system itself (a real design pass on
+the full `sprite`/`background`/`music`/`instrument`/`sample` section grammar,
+not just one declaration form) and isn't needed to ship a working `anim`
+module now. For v1, animation frame lists are **plain CoreLX array constants**
+(`const walk_up: int[4] = [1, 2, 3, 4]`, already a working language feature),
+passed to `anim.play(sprite_id, frames, mirror)`; mirroring is a boolean
+argument rather than a `mirror_h` data reference. This is consistent with the
+hard-split rule (small data stays inline as code; only bitmap planes and audio
+samples are external) — animation frame-index lists are exactly that scale of
+data. The dedicated `sprite`/`anim` block syntax from D10 remains a real
+future intent — sugar that could compile down to the same underlying
+mechanism — not abandoned, just not built for v1.
+
 ## 14. Open questions
 
 None. All design questions raised by this extraction are settled; §13 is

@@ -1,0 +1,33 @@
+-- sfx: minimal helpers for triggering FM notes via the low-level YM2608
+-- register escape hatch (ym.write).
+--
+-- This module only handles the key-on/key-off sequence (register 0x28) —
+-- the one part every note needs, and the one place a wrong channel-encoding
+-- bit is easy to get subtly wrong. Set the channel's pitch and instrument
+-- parameters yourself with ym.write/ym.write_port1 before calling
+-- sfx.play — see docs/specifications/YM2608_IMPLEMENTATION_NOTES.md and
+-- COMPLETE_HARDWARE_SPECIFICATION_V2.1.md for the register map.
+--
+-- Channel numbers: 0, 1, 2 for FM channels 1-3 (port 0, via ym.write);
+-- 4, 5, 6 for FM channels 4-6 (port 1, via ym.write_port1's channel-select
+-- convention) — channel 3 does not exist in this encoding.
+--
+-- Typical use:
+--     --! modules: sfx
+--
+--     function Start()
+--         -- (configure channel 0's pitch/instrument once via ym.write)
+--         sfx.play(0)
+--         -- ... later ...
+--         sfx.stop(0)
+
+-- play keys on all 4 operators of the given channel (register 0x28,
+-- data = 0xF0 | channel).
+function play(channel: int)
+    cmd := channel | 0xF0
+    ym.write(0x28, cmd)
+
+-- stop keys off the given channel (register 0x28, data = channel, no
+-- operator bits set).
+function stop(channel: int)
+    ym.write(0x28, channel)
