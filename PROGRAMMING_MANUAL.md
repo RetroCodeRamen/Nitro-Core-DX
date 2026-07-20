@@ -231,10 +231,8 @@ go run ./cmd/corelx hello.corelx hello.rom
 ### Run in Emulator
 
 ```bash
-go run -tags no_sdl_ttf ./cmd/emulator -rom hello.rom
+go run ./cmd/emulator -rom hello.rom
 ```
-
-(Use `-tags no_sdl_ttf` if your machine does not have SDL2_ttf dev libraries installed.)
 
 ---
 
@@ -1000,7 +998,7 @@ go run ./cmd/corelx mygame.corelx mygame.rom
 Then run:
 
 ```bash
-go run -tags no_sdl_ttf ./cmd/emulator -rom mygame.rom
+go run ./cmd/emulator -rom mygame.rom
 ```
 
 ## Workflow C: Assembly CLI (New v1)
@@ -1215,7 +1213,6 @@ Use the frame-edge loop pattern with `frame_counter()` (see [Game Loop Basics](#
 ## "Audio is silent"
 
 - Make sure your system audio output is active
-- For standalone emulator runs, use the right build flags (`no_sdl_ttf` affects fonts, not audio)
 - Test with a known-good audio ROM first (for example, the APU/FM showcase test ROMs)
 
 ## "Assembly ROM runs strangely"

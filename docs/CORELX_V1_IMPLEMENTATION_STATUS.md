@@ -85,7 +85,7 @@ Every item below compiles and runs on the emulator with a passing test in
 
 ```
 # 1. Convert art to a text asset (devkit importer):
-go run -tags no_sdl_ttf ./cmd/corelx_import  myart.png  MyArt  32  1  out/my_art.cxasset
+go run ./cmd/corelx_import  myart.png  MyArt  32  1  out/my_art.cxasset
 #                                              image      name  size palBank  output
 #   size = matrix-plane tiles per side (32/64/128); palBank = CGRAM bank.
 
@@ -128,12 +128,13 @@ error; a `.cxasset` in the project that nothing references is an error.
 ## 5. Build / test / run commands
 
 ```
-# Build the toolchain (this machine: needs -tags no_sdl_ttf; never `go build ./...`):
-go build -tags no_sdl_ttf -o corelx ./cmd/corelx
-go build -tags no_sdl_ttf -o corelx_import ./cmd/corelx_import
+# Build the toolchain (never `go build ./...` — it sweeps vendored reference
+# code under Resources/ that needs C libraries this project doesn't depend on):
+go build -o corelx ./cmd/corelx
+go build -o corelx_import ./cmd/corelx_import
 
 # Tests (every CoreLX feature is emulator-verified here):
-go test -tags no_sdl_ttf ./internal/corelx -timeout 120s
+go test ./internal/corelx -timeout 120s
 make test-full          # whole project
 
 # The emulator binary is prebuilt at ./emulator (see kitsune-dev-environment memory).

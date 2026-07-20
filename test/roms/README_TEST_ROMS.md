@@ -37,8 +37,8 @@ Several Go-based ROM generator utilities also live in this directory. They are e
 # Build ROM
 go run -tags testrom_tools ./test/roms/build_input_visual_diagnostic.go ./roms/input_visual_diagnostic.rom
 
-# Run in emulator (no SDL_ttf build)
-go run -tags no_sdl_ttf ./cmd/emulator -rom ./roms/input_visual_diagnostic.rom
+# Run in emulator
+go run ./cmd/emulator -rom ./roms/input_visual_diagnostic.rom
 ```
 
 ### `build_apu_fm_showcase.go`
@@ -59,8 +59,8 @@ go run -tags no_sdl_ttf ./cmd/emulator -rom ./roms/input_visual_diagnostic.rom
 # Build ROM
 go run -tags testrom_tools ./test/roms/build_apu_fm_showcase.go ./roms/apu_fm_showcase.rom
 
-# Run in emulator (no SDL_ttf build)
-go run -tags no_sdl_ttf ./cmd/emulator -rom ./roms/apu_fm_showcase.rom
+# Run in emulator
+go run ./cmd/emulator -rom ./roms/apu_fm_showcase.rom
 ```
 
 ### `build_fm_opmlite_showcase.go`
@@ -79,8 +79,8 @@ go run -tags no_sdl_ttf ./cmd/emulator -rom ./roms/apu_fm_showcase.rom
 # Build ROM
 go run -tags testrom_tools ./test/roms/build_fm_opmlite_showcase.go ./roms/fm_opmlite_showcase.rom
 
-# Run in emulator (no SDL_ttf build)
-go run -tags no_sdl_ttf ./cmd/emulator -rom ./roms/fm_opmlite_showcase.rom
+# Run in emulator
+go run ./cmd/emulator -rom ./roms/fm_opmlite_showcase.rom
 ```
 
 ### `build_ym2608_demo_song.go`
@@ -100,7 +100,7 @@ go run -tags testrom_tools ./test/roms/build_ym2608_demo_song.go \
   -frames-per-bank 70
 
 # Run ROM using YMFM backend
-go run -tags ymfm_cgo,no_sdl_ttf ./cmd/emulator \
+go run -tags ymfm_cgo ./cmd/emulator \
   -rom roms/ym2608_demo_song.rom \
   -audio-backend ymfm
 
@@ -143,7 +143,7 @@ go run -tags testrom_tools ./test/roms/build_pong_ym2608.go \
   -out roms/pong_ym2608_demo.rom
 
 # Run with YMFM backend
-go run -tags ymfm_cgo,no_sdl_ttf ./cmd/emulator \
+go run -tags ymfm_cgo ./cmd/emulator \
   -rom roms/pong_ym2608_demo.rom \
   -audio-backend ymfm
 ```
@@ -165,7 +165,7 @@ go run -tags testrom_tools ./test/roms/build_matrix_rowmode_showcase.go \
   -out roms/matrix_rowmode_showcase.rom
 
 # Run in emulator
-go build -tags ymfm_cgo,no_sdl_ttf -o emulator ./cmd/emulator
+go build -tags ymfm_cgo -o emulator ./cmd/emulator
 ./emulator -rom roms/matrix_rowmode_showcase.rom -audio-backend ymfm
 ```
 

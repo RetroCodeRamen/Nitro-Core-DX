@@ -16,7 +16,7 @@ go build -o testrom_input ./cmd/testrom/input
 
 ```bash
 # Make sure emulator is built
-go build -tags "no_sdl_ttf" -o nitro-core-dx ./cmd/emulator
+go build -o nitro-core-dx ./cmd/emulator
 
 # Run the input test ROM
 ./nitro-core-dx -rom roms/input_test.rom -scale 3

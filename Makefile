@@ -1,8 +1,8 @@
 .PHONY: test-fast test-full test-long test-emulator test-commands check-ym2608-manifest check-ym2608-manifest-strict check-ym2608-policy ci-audio release-linux
 
 GO ?= go
-GO_TEST_TAGS ?= no_sdl_ttf
-GO_TEST_COMMON = $(GO) test -tags $(GO_TEST_TAGS)
+GO_TEST_TAGS ?=
+GO_TEST_COMMON = $(GO) test -tags "$(GO_TEST_TAGS)"
 
 # Fast local checks (skip long-running emulator timing tests)
 test-fast:

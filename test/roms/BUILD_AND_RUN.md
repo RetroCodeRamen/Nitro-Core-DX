@@ -42,7 +42,7 @@ cd /home/aj/Documents/Development/Nitro-Core-DX
 ## Troubleshooting
 
 - **"No such file or directory"**: Make sure you're in the project root, not in `nxbrew-dl` or other subdirectories
-- **"command not found"**: Make sure you've built the emulator: `go build -tags "no_sdl_ttf" ./cmd/emulator`
+- **"command not found"**: Make sure you've built the emulator: `go build ./cmd/emulator`
 - **ROM not found**: Make sure you built the ROM first using the build script
 
 ## Project Structure

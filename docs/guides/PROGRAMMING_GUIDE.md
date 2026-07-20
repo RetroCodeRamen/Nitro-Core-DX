@@ -289,7 +289,7 @@ go run ./cmd/corelx test/roms/devkit_moving_box_test.corelx /tmp/devkit_moving_b
 Run:
 
 ```bash
-go run -tags no_sdl_ttf ./cmd/emulator -rom /tmp/devkit_moving_box_test.rom
+go run ./cmd/emulator -rom /tmp/devkit_moving_box_test.rom
 ```
 
 ---
@@ -551,7 +551,7 @@ Run in integrated app:
 Or run in standalone emulator:
 
 ```bash
-go run -tags no_sdl_ttf ./cmd/emulator -rom /tmp/tutorial_pong.rom
+go run ./cmd/emulator -rom /tmp/tutorial_pong.rom
 ```
 
 ---

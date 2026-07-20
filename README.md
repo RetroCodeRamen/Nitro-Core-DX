@@ -135,7 +135,7 @@ go run -tags testrom_tools ./Games/NitroPackInDemo -out roms/nitro_pack_in_demo.
 Or compile and run the in-progress **CoreLX** rebuild:
 
 ```bash
-go build -tags no_sdl_ttf -o corelx ./cmd/corelx
+go build -o corelx ./cmd/corelx
 ./corelx Games/NitroPackInDemo/corelx/overworld.corelx roms/overworld.cart
 ./nitro-core-dx -rom roms/overworld.cart
 ```
@@ -146,7 +146,7 @@ Either ROM/cart can also be loaded in the integrated Dev Kit's embedded emulator
 
 ## Project Status
 
-**Validation:** the build and `make test-full` pass on the current tree (Linux, `no_sdl_ttf` tag — see the build notes below). Some ROM generator helpers are gated behind the `testrom_tools` build tag to avoid multiple-`main` conflicts during normal test runs.
+**Validation:** the build and `make test-full` pass on the current tree (Linux). Some ROM generator helpers are gated behind the `testrom_tools` build tag to avoid multiple-`main` conflicts during normal test runs.
 
 ### ✅ Currently Implemented
 
@@ -280,13 +280,6 @@ Use **Emulator Focus** view inside the app if you just want to load and play/tes
    ```
 
 3. **Optional: build the standalone emulator UI:**
-   
-   **Without SDL2_ttf (recommended if SDL2_ttf is not installed):**
-   ```bash
-   go build -tags "no_sdl_ttf" -o nitro-core-dx ./cmd/emulator
-   ```
-   
-   **With SDL2_ttf (if you have SDL2_ttf installed):**
    ```bash
    go build -o nitro-core-dx ./cmd/emulator
    ```
@@ -395,8 +388,7 @@ Note: Test ROMs can map controls differently. Use the ROM-specific docs/comments
 **Build Errors:**
 - Make sure Go is properly installed: `go version` (should show 1.22 or later)
 - Make sure all dependencies are downloaded: `go mod download`
-- If SDL2_ttf is not installed, use `-tags no_sdl_ttf` for emulator/UI builds and tests
-- Clean and rebuild (no SDL2_ttf): `go clean -cache && go build -tags no_sdl_ttf ./...`
+- Clean and rebuild: `go clean -cache && go build ./cmd/... ./internal/...` (`./...` also sweeps vendored reference code under `Resources/` that needs C libraries this project doesn't depend on)
 - Fast regression suite: `make test-fast` (recommended before longer test runs)
 
 **ROM Generator Utilities:**

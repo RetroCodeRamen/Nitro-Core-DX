@@ -52,7 +52,7 @@ Default version is derived from `git describe --tags --always --dirty`.
 
 ## Notes / Limitations
 
-- Builds use the `no_sdl_ttf` tag (SDL2_ttf is optional and not included).
+- SDL2_ttf is not a dependency at all — the release builds have no text-rendering path that needs it.
 - **Linux** still requires SDL2 runtime libraries installed on the target machine.
 - **Windows** package includes `SDL2.dll` and the required MinGW runtime DLLs used by the CGO build, but still depends on normal Windows graphics/runtime components.
 - The packaged app is the integrated **Nitro-Core-DX** app; users can switch to **Emulator Focus** or **Code Only** view inside the app.

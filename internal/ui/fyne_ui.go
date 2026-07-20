@@ -25,7 +25,7 @@ import (
 	"github.com/veandco/go-sdl2/sdl"
 )
 
-// FyneUI represents the Fyne-based UI with SDL2 for emulator rendering
+// FyneUI represents the Fyne-based UI, with SDL2 used only for audio output
 type FyneUI struct {
 	app      fyne.App
 	window   fyne.Window
@@ -34,11 +34,9 @@ type FyneUI struct {
 	running  bool
 	paused   bool
 
-	// SDL2 for emulator rendering
-	sdlRenderer *sdl.Renderer
-	sdlTexture  *sdl.Texture
-	audioDev    sdl.AudioDeviceID
-	audioFrame  []byte // Interleaved stereo float32 for one emulator frame (735 samples)
+	// SDL2 for audio output
+	audioDev   sdl.AudioDeviceID
+	audioFrame []byte // Interleaved stereo float32 for one emulator frame (735 samples)
 
 	// Fyne widgets
 	emulatorImage *canvas.Image
@@ -900,12 +898,6 @@ func (ui *FyneUI) Cleanup() {
 
 	if ui.audioDev != 0 {
 		sdl.CloseAudioDevice(ui.audioDev)
-	}
-	if ui.sdlTexture != nil {
-		ui.sdlTexture.Destroy()
-	}
-	if ui.sdlRenderer != nil {
-		ui.sdlRenderer.Destroy()
 	}
 	sdl.Quit()
 }

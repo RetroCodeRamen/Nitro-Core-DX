@@ -115,7 +115,7 @@ read_lints tool on all modified files
 ### 3.2 Build Verification
 ```bash
 # Ensure project still builds
-go build -tags "no_sdl_ttf" -o nitro-core-dx ./cmd/emulator
+go build -o nitro-core-dx ./cmd/emulator
 ```
 
 **Action**: If build fails, fix issues before proceeding.
