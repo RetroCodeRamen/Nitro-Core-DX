@@ -858,6 +858,54 @@ func TestGfxSetPaletteWritesExpectedCGRAM(t *testing.T) {
 	}
 }
 
+// TestGfxSetPaletteColorWritesExpectedCGRAM verifies the CoreLX
+// gfx.set_palette_color builtin (a flat single-index CGRAM write, the
+// escape-hatch complement to gfx.set_palette's palette+color_index form)
+// writes the intended CGRAM color slot directly.
+func TestGfxSetPaletteColorWritesExpectedCGRAM(t *testing.T) {
+	source := `function Start()
+    gfx.set_palette_color(17, 0x7C00)
+    while true
+        wait_vblank()
+`
+
+	tmpDir := t.TempDir()
+	sourcePath := filepath.Join(tmpDir, "palette_color_test.corelx")
+	outputPath := filepath.Join(tmpDir, "palette_color_test.rom")
+
+	if err := os.WriteFile(sourcePath, []byte(source), 0644); err != nil {
+		t.Fatalf("Failed to write source file: %v", err)
+	}
+	if err := CompileFile(sourcePath, outputPath); err != nil {
+		t.Fatalf("Compilation failed: %v", err)
+	}
+
+	romData, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("Failed to read ROM: %v", err)
+	}
+	emu := emulator.NewEmulator()
+	emu.SetFrameLimit(false)
+	if err := emu.LoadROM(romData); err != nil {
+		t.Fatalf("Failed to load ROM: %v", err)
+	}
+	emu.Start()
+
+	for i := 0; i < 2; i++ {
+		if err := emu.RunFrame(); err != nil {
+			t.Fatalf("RunFrame failed: %v", err)
+		}
+	}
+
+	// CGRAM color index 17 (same slot as palette 1, color 1 above) => byte address 34
+	if got := emu.PPU.CGRAM[34]; got != 0x00 {
+		t.Fatalf("CGRAM low byte mismatch at index 17: got 0x%02X want 0x00", got)
+	}
+	if got := emu.PPU.CGRAM[35]; got != 0x7C {
+		t.Fatalf("CGRAM high byte mismatch at index 17: got 0x%02X want 0x7C", got)
+	}
+}
+
 func TestBGStaticControlsDriveExpectedPPUState(t *testing.T) {
 	source := `function Start()
     bg.enable(2)

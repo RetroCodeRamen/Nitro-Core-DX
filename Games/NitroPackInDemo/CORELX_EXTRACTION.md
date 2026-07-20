@@ -558,8 +558,11 @@ documented patterns. Movement, dialogue, and collision are game code; the
 demo cartridge doubles as the teaching example for all three, and each
 becomes a devkit module when a second game proves the reuse. Out of v1
 (additive later): external file
-references, sprite sheets, string data type, save/load, and any
-plane-projection capability the hardware does not already have.
+references, sprite sheets, a first-class string *data type* (string
+variables, concatenation, indexing — string *literals* as `text.draw`/dialogue
+labels already shipped in v1, §11/D11; this line is only about promoting
+strings beyond labels), save/load, and any plane-projection capability the
+hardware does not already have.
 
 **System coherence test.** Every piece of the system has exactly one home:
 hardware mechanisms are builtins, multi-game logic is modules, and each

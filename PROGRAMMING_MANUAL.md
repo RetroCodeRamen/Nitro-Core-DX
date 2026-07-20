@@ -401,6 +401,14 @@ ppu.enable_display()
 gfx.set_palette(1, 1, 0x7FFF)  -- palette 1, color 1 = white (RGB555)
 ```
 
+`gfx.set_palette_color(cgram_index, color)` is the same write with a flat
+0-255 CGRAM index instead of separate palette/color-index arguments — useful
+when you already have a combined index (e.g. writing a color table in a loop):
+
+```corelx
+gfx.set_palette_color(17, 0x7FFF)  -- CGRAM index 17 (palette 1, color 1) = white
+```
+
 ### RGB555 Reminder
 
 Colors are 15-bit values:

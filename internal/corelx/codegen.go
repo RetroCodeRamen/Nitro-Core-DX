@@ -26,12 +26,13 @@ type CodeGenerator struct {
 	stackOffset uint16 // Current stack offset for spilled variables
 
 	// Top-level constants and WRAM globals (charter D3).
-	consts      map[string]int64
-	constFixed  map[string]bool
-	imageAssets map[string]*ImageAsset
-	musicAssets map[string]*MusicAsset
-	globals     map[string]*VariableInfo
-	memoryMap   []MemoryMapEntry
+	consts        map[string]int64
+	constFixed    map[string]bool
+	imageAssets   map[string]*ImageAsset
+	musicAssets   map[string]*MusicAsset
+	globals       map[string]*VariableInfo
+	memoryMap     []MemoryMapEntry
+	structLayouts map[string]*structLayout // lazily built by structLayoutFor
 
 	// Arithmetic helper routines emitted once after user functions when
 	// referenced (signed 8.8 multiply needs 32-bit-correct partials).
@@ -98,15 +99,87 @@ type structMemberInfo struct {
 	Width  uint8 // in bytes (1 or 2)
 }
 
-func structTypeNameFromTypeExpr(t TypeExpr) string {
+// structLayout describes a struct type's field offsets/widths and total size.
+type structLayout struct {
+	Fields map[string]structMemberInfo
+	Size   uint16
+}
+
+// structLayoutFor returns the field layout for a struct type name, computing
+// and caching it on first use. "Sprite" is a compiler intrinsic (the OAM
+// sprite-attribute hardware format) with no source-level declaration; every
+// other name is resolved generically from a `type Name = struct` declaration
+// in the program.
+func (cg *CodeGenerator) structLayoutFor(name string) (*structLayout, bool) {
+	if cg.structLayouts == nil {
+		cg.structLayouts = map[string]*structLayout{
+			"Sprite": {
+				Size: 6,
+				Fields: map[string]structMemberInfo{
+					"x_lo": {Offset: 0, Width: 1},
+					"x_hi": {Offset: 1, Width: 1},
+					"y":    {Offset: 2, Width: 1},
+					"tile": {Offset: 3, Width: 1},
+					"attr": {Offset: 4, Width: 1},
+					"ctrl": {Offset: 5, Width: 1},
+				},
+			},
+		}
+	}
+	if layout, ok := cg.structLayouts[name]; ok {
+		return layout, true
+	}
+	for _, td := range cg.program.Types {
+		if td.Name != name {
+			continue
+		}
+		st, ok := td.Type.(*StructType)
+		if !ok {
+			return nil, false
+		}
+		layout := &structLayout{Fields: map[string]structMemberInfo{}}
+		offset := uint16(0)
+		for _, f := range st.Fields {
+			width, err := structFieldWidth(f.Type)
+			if err != nil {
+				return nil, false
+			}
+			layout.Fields[f.Name] = structMemberInfo{Offset: offset, Width: width}
+			offset += uint16(width)
+		}
+		layout.Size = offset
+		cg.structLayouts[name] = layout
+		return layout, true
+	}
+	return nil, false
+}
+
+// structFieldWidth returns the storage width in bytes for a struct field's
+// declared type. Struct-typed and array-typed fields aren't supported yet.
+func structFieldWidth(t TypeExpr) (uint8, error) {
+	named, ok := t.(*NamedType)
+	if !ok {
+		return 0, fmt.Errorf("unsupported struct field type")
+	}
+	switch named.Name {
+	case "u8", "i8":
+		return 1, nil
+	case "int", "i16", "u16", "fixed":
+		return 2, nil
+	default:
+		return 0, fmt.Errorf("unsupported struct field type %q", named.Name)
+	}
+}
+
+func (cg *CodeGenerator) structTypeNameFromTypeExpr(t TypeExpr) string {
 	switch tt := t.(type) {
 	case *NamedType:
-		if tt.Name == "Sprite" || tt.Name == "Vec2" {
+		if _, ok := cg.structLayoutFor(tt.Name); ok {
 			return tt.Name
 		}
 	case *PointerType:
 		if base, ok := tt.Base.(*NamedType); ok {
-			if base.Name == "Sprite" || base.Name == "Vec2" {
+			if _, ok := cg.structLayoutFor(base.Name); ok {
 				return base.Name
 			}
 		}
@@ -448,7 +521,7 @@ func (cg *CodeGenerator) generateFunction(fn *FunctionDecl) error {
 			Name:       param.Name,
 			Location:   VarLocationStack,
 			StackAddr:  stackAddr,
-			StructType: structTypeNameFromTypeExpr(param.Type),
+			StructType: cg.structTypeNameFromTypeExpr(param.Type),
 			VarType:    paramVarType,
 		}
 	}
@@ -483,36 +556,12 @@ func (cg *CodeGenerator) generateFunction(fn *FunctionDecl) error {
 }
 
 func (cg *CodeGenerator) resolveStructMember(varInfo *VariableInfo, member string) (structMemberInfo, bool) {
-	spriteMembers := map[string]structMemberInfo{
-		"x_lo": {Offset: 0, Width: 1},
-		"x_hi": {Offset: 1, Width: 1},
-		"y":    {Offset: 2, Width: 1},
-		"tile": {Offset: 3, Width: 1},
-		"attr": {Offset: 4, Width: 1},
-		"ctrl": {Offset: 5, Width: 1},
+	layout, ok := cg.structLayoutFor(varInfo.StructType)
+	if !ok {
+		return structMemberInfo{}, false
 	}
-	vec2Members := map[string]structMemberInfo{
-		"x": {Offset: 0, Width: 2},
-		"y": {Offset: 2, Width: 2},
-	}
-
-	switch varInfo.StructType {
-	case "Sprite":
-		v, ok := spriteMembers[member]
-		return v, ok
-	case "Vec2":
-		v, ok := vec2Members[member]
-		return v, ok
-	}
-
-	// Legacy fallback when struct type is unknown in codegen state.
-	if v, ok := spriteMembers[member]; ok {
-		return v, true
-	}
-	if v, ok := vec2Members[member]; ok {
-		return v, true
-	}
-	return structMemberInfo{}, false
+	info, ok := layout.Fields[member]
+	return info, ok
 }
 
 func (cg *CodeGenerator) emitStructMemberStore(varInfo *VariableInfo, member structMemberInfo, valueReg uint8) bool {
@@ -633,8 +682,7 @@ func (cg *CodeGenerator) generateVarDecl(stmt *VarDeclStmt) error {
 	// Check if initializer is a struct initialization
 	if call, ok := stmt.Value.(*CallExpr); ok {
 		if ident, ok := call.Func.(*IdentExpr); ok {
-			knownStructs := map[string]bool{"Sprite": true, "Vec2": true}
-			if knownStructs[ident.Name] {
+			if _, isStruct := cg.structLayoutFor(ident.Name); isStruct {
 				// Struct initialization - use generateCall to allocate and get address
 				// This ensures the struct is properly allocated and address is returned
 				if err := cg.generateCall(call, 0); err != nil {
@@ -687,7 +735,7 @@ func (cg *CodeGenerator) generateVarDecl(stmt *VarDeclStmt) error {
 		Name:       stmt.Name,
 		Location:   VarLocationStack,
 		StackAddr:  stackAddr,
-		StructType: structTypeNameFromTypeExpr(stmt.Type),
+		StructType: cg.structTypeNameFromTypeExpr(stmt.Type),
 		VarType:    cg.typeOf(stmt.Value),
 	}
 	return nil
@@ -731,15 +779,24 @@ func (cg *CodeGenerator) generateAssign(stmt *AssignStmt) error {
 	}
 	if member, ok := stmt.Target.(*MemberExpr); ok {
 		// Struct member assignment like hero.tile = base
-		if ident, ok := member.Object.(*IdentExpr); ok {
-			if varInfo, exists := cg.variables[ident.Name]; exists {
-				memberInfo, found := cg.resolveStructMember(varInfo, member.Member)
-				if found && cg.emitStructMemberStore(varInfo, memberInfo, 0) {
-					return nil
-				}
-			}
+		ident, ok := member.Object.(*IdentExpr)
+		if !ok {
+			return fmt.Errorf("unsupported assignment target: %T", stmt.Target)
 		}
-		// Fallback: discard (would need proper struct tracking)
+		varInfo, exists := cg.variables[ident.Name]
+		if !exists {
+			return fmt.Errorf("cannot assign to %s.%s: unknown variable %s", ident.Name, member.Member, ident.Name)
+		}
+		if varInfo.StructType == "" {
+			return fmt.Errorf("cannot assign to %s.%s: %s is not a struct variable", ident.Name, member.Member, ident.Name)
+		}
+		memberInfo, found := cg.resolveStructMember(varInfo, member.Member)
+		if !found {
+			return fmt.Errorf("struct %s has no field %q", varInfo.StructType, member.Member)
+		}
+		if !cg.emitStructMemberStore(varInfo, memberInfo, 0) {
+			return fmt.Errorf("cannot assign to %s.%s: unsupported storage location", ident.Name, member.Member)
+		}
 		return nil
 	}
 
@@ -1392,13 +1449,16 @@ func (cg *CodeGenerator) generateExpr(expr Expr, destReg uint8) error {
 		if ident, ok := e.Object.(*IdentExpr); ok {
 			// Check if variable exists first (prioritize variable over namespace)
 			if varInfo, exists := cg.variables[ident.Name]; exists {
-				memberInfo, found := cg.resolveStructMember(varInfo, e.Member)
-				if found && cg.emitStructMemberLoad(varInfo, memberInfo, destReg) {
-					return nil
+				if varInfo.StructType == "" {
+					return fmt.Errorf("cannot read %s.%s: %s is not a struct variable", ident.Name, e.Member, ident.Name)
 				}
-				// Variable exists but member not found - return 0
-				cg.builder.AddInstruction(rom.EncodeMOV(1, destReg, 0))
-				cg.builder.AddImmediate(0)
+				memberInfo, found := cg.resolveStructMember(varInfo, e.Member)
+				if !found {
+					return fmt.Errorf("struct %s has no field %q", varInfo.StructType, e.Member)
+				}
+				if !cg.emitStructMemberLoad(varInfo, memberInfo, destReg) {
+					return fmt.Errorf("cannot read %s.%s: unsupported storage location", ident.Name, e.Member)
+				}
 				return nil
 			}
 			// Variable doesn't exist - this is an error for member access
@@ -1622,16 +1682,11 @@ func (cg *CodeGenerator) generateCall(call *CallExpr, destReg uint8) error {
 	}
 
 	// Handle struct initialization like Sprite() or Vec2()
-	// Check if it's a known struct type
-	knownStructs := map[string]bool{
-		"Sprite": true, "Vec2": true,
-	}
-	if knownStructs[funcName] {
-		// Struct initialization creates a zero-initialized struct
-		// Allocate stack space for struct (Sprite = 6 bytes)
-		structSize := uint16(6) // Sprite struct is 6 bytes
-		if funcName == "Vec2" {
-			structSize = 4 // Vec2 is 2 i16s = 4 bytes
+	if layout, isStruct := cg.structLayoutFor(funcName); isStruct {
+		// Struct initialization creates a zero-initialized struct.
+		structSize := layout.Size
+		if structSize%2 != 0 {
+			return fmt.Errorf("struct %s has odd total size (%d bytes); only whole-word struct layouts are supported", funcName, structSize)
 		}
 		stackAddr, err := cg.allocateStack(structSize, "struct "+funcName)
 		if err != nil {
@@ -2049,6 +2104,42 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 
 		// Write high byte (triggers CGRAM write)
 		cg.builder.AddInstruction(rom.EncodeMOV(0, 7, 2)) // MOV R7, R2 (color)
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #8
+		cg.builder.AddImmediate(8)
+		cg.builder.AddInstruction(rom.EncodeSHR(0, 7, 5)) // SHR R7, R5 -> R7 = color >> 8 (high byte)
+		cg.builder.AddInstruction(rom.EncodeMOV(3, 6, 7)) // MOV [R6], R7 (write high byte, triggers write)
+		return nil
+
+	case "gfx.set_palette_color":
+		// gfx.set_palette_color(cgram_index: u8, color: u16)
+		// Args: R0 = cgram_index (flat 0-255 CGRAM color index), R1 = color (RGB555, 16-bit)
+		// Direct single-index CGRAM write — the same CGRAM_ADDR/CGRAM_DATA
+		// protocol as gfx.set_palette, but the caller supplies the flat
+		// palette+color-index address directly instead of two components.
+		if len(args) != 2 {
+			return fmt.Errorf("gfx.set_palette_color requires 2 arguments (cgram_index, color)")
+		}
+
+		// Set CGRAM_ADDR (0x8012)
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0)) // MOV R6, #0x8012
+		cg.builder.AddImmediate(0x8012)
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 7, 0)) // MOV R7, R0 (cgram_index)
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #0xFF
+		cg.builder.AddImmediate(0xFF)
+		cg.builder.AddInstruction(rom.EncodeAND(0, 7, 5)) // AND R7, R5 (mask to 8 bits for CGRAM_ADDR)
+		cg.builder.AddInstruction(rom.EncodeMOV(3, 6, 7)) // MOV [R6], R7 (write CGRAM_ADDR)
+
+		// Write color to CGRAM_DATA (0x8013): low byte, then high byte (triggers write).
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0)) // MOV R6, #0x8013
+		cg.builder.AddImmediate(0x8013)
+
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 7, 1)) // MOV R7, R1 (color)
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #0xFF
+		cg.builder.AddImmediate(0xFF)
+		cg.builder.AddInstruction(rom.EncodeAND(0, 7, 5)) // AND R7, R5 (mask to low byte)
+		cg.builder.AddInstruction(rom.EncodeMOV(3, 6, 7)) // MOV [R6], R7 (write low byte)
+
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 7, 1)) // MOV R7, R1 (color)
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #8
 		cg.builder.AddImmediate(8)
 		cg.builder.AddInstruction(rom.EncodeSHR(0, 7, 5)) // SHR R7, R5 -> R7 = color >> 8 (high byte)
