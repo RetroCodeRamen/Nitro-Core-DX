@@ -39,6 +39,9 @@ test_output/
 *.log
 emulator_log_*.txt
 
+# Local dev notes (not part of the project's public documentation)
+/BOOT_SEQUENCE_NOTES.md
+
 # Go build cache
 *.test
 *.out

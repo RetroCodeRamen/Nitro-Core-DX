@@ -145,6 +145,7 @@ func (a *SemanticAnalyzer) registerBuiltinFunctions() {
 		// case lands, to avoid a registered-but-uncodegen'd gap).
 		"music.play", "music.play_loop", "music.stop", "music.set_volume", "music.fade_to", "music.play_jingle",
 		"ppu.enable_display", "gfx.load_tiles", "gfx.set_palette", "gfx.set_palette_color", "gfx.init_default_palettes",
+		"boot.show_default",
 		"input.read", "input.poll", "input.held", "input.pressed", "input.released",
 		"SPR_PAL", "SPR_HFLIP", "SPR_VFLIP", "SPR_PRI",
 		"SPR_ENABLE", "SPR_SIZE_8", "SPR_SIZE_16",
@@ -152,7 +153,7 @@ func (a *SemanticAnalyzer) registerBuiltinFunctions() {
 		"mem.write", "mem.read", "mem.write16", "mem.read16",
 		"bg.set_scroll", "bg.enable", "bg.disable", "bg.set_priority", "bg.set_tilemap_base", "bg.load_tilemap", "bg.set_source_mode", "bg.bind_transform", "bg.set_tile_size",
 		"bg.set_tile", "bg.fill_span", "bg.clear",
-		"matrix_plane.enable", "matrix_plane.disable", "matrix_plane.load_bitmap", "matrix_plane.set_projection", "matrix_plane.set_depth", "matrix_plane.set_camera", "matrix_plane.set_surface", "matrix_plane.load_tiles", "matrix_plane.load_tilemap", "matrix_plane.set_tile", "matrix_plane.fill_rect", "matrix_plane.clear",
+		"matrix_plane.enable", "matrix_plane.disable", "matrix_plane.load_bitmap", "matrix_plane.set_projection", "matrix_plane.set_depth", "matrix_plane.set_camera", "matrix_plane.set_surface", "matrix_plane.set_flags", "matrix_plane.load_tiles", "matrix_plane.load_tilemap", "matrix_plane.set_tile", "matrix_plane.fill_rect", "matrix_plane.clear",
 		"raster.enable", "raster.disable",
 		"raster.set_scanline_scroll", "raster.set_scanline_matrix", "raster.set_scanline_center", "raster.set_scanline_tilemap_base",
 		"raster.set_scanline_rebind", "raster.set_scanline_priority", "raster.set_scanline_source_mode",
@@ -369,7 +370,7 @@ func (a *SemanticAnalyzer) analyzeExpr(expr Expr) {
 		builtinNamespaces := map[string]bool{
 			"ppu": true, "sprite": true, "oam": true, "apu": true, "gfx": true, "input": true,
 			"mem": true, "bg": true, "matrix": true, "matrix_plane": true, "raster": true,
-			"text": true, "ym": true, "music": true,
+			"text": true, "ym": true, "music": true, "boot": true,
 		}
 		if builtinNamespaces[e.Name] {
 			// Built-in namespace, valid

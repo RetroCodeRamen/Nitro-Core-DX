@@ -42,17 +42,23 @@ func loadImageAssets(program *Program, sourcePath string) (map[string]*ImageAsse
 		if a.Type != "image" {
 			continue
 		}
-		path := a.FilePath
-		if !filepath.IsAbs(path) {
-			path = filepath.Join(srcDir, path)
+		var rawText string
+		if a.FilePath == bootLogoSentinelPath {
+			rawText = embeddedBootLogoCxasset
+		} else {
+			path := a.FilePath
+			if !filepath.IsAbs(path) {
+				path = filepath.Join(srcDir, path)
+			}
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				return nil, nil, fmt.Errorf("image asset %s: %w", a.Name, err)
+			}
+			rawText = string(raw)
 		}
-		raw, err := os.ReadFile(path)
+		img, err := parseCxAsset(a.Name, rawText)
 		if err != nil {
-			return nil, nil, fmt.Errorf("image asset %s: %w", a.Name, err)
-		}
-		img, err := parseCxAsset(a.Name, string(raw))
-		if err != nil {
-			return nil, nil, fmt.Errorf("image asset %s (%s): %w", a.Name, path, err)
+			return nil, nil, fmt.Errorf("image asset %s (%s): %w", a.Name, a.FilePath, err)
 		}
 
 		// Place the bitmap in the ROM data region.

@@ -2421,6 +2421,22 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5)) // MOV [R4], R5
 		return nil
 
+	case "boot.show_default":
+		// boot.show_default(): call the merged-in default logo slide+hold
+		// sequence (see boot_splash.go's injectBootEntry, which always
+		// merges __boot_show_default() + the __BootLogo asset in). Callable
+		// from a user-defined __Boot() to show the stock presentation
+		// before doing its own thing (e.g. reading input) and eventually
+		// calling Start() itself.
+		if len(args) != 0 {
+			return fmt.Errorf("boot.show_default takes no arguments")
+		}
+		cg.builder.AddInstruction(rom.EncodeCALL())
+		offsetPos := cg.builder.GetCodeLength()
+		cg.builder.AddImmediate(0)
+		cg.callPatches = append(cg.callPatches, callPatch{offsetPos: offsetPos, target: bootShowDefaultFuncName})
+		return nil
+
 	case "gfx.load_tiles":
 		// gfx.load_tiles(asset: u16, base: u16) -> u16
 		// Args: R0 = asset ID (ASSET_* constant), R1 = base tile index
@@ -3591,6 +3607,37 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 			return err
 		}
 		return cg.writePlaneReg16(args[5], 0x80A9)
+
+	case "matrix_plane.set_flags":
+		// set_flags(channel, transparent0, two_sided): the plane flags
+		// register (0x808C) -- color-key-0 transparency (bit 0) and
+		// two-sided/no-backface-cull rendering (bit 1). load_bitmap always
+		// leaves this at 0 (opaque, one-sided), which is right for a floor
+		// but wrong for a vertical billboard surface, so this exists to set
+		// it explicitly afterward. The register is a full overwrite, not
+		// additive, so both bits must be combined before the single store.
+		if len(args) != 3 {
+			return fmt.Errorf("matrix_plane.set_flags requires (channel, transparent0, two_sided)")
+		}
+		if err := cg.selectMatrixPlane(args[0]); err != nil {
+			return err
+		}
+		// two_sided -> R6 = (two_sided & 1) << 1, saved aside first so the
+		// transparent0 evaluation below is free to use R0 as scratch.
+		if err := cg.generateExpr(args[2], 0); err != nil {
+			return err
+		}
+		cg.hAndImm(0, 0x0001)
+		cg.hShlImm(0, 1)
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 6, 0)) // R6 = two_sided<<1
+		// transparent0 -> R0, then OR in the saved two_sided bit.
+		if err := cg.generateExpr(args[1], 0); err != nil {
+			return err
+		}
+		cg.hAndImm(0, 0x0001)
+		cg.builder.AddInstruction(rom.EncodeOR(0, 0, 6))
+		cg.storeIOByte(0x808C, 0)
+		return nil
 
 	case "matrix_plane.enable":
 		// matrix_plane.enable(channel: u8, size: u16)

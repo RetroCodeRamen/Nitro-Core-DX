@@ -29,6 +29,11 @@ type CompileOptions struct {
 	EmitManifestJSON    bool
 	EmitDiagnosticsJSON bool
 	EmitBundleJSON      bool
+	// ForceBootSplash disables the under-`go test` __Boot() auto-bypass (see
+	// injectTestBootBypass) so a test can observe the real default boot
+	// sequence. Has no effect outside `go test` -- production compiles
+	// always see the real behavior regardless of this field.
+	ForceBootSplash bool
 }
 
 type CompileResult struct {
@@ -217,6 +222,17 @@ func CompileSource(source, sourcePath string, opts *CompileOptions) (result *Com
 		return result, &DiagnosticsError{Diagnostics: result.Diagnostics}
 	}
 	result.Program = program
+	if bootErr := injectBootEntry(program, cfg); bootErr != nil {
+		result.Diagnostics = append(result.Diagnostics, Diagnostic{
+			Category: CategoryBackendCodegenError,
+			Code:     "E_BOOT_SEQUENCE",
+			Message:  bootErr.Error(),
+			File:     sourcePath,
+			Severity: SeverityError,
+			Stage:    StageParser,
+		})
+		return result, &DiagnosticsError{Diagnostics: result.Diagnostics}
+	}
 
 	currentStage = StageParser
 	moduleDiags := loadModules(program, sourcePath, cfg)
@@ -443,6 +459,9 @@ func mergeCompileOptions(dst *CompileOptions, src CompileOptions) {
 	}
 	if src.EmitBundleJSON {
 		dst.EmitBundleJSON = true
+	}
+	if src.ForceBootSplash {
+		dst.ForceBootSplash = true
 	}
 }
 
