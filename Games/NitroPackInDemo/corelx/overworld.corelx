@@ -20,6 +20,14 @@ asset ParkFloor: image "park_floor.cxasset"
 -- matching the hand-built reference ROM's plane-1 setup.
 asset Building: image "building.cxasset"
 
+-- Interior floor and NPC billboard, imported the same way (interior_floor.png
+-- 32-tile/palette bank 3, npc.png 64-tile/palette bank 4). Both procedurally
+-- drawn placeholders, matching the hand-built reference ROM's own approach
+-- (build_rom.go's buildInteriorFloorImage/buildNPCImage draw simple shapes
+-- rather than shipping real art either).
+asset InteriorFloor: image "interior_floor.cxasset"
+asset NPC: image "npc.cxasset"
+
 asset Player: tiles8 hex
     00 00 01 01 01 00 00 00
     00 01 01 01 01 01 00 00
@@ -56,13 +64,23 @@ var pivot_y: int[64] = [0, 6, 12, 18, 24, 30, 35, 40, 45, 49, 53, 56, 59, 61, 62
 -- matches the reference ROM's sceneOverworld/sceneInterior constants.
 const SCENE_OVERWORLD = 1
 const SCENE_INTERIOR = 2
+const SCENE_DIALOGUE = 4
 var scene: int = 1
 
--- Interior entry state, set by the door trigger below and consumed once the
--- interior scene (a later task) exists.
+-- Interior entry state, set by the door trigger and consumed by the
+-- interior scene below. Also the interior's own live position/heading
+-- while scene == SCENE_INTERIOR (heading_index/cam_x/cam_y are the
+-- overworld's; turn_tick is shared between both scenes, matching the
+-- reference ROM's single wramTurnTick slot).
 var int_x: int = 512
 var int_y: int = 616
 var int_heading: int = 48
+
+-- Scratch flags for the interior's talk/exit zone checks (nested `if`s
+-- can't easily express "X in range AND Y in range" as one condition, so
+-- these get set then branched on instead).
+var in_talk_zone: int = 0
+var in_exit_zone: int = 0
 
 var cam_x: int = 512
 var cam_y: int = 768
@@ -115,6 +133,32 @@ function Start()
     matrix_plane.set_projection(1, 2, 113)
     matrix_plane.set_depth(1, 0x0C00, 0xC000, 0x0070)
     matrix_plane.set_surface(1, 512, 600, 0, 0x0100, 0x4000)
+
+    -- Interior floor: BG2 / matrix channel 2 / plane 2, projected the same
+    -- way as the outdoor floor (shared horizon/depth). Configured at boot
+    -- like every other plane, but stays disabled until the door trigger
+    -- switches scenes.
+    bg.bind_transform(2, 2)
+    bg.set_priority(2, 2)
+    matrix.enable(2)
+    matrix.identity(2)
+    matrix_plane.enable(2, 32)
+    matrix_plane.load_bitmap(InteriorFloor, 2)
+    matrix_plane.set_projection(2, 1, 113)
+    matrix_plane.set_depth(2, 0x0C00, 0xC000, 0x00C0)
+
+    -- NPC billboard: BG3 / matrix channel 3 / plane 3, vertical projection
+    -- like the building, anchored at the guide's position (512,472) --
+    -- matches the reference ROM's npcObject config exactly.
+    bg.bind_transform(3, 3)
+    bg.set_priority(3, 1)
+    matrix.enable(3)
+    matrix_plane.enable(3, 64)
+    matrix_plane.load_bitmap(NPC, 3)
+    matrix_plane.set_flags(3, true, true)
+    matrix_plane.set_projection(3, 2, 113)
+    matrix_plane.set_depth(3, 0x0C00, 0xC000, 0x0024)
+    matrix_plane.set_surface(3, 512, 472, 0, 0x0100, 0x1C00)
 
     player_base := gfx.load_tiles(ASSET_Player, 8)
     hero := Sprite()
@@ -206,7 +250,95 @@ function Start()
                             int_x = 512
                             int_y = 616
                             int_heading = 48
+                            bg.disable(0)
+                            bg.disable(1)
+                            bg.enable(2)
+                            bg.enable(3)
 
-        if scene == SCENE_INTERIOR
-            -- Interior scene + NPC collision: a later task.
-            text.draw(8, 8, 255, 255, 255, "INTERIOR")
+        else
+            -- `else` only recognizes a body when a newline immediately
+            -- follows it; `else if X` on one line (or the one-word `elseif`
+            -- keyword) does not chain correctly in this compiler -- see
+            -- corelx-else-if-single-line-pitfall. This nested `if` is the
+            -- verified-working form.
+            if scene == SCENE_INTERIOR
+                -- Turn smoothly while held -- same rate limiter and heading
+                -- table as the overworld (turn_tick is shared between scenes).
+                if input.held(LEFT)
+                    if turn_tick != 3
+                        if int_heading == 0
+                            int_heading = 63
+                        else
+                            int_heading = int_heading - 1
+                if input.held(RIGHT)
+                    if turn_tick != 3
+                        if int_heading == 63
+                            int_heading = 0
+                        else
+                            int_heading = int_heading + 1
+                turn_tick = (turn_tick + 1) & 3
+    
+                if input.held(UP)
+                    int_x = int_x + move_x[int_heading]
+                    int_y = int_y + move_y[int_heading]
+                if input.held(DOWN)
+                    int_x = int_x - move_x[int_heading]
+                    int_y = int_y - move_y[int_heading]
+    
+                -- Room bounds: a much smaller box than the outdoor world.
+                if int_x < 416
+                    int_x = 416
+                if int_x > 608
+                    int_x = 608
+                if int_y < 432
+                    int_y = 432
+                if int_y > 632
+                    int_y = 632
+    
+                -- NPC collision: stop the player in front of the guide rather
+                -- than letting them walk through. Footprint: X in [488,536]
+                -- (npcAnchorX +/- 24), stop at Y=500 (npcAnchorY + 28).
+                if int_x >= 488
+                    if int_x <= 536
+                        if int_y < 500
+                            int_y = 500
+    
+                matrix_plane.set_camera(2, int_x - pivot_x[int_heading], int_y - pivot_y[int_heading], heading_x[int_heading], heading_y[int_heading])
+                matrix_plane.set_camera(3, int_x, int_y, heading_x[int_heading], heading_y[int_heading])
+    
+                sprite.set_pos(hero, 156, 132)
+                oam.write(0, hero)
+                oam.flush()
+                text.draw(8, 8, 255, 255, 255, "INTERIOR SHOWCASE")
+                text.draw(8, 20, 160, 200, 255, "TALK TO THE GUIDE  EXIT AT THE DOOR")
+    
+                -- Talk-to-NPC zone: X in [484,540] (npcAnchorX +/- 28), Y <= 568
+                -- (npcAnchorY + 96). Takes priority over the exit zone, matching
+                -- the reference ROM's ordering (the exit zone is only checked
+                -- when this footprint misses).
+                in_talk_zone = 0
+                if int_x >= 484
+                    if int_x <= 540
+                        if int_y <= 568
+                            in_talk_zone = 1
+    
+                if in_talk_zone == 1
+                    text.draw(104, 176, 255, 255, 255, "PRESS A TO TALK")
+                    if input.pressed(A)
+                        scene = SCENE_DIALOGUE
+                else
+                    -- Exit zone: X in [472,552] (interiorEntryX +/- 40), Y >= 608.
+                    in_exit_zone = 0
+                    if int_x >= 472
+                        if int_x <= 552
+                            if int_y >= 608
+                                in_exit_zone = 1
+    
+                    if in_exit_zone == 1
+                        text.draw(104, 176, 255, 255, 255, "PRESS A TO EXIT")
+                        if input.pressed(A)
+                            scene = SCENE_OVERWORLD
+                            bg.disable(2)
+                            bg.disable(3)
+                            bg.enable(0)
+                            bg.enable(1)
