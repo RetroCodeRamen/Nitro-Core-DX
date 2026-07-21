@@ -71,6 +71,17 @@ var move_y: int[64] = [0, 0, 0, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 
 var pivot_x: int[64] = [48, 48, 47, 46, 44, 42, 40, 37, 34, 30, 27, 23, 18, 14, 9, 5, 0, 0 - 5, 0 - 9, 0 - 14, 0 - 18, 0 - 23, 0 - 27, 0 - 30, 0 - 34, 0 - 37, 0 - 40, 0 - 42, 0 - 44, 0 - 46, 0 - 47, 0 - 48, 0 - 48, 0 - 48, 0 - 47, 0 - 46, 0 - 44, 0 - 42, 0 - 40, 0 - 37, 0 - 34, 0 - 30, 0 - 27, 0 - 23, 0 - 18, 0 - 14, 0 - 9, 0 - 5, 0, 5, 9, 14, 18, 23, 27, 30, 34, 37, 40, 42, 44, 46, 47, 48]
 var pivot_y: int[64] = [0, 5, 9, 14, 18, 23, 27, 30, 34, 37, 40, 42, 44, 46, 47, 48, 48, 48, 47, 46, 44, 42, 40, 37, 34, 30, 27, 23, 18, 14, 9, 5, 0, 0 - 5, 0 - 9, 0 - 14, 0 - 18, 0 - 23, 0 - 27, 0 - 30, 0 - 34, 0 - 37, 0 - 40, 0 - 42, 0 - 44, 0 - 46, 0 - 47, 0 - 48, 0 - 48, 0 - 48, 0 - 47, 0 - 46, 0 - 44, 0 - 42, 0 - 40, 0 - 37, 0 - 34, 0 - 30, 0 - 27, 0 - 23, 0 - 18, 0 - 14, 0 - 9, 0 - 5]
 
+-- heading_x/y scaled down to magnitude 16 (instead of 256), used only for
+-- the building/sprite depth-sort dot product below. Runtime `/` is an
+-- unsigned hardware DIV with no sign correction (same category of pitfall
+-- as `>>` -- see corelx-shr-not-arithmetic), so this can't just be
+-- heading_x[h] / 16 computed on the fly for a signed heading; it's
+-- precomputed like every other direction table here. The smaller magnitude
+-- keeps the dot product's intermediate products well inside 16-bit range
+-- for the largest relative positions this world can produce.
+var dir_x: int[64] = [16, 16, 16, 15, 15, 14, 13, 12, 11, 10, 9, 8, 6, 5, 3, 2, 0, 0 - 2, 0 - 3, 0 - 5, 0 - 6, 0 - 8, 0 - 9, 0 - 10, 0 - 11, 0 - 12, 0 - 13, 0 - 14, 0 - 15, 0 - 15, 0 - 16, 0 - 16, 0 - 16, 0 - 16, 0 - 16, 0 - 15, 0 - 15, 0 - 14, 0 - 13, 0 - 12, 0 - 11, 0 - 10, 0 - 9, 0 - 8, 0 - 6, 0 - 5, 0 - 3, 0 - 2, 0, 2, 3, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 15, 16, 16]
+var dir_y: int[64] = [0, 2, 3, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 15, 16, 16, 16, 16, 16, 15, 15, 14, 13, 12, 11, 10, 9, 8, 6, 5, 3, 2, 0, 0 - 2, 0 - 3, 0 - 5, 0 - 6, 0 - 8, 0 - 9, 0 - 10, 0 - 11, 0 - 12, 0 - 13, 0 - 14, 0 - 15, 0 - 15, 0 - 16, 0 - 16, 0 - 16, 0 - 16, 0 - 16, 0 - 15, 0 - 15, 0 - 14, 0 - 13, 0 - 12, 0 - 11, 0 - 10, 0 - 9, 0 - 8, 0 - 6, 0 - 5, 0 - 3, 0 - 2]
+
 -- Scene state machine (CORELX_EXTRACTION.md SS4/SS13: a state variable plus
 -- a dispatch branch in the main loop, not a keyword or a module). Numbering
 -- matches the reference ROM's sceneOverworld/sceneInterior constants.
@@ -95,6 +106,10 @@ var dialog_page: int = 0
 var int_x: int = 512
 var int_y: int = 616
 var int_heading: int = 48
+-- Shared camera-eye for the interior floor and NPC billboard (int_x/y -
+-- pivot), mirroring eye_x/eye_y's role in the overworld.
+var int_eye_x: int = 0
+var int_eye_y: int = 0
 
 -- Scratch flags for the interior's talk/exit zone checks (nested `if`s
 -- can't easily express "X in range AND Y in range" as one condition, so
@@ -104,6 +119,22 @@ var in_exit_zone: int = 0
 
 var cam_x: int = 512
 var cam_y: int = 768
+-- Pre-move position, captured each frame before UP/DOWN is applied: the
+-- building's full-AABB collision (below) uses this to decide which axis to
+-- push back on, so approaching the building from any side stops the player
+-- cold instead of only the front face.
+var prev_cam_x: int = 512
+var prev_cam_y: int = 768
+-- Shared camera-eye for the floor and building billboard (cam - pivot), and
+-- the scratch vars for the building/sprite depth-sort dot product -- see
+-- the per-frame comment where these are computed.
+var eye_x: int = 0
+var eye_y: int = 0
+var building_rel_x: int = 0
+var building_rel_y: int = 0
+var building_dot: int = 0
+var building_dot_b: int = 0
+var building_near: int = 0
 -- Index 48 = North (cos 270 deg = 0, sin 270 deg = -256), matching the
 -- reference ROM's starting facing.
 var heading_index: int = 48
@@ -128,7 +159,9 @@ function Start()
     gfx.init_default_palettes()
     bg.enable(0)
     bg.bind_transform(0, 0)
-    bg.set_priority(0, 2)
+    -- Priority 0 (lowest/furthest back): the ground must never cover the
+    -- building or the character sprite, both of which get priority 1+ below.
+    bg.set_priority(0, 0)
     matrix.enable(0)
     matrix.identity(0)
     matrix.set_center(0, 160, 100)
@@ -145,6 +178,10 @@ function Start()
     -- straight up-screen (0, 0x0100), heightScale 0x4000).
     bg.enable(1)
     bg.bind_transform(1, 1)
+    -- Priority 1 is the default/"far" state (character renders in front);
+    -- the per-frame depth-sort below bumps this to 2 (and drops the
+    -- character's own priority to 1) whenever the building is actually
+    -- nearer to the camera than the character's own fixed on-screen depth.
     bg.set_priority(1, 1)
     matrix.enable(1)
     matrix_plane.enable(1, 64)
@@ -159,7 +196,9 @@ function Start()
     -- like every other plane, but stays disabled until the door trigger
     -- switches scenes.
     bg.bind_transform(2, 2)
-    bg.set_priority(2, 2)
+    -- Priority 0, same reasoning as the outdoor floor: the interior ground
+    -- must never cover the NPC billboard or the character sprite.
+    bg.set_priority(2, 0)
     matrix.enable(2)
     matrix.identity(2)
     matrix_plane.enable(2, 32)
@@ -183,7 +222,12 @@ function Start()
     player_base := gfx.load_tiles(ASSET_Player, 8)
     hero := Sprite()
     hero.tile = player_base
-    hero.attr = SPR_PAL(1)
+    -- Priority 2: the default/"far" state, matching the building's default
+    -- priority 1 and the floor's fixed 0 -- character in front of the
+    -- building, both in front of the ground. Reassigned every frame in each
+    -- scene branch below (dynamically in the overworld, fixed in the
+    -- interior), since this same Sprite is shared across scenes.
+    hero.attr = SPR_PAL(1) | SPR_PRI(2)
     hero.ctrl = SPR_ENABLE() | SPR_SIZE_8()
 
     ppu.enable_display()
@@ -212,7 +256,11 @@ function Start()
                         heading_index = heading_index + 1
             turn_tick = (turn_tick + 1) & 3
 
-            -- Walk forward / back along the current heading.
+            -- Walk forward / back along the current heading. prev_cam_x/y
+            -- (captured before the move) feeds the building's AABB collision
+            -- resolution below.
+            prev_cam_x = cam_x
+            prev_cam_y = cam_y
             if input.held(UP)
                 cam_x = cam_x + move_x[heading_index]
                 cam_y = cam_y + move_y[heading_index]
@@ -230,22 +278,77 @@ function Start()
             if cam_y > 1023
                 cam_y = 1023
 
-            -- Building collision: stop the player at the facade (buildingFrontY)
-            -- rather than letting them walk through it, matching the reference
-            -- ROM's clamp. Building footprint: X in [472,552], front face at
-            -- Y=600 (buildingAnchorX=512 +/- buildingCollisionHalfWidth=40).
+            -- Building collision: a full AABB hard stop, not just the front
+            -- face -- footprint X in [472,552] (buildingAnchorX +/-
+            -- buildingCollisionHalfWidth=40, matching the door zone's
+            -- width), Y in [520,600] (600 = the facade / buildingFrontY, 520
+            -- = a chosen 80-unit back depth). Resolve using prev_cam_x/y (the
+            -- pre-move position) to decide which axis to push back on, so
+            -- approaching from any side -- front, back, or either flank --
+            -- stops cold instead of only the front face. The prev_* checks
+            -- use <=/>= (inclusive, matching the box membership test above)
+            -- rather than strict </>: once resolved exactly to a boundary
+            -- (e.g. cam_x clamped to 472), the next frame's prev_cam_x sits
+            -- ON that same boundary, and a strict "< 472" would no longer
+            -- see it as outside -- letting the player leak through the wall
+            -- one movement-step per frame instead of staying blocked.
             if cam_x >= 472
                 if cam_x <= 552
-                    if cam_y < 600
-                        cam_y = 600
+                    if cam_y >= 520
+                        if cam_y <= 600
+                            if prev_cam_x <= 472
+                                cam_x = 472
+                            else
+                                if prev_cam_x >= 552
+                                    cam_x = 552
+                                else
+                                    if prev_cam_y <= 520
+                                        cam_y = 520
+                                    else
+                                        cam_y = 600
 
-            -- Floor camera trails the player by heading>>2 so rotation pivots at
-            -- the character's feet rather than the abstract camera origin; the
-            -- billboard plane tracks the raw player position so the building
-            -- scales correctly relative to the character (see the pivot_x/y
-            -- comment above for why this is a precomputed table, not `>> 2`).
-            matrix_plane.set_camera(0, cam_x - pivot_x[heading_index], cam_y - pivot_y[heading_index], heading_x[heading_index], heading_y[heading_index])
-            matrix_plane.set_camera(1, cam_x, cam_y, heading_x[heading_index], heading_y[heading_index])
+            -- Shared camera-eye for the floor and the building billboard:
+            -- both must render from the IDENTICAL eye position (cam trailing
+            -- the player by pivot_x/y, so turning pivots at the character's
+            -- feet). An earlier version of this file had the billboard track
+            -- the raw, un-pivoted player position instead -- since the pivot
+            -- offset itself rotates with heading, that made the building
+            -- visibly drift/slip relative to the floor as the camera turned.
+            eye_x = cam_x - pivot_x[heading_index]
+            eye_y = cam_y - pivot_y[heading_index]
+            matrix_plane.set_camera(0, eye_x, eye_y, heading_x[heading_index], heading_y[heading_index])
+            matrix_plane.set_camera(1, eye_x, eye_y, heading_x[heading_index], heading_y[heading_index])
+
+            -- Depth-sort the building against the character sprite: whichever
+            -- actually sits closer to the camera along the current heading
+            -- should render in front. building_dot approximates 16x the
+            -- forward distance from the eye to the building's anchor
+            -- (512,600); the character's own on-screen depth is fixed at
+            -- pivotMag (48), so the comparison threshold is 16*48=768.
+            -- dir_x/y are heading_x/y scaled to magnitude 16 (see their
+            -- declaration above) instead of a runtime shift/divide, both of
+            -- which are unsigned-only in this compiler.
+            building_rel_x = 512 - eye_x
+            building_rel_y = 600 - eye_y
+            -- Deliberately split into three statements instead of one
+            -- `A*B + C*D` expression: a nested BinaryExpr as the operand of
+            -- another BinaryExpr corrupts the left operand's saved register
+            -- in this compiler (see corelx-nested-expr-register-bug -- that
+            -- note documents it for `&`/`|`, but it's the same codegen
+            -- pattern under `+` too, confirmed empirically here: the
+            -- combined expression gave a completely wrong dot product).
+            building_dot = building_rel_x * dir_x[heading_index]
+            building_dot_b = building_rel_y * dir_y[heading_index]
+            building_dot = building_dot + building_dot_b
+            building_near = 0
+            if building_dot <= 768
+                building_near = 1
+            if building_near == 1
+                bg.set_priority(1, 2)
+                hero.attr = SPR_PAL(1) | SPR_PRI(1)
+            else
+                bg.set_priority(1, 1)
+                hero.attr = SPR_PAL(1) | SPR_PRI(2)
 
             -- Player stands centred; HUD on top.
             sprite.set_pos(hero, 156, 160)
@@ -323,9 +426,20 @@ function Start()
                         if int_y < 500
                             int_y = 500
     
-                matrix_plane.set_camera(2, int_x - pivot_x[int_heading], int_y - pivot_y[int_heading], heading_x[int_heading], heading_y[int_heading])
-                matrix_plane.set_camera(3, int_x, int_y, heading_x[int_heading], heading_y[int_heading])
-    
+                -- Same shared-eye reasoning as the overworld branch: the NPC
+                -- billboard must use the identical pivoted eye position as
+                -- the interior floor, or it visibly slips relative to the
+                -- floor as the camera turns.
+                int_eye_x = int_x - pivot_x[int_heading]
+                int_eye_y = int_y - pivot_y[int_heading]
+                matrix_plane.set_camera(2, int_eye_x, int_eye_y, heading_x[int_heading], heading_y[int_heading])
+                matrix_plane.set_camera(3, int_eye_x, int_eye_y, heading_x[int_heading], heading_y[int_heading])
+
+                -- No dynamic depth-sort against the NPC (not asked for) --
+                -- fixed at the same "default" priority 2 the outdoor scene
+                -- uses when the building is far, since hero.attr is shared
+                -- across scenes and may be stale from the overworld branch.
+                hero.attr = SPR_PAL(1) | SPR_PRI(2)
                 sprite.set_pos(hero, 156, 160)
                 oam.write(0, hero)
                 oam.flush()

@@ -106,6 +106,21 @@ origin (`0x80A1-A4`), facing (`0x80A5-A8`), height scale (`0x80A9`). Billboards
 sync to the **raw player position** (not the feet-pivot camera) so scale stays
 correct (lines 1252-1256).
 
+**Known bug in this reference approach, found 2026-07-21 during the CoreLX
+rebuild (not fixed here, since the reference ROM is a frozen acceptance
+oracle):** syncing the billboard to the raw player position while the floor
+plane syncs to the feet-pivot-adjusted camera means the two planes render
+from two *different* eye positions. Since the pivot offset itself rotates
+with heading, the mismatch rotates too — visually, the billboard drifts/slips
+relative to the floor as the camera turns, even though the object's world
+position never moves. AJ caught this by eye in the compiled CoreLX demo. The
+CoreLX rebuild (`overworld.corelx`) deliberately diverges from this reference
+behavior: every plane in a scene (floor + billboard, or interior floor + NPC)
+shares one computed `eye_x`/`eye_y` per frame. See
+`PROGRAMMING_MANUAL.md`'s "Pitfall: Every Plane In A Scene Must Share One
+Camera-Eye" for the general write-up, and
+[[corelx-billboard-camera-eye-consistency]] for the session note.
+
 **Proposed CoreLX**
 
 ```corelx

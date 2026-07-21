@@ -63,15 +63,19 @@ func TestOverworldBuildingBillboard(t *testing.T) {
 	}
 
 	// Camera sync: at boot (heading_index 48, North: headingX=0,
-	// headingY=-256), the floor camera trails the player by pivot_x/y[48]
-	// (feet pivot, magnitude 48 -- tuned to match the sprite's screenY=160
-	// depth) -- 768 - (-48) = 816 -- while the billboard tracks the raw
-	// player position (768). Both share the same heading vector.
+	// headingY=-256), both the floor AND the billboard render from the
+	// identical pivoted camera-eye (cam trailing the player by pivot_x/y[48],
+	// feet pivot magnitude 48 -- tuned to match the sprite's screenY=160
+	// depth) -- 768 - (-48) = 816. They must match exactly: an earlier
+	// version had the billboard track the raw, un-pivoted player position
+	// instead, which visibly slipped relative to the floor as the camera
+	// turned (the pivot offset itself rotates with heading).
 	if floor.CameraX != 512 || floor.CameraY != 816 {
 		t.Errorf("floor camera want (512,816), got (%d,%d)", floor.CameraX, floor.CameraY)
 	}
-	if billboard.CameraX != 512 || billboard.CameraY != 768 {
-		t.Errorf("billboard camera want (512,768) (raw player position), got (%d,%d)", billboard.CameraX, billboard.CameraY)
+	if billboard.CameraX != floor.CameraX || billboard.CameraY != floor.CameraY {
+		t.Errorf("billboard camera should match floor exactly (shared eye): got (%d,%d) want (%d,%d)",
+			billboard.CameraX, billboard.CameraY, floor.CameraX, floor.CameraY)
 	}
 	if floor.HeadingX != 0 || floor.HeadingY != -256 {
 		t.Errorf("floor heading want (0,-256), got (%d,%d)", floor.HeadingX, floor.HeadingY)

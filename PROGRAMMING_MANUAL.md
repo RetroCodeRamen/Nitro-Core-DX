@@ -846,6 +846,70 @@ That means:
 - if a facade should stay visually locked to the floor, it should normally
   share the same camera/horizon/focal model as the floor plane that scene uses
 
+#### Pitfall: Every Plane In A Scene Must Share One Camera-Eye
+
+If a scene combines a perspective floor with one or more vertical-billboard
+planes (a building, an NPC, any object standing "on" that floor), every one of
+those planes' `matrix_plane.set_camera(channel, x, y, heading_x, heading_y)`
+calls must be fed the **exact same** `x, y` position for a given frame — not
+just the same *player* position, but the same fully-computed camera-eye
+position, including any camera trick layered on top of it.
+
+This bit the NitroPackInDemo rebuild directly. A common technique for a
+walking-around game is a "feet pivot": instead of rendering the floor from the
+player's raw position, the floor's camera trails the player by a fixed
+world-unit offset in the direction opposite of facing —
+
+```corelx
+eye_x = cam_x - pivot_x[heading_index]
+eye_y = cam_y - pivot_y[heading_index]
+matrix_plane.set_camera(0, eye_x, eye_y, heading_x[heading_index], heading_y[heading_index])
+```
+
+— so that turning visually pivots around the character's own feet/screen
+position instead of around the floor's raw coordinate. The mistake is
+assuming a billboard object (a building, say) should track the player's *raw*
+position instead, on the reasoning that "the billboard should scale off the
+real player position, not some camera trick." That reasoning sounds
+principled, but it's wrong: it silently makes the billboard render from a
+**different eye position than the floor**, and since the pivot offset itself
+rotates with heading, the mismatch between the two eyes also rotates —
+visually, the billboard appears to drift/slip across the floor as the camera
+turns, even though the object's own world position never changed. It looks
+exactly like a physics bug (the building "isn't anchored to the ground
+right"), but the actual cause is a camera inconsistency between planes, not
+anything wrong with the billboard's own placement math.
+
+**The fix**: compute the camera-eye position once per frame, and pass that
+same value to `matrix_plane.set_camera` for every plane in the scene that's
+meant to share one coherent 3D space — the floor, every billboard standing on
+it, and, if applicable, the audio/gameplay logic that also cares about "where
+the camera is." Never let one plane use a raw position while a sibling plane
+in the same scene uses an adjusted one, even if the adjustment seems purely
+cosmetic (like a feet-pivot offset). If you have multiple independent scenes
+(say, an outdoor overworld and an interior room), each scene needs its own
+consistently-shared eye — don't mix eyes from different scenes either.
+
+```corelx
+-- WRONG: billboard uses a different eye than the floor it stands on.
+matrix_plane.set_camera(0, cam_x - pivot_x[h], cam_y - pivot_y[h], heading_x[h], heading_y[h])
+matrix_plane.set_camera(1, cam_x, cam_y, heading_x[h], heading_y[h])
+
+-- RIGHT: compute the eye once, feed it to every plane in the scene.
+eye_x = cam_x - pivot_x[h]
+eye_y = cam_y - pivot_y[h]
+matrix_plane.set_camera(0, eye_x, eye_y, heading_x[h], heading_y[h])
+matrix_plane.set_camera(1, eye_x, eye_y, heading_x[h], heading_y[h])
+```
+
+If you actually *want* an object to visually behave differently from the
+floor (e.g. a HUD-anchored object that should never move relative to the
+screen), that's a real design choice — but it means the object isn't meant to
+occupy the same 3D space as the floor at all, and shouldn't be using
+`matrix_plane.set_camera`'s world-position semantics for it. That's different
+from silently drifting an object that's supposed to be standing still on the
+ground.
+
 #### Row Table Layout
 
 Each visible scanline has a 16-byte row record:

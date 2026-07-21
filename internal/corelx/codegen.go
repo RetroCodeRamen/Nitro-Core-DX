@@ -2413,12 +2413,21 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		return nil
 
 	case "ppu.enable_display":
-		// Enable display (BG0_CONTROL = 0x8008, bit 0 = enable)
+		// There is no separate master-display register in this PPU -- this
+		// sets BG0_CONTROL's (0x8008) bit 0, same as bg.enable(0). Must be a
+		// read-modify-write (OR in bit 0), not a blind overwrite: a blind
+		// MOV [0x8008], #0x01 silently clobbered every other bit already set
+		// on BG0's control byte, including bg.set_priority(0, ...)'s bits
+		// [3:2] -- any program calling bg.set_priority(0, N) followed by
+		// ppu.enable_display() (the normal Start() ordering) would have its
+		// BG0 priority reset back to 0 right before the first frame renders.
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #0x8008
 		cg.builder.AddImmediate(0x8008)
-		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #0x01
+		cg.builder.AddInstruction(rom.EncodeMOV(2, 5, 4)) // MOV R5, [R4] (read current)
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0)) // MOV R6, #0x01
 		cg.builder.AddImmediate(0x01)
-		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5)) // MOV [R4], R5
+		cg.builder.AddInstruction(rom.EncodeOR(0, 5, 6))  // R5 |= 0x01
+		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5)) // MOV [R4], R5 (write back)
 		return nil
 
 	case "boot.show_default":
