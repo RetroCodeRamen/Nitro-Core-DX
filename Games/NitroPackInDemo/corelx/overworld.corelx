@@ -65,7 +65,15 @@ var pivot_y: int[64] = [0, 6, 12, 18, 24, 30, 35, 40, 45, 49, 53, 56, 59, 61, 62
 const SCENE_OVERWORLD = 1
 const SCENE_INTERIOR = 2
 const SCENE_DIALOGUE = 4
+const SCENE_CREDITS = 5
 var scene: int = 1
+
+-- Dialogue paging. The reference ROM streams a per-page typewriter reveal
+-- from a WRAM character table; CoreLX's text.draw only takes compile-time
+-- string literals (no runtime substring/indexing), so this shows each
+-- page's full text immediately instead -- paging and the scene transition
+-- to credits are what's under test, not the reveal animation.
+var dialog_page: int = 0
 
 -- Interior entry state, set by the door trigger and consumed by the
 -- interior scene below. Also the interior's own live position/heading
@@ -342,3 +350,40 @@ function Start()
                             bg.disable(3)
                             bg.enable(0)
                             bg.enable(1)
+            else
+                -- Dialogue: the interior scene's own per-frame code doesn't
+                -- run while here, so its last-drawn frame stays on screen
+                -- (bg 2/3 are left enabled) with the dialogue text overlaid
+                -- on top -- matches the reference ROM's own dialogue scene,
+                -- which never touches bg.enable/disable either.
+                if scene == SCENE_DIALOGUE
+                    text.draw(140, 152, 255, 208, 112, "GUIDE")
+                    if dialog_page == 0
+                        text.draw(44, 172, 255, 255, 255, "WELCOME TO THE NITRO SHOWCASE")
+                    else
+                        text.draw(56, 172, 255, 255, 255, "THANKS FOR TRYING THE DEMO")
+                    text.draw(132, 188, 160, 216, 255, "PRESS A")
+                    if input.pressed(A)
+                        if dialog_page == 0
+                            dialog_page = 1
+                        else
+                            dialog_page = 0
+                            scene = SCENE_CREDITS
+                            bg.disable(2)
+                            bg.disable(3)
+                else
+                    if scene == SCENE_CREDITS
+                        text.draw(88, 48, 255, 255, 255, "NITRO PACK-IN DEMO")
+                        text.draw(64, 76, 144, 216, 255, "A NITRO-CORE-DX SHOWCASE")
+                        text.draw(12, 104, 192, 224, 144, "ENGINE  TOOLS  ROM  BY RETROCODERAMEN")
+                        text.draw(88, 128, 176, 255, 176, "THANKS FOR PLAYING")
+                        text.draw(68, 160, 255, 192, 112, "PRESS START TO CONTINUE")
+                        if input.pressed(START)
+                            cam_x = 512
+                            cam_y = 768
+                            heading_index = 48
+                            turn_tick = 0
+                            dialog_page = 0
+                            bg.enable(0)
+                            bg.enable(1)
+                            scene = SCENE_OVERWORLD
