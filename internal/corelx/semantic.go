@@ -140,6 +140,10 @@ func (a *SemanticAnalyzer) registerBuiltinFunctions() {
 		"apu.set_channel_volume", "apu.note_on", "apu.note_off",
 		// YM2608 audio subsystem: low-level register escape hatch (port 0 / port 1).
 		"ym.write", "ym.write_port1",
+		// YM2608 audio subsystem: high-level song playback over an external
+		// .ncdxmusic asset (registered here only as each builtin's codegen
+		// case lands, to avoid a registered-but-uncodegen'd gap).
+		"music.play", "music.play_loop", "music.stop", "music.set_volume", "music.fade_to", "music.play_jingle",
 		"ppu.enable_display", "gfx.load_tiles", "gfx.set_palette", "gfx.set_palette_color", "gfx.init_default_palettes",
 		"input.read", "input.poll", "input.held", "input.pressed", "input.released",
 		"SPR_PAL", "SPR_HFLIP", "SPR_VFLIP", "SPR_PRI",
@@ -365,7 +369,7 @@ func (a *SemanticAnalyzer) analyzeExpr(expr Expr) {
 		builtinNamespaces := map[string]bool{
 			"ppu": true, "sprite": true, "oam": true, "apu": true, "gfx": true, "input": true,
 			"mem": true, "bg": true, "matrix": true, "matrix_plane": true, "raster": true,
-			"text": true, "ym": true,
+			"text": true, "ym": true, "music": true,
 		}
 		if builtinNamespaces[e.Name] {
 			// Built-in namespace, valid

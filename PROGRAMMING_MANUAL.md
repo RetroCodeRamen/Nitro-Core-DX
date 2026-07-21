@@ -1019,8 +1019,43 @@ Current status (honest):
 
 - YM2608 conformance is **operational and under active refinement** — not yet
   fully verified against hardware.
-- The CoreLX **music API for YM2608 is not built yet**; advanced FM programming
-  is currently done through low-level ROM code / the host registers.
+- The CoreLX **music playback API (`music.*`) is built and emulator-tested**
+  — see below. Advanced FM sound design (instrument definition, pitch,
+  per-voice register tweaking) is still done through low-level ROM code / the
+  host registers, or the `sfx` module's key-on/key-off convenience wrapper.
+
+### The `music.*` Built-ins (Song Playback)
+
+A music asset is a compiled `.ncdxmusic` stream (built with
+`cmd/vgm_to_ncdxmusic` or written directly) declared like any other asset:
+
+```corelx
+asset Theme: music "theme.ncdxmusic"
+asset Fanfare: music "fanfare.ncdxmusic"
+
+function Start()
+    music.play_loop(Theme)
+    while true
+        wait_vblank()
+```
+
+- `music.play(asset)` plays once and stops (silences the chip and clears
+  playback state when the song ends).
+- `music.play_loop(asset)` plays and wraps back to the start forever.
+- `music.play_jingle(asset)` stashes whatever's currently playing (including
+  "nothing"), plays the given song once, then restores exactly what was
+  playing before — frame index and all, not restarted from the top. Use it
+  for a one-off sting (level-clear fanfare, item pickup) over a looping BGM
+  track.
+- `music.stop()` silences the chip immediately and clears playback state.
+- `music.set_volume(level)` sets output volume (0-255) immediately.
+- `music.fade_to(level, frames)` ramps volume to `level` over `frames` real
+  frames — call it once, the ramp runs on its own each `wait_vblank()`.
+
+All of these drive off `wait_vblank()` — the per-frame advance (loading the
+next frame's register writes, checking for loop/end) only happens when your
+code calls `wait_vblank()`, the same place every other per-frame system
+(input, animation) already expects to run.
 
 ### Legacy `apu.*` built-ins (temporary scaffolding)
 

@@ -134,3 +134,43 @@ func TestBusYMBurstStreamer(t *testing.T) {
 		t.Fatalf("YM burst register writeback mismatch: got 0x%02X want 0x99", got)
 	}
 }
+
+// TestBusYMBurstStreamerPort1 verifies a burst triplet with a non-zero port
+// byte routes to the upper-port registers (FMRegMixL/FMRegMixR, the same
+// pair ym.write_port1 drives) instead of the port-0 address/data pair —
+// only the port-0 path was covered before.
+func TestBusYMBurstStreamerPort1(t *testing.T) {
+	cart := NewCartridge()
+	romBytes := make([]byte, 32+65536)
+	copy(romBytes[0:4], []byte{'R', 'M', 'C', 'F'})
+	binary.LittleEndian.PutUint16(romBytes[4:6], 1)
+	binary.LittleEndian.PutUint32(romBytes[6:10], 65536)
+	binary.LittleEndian.PutUint16(romBytes[10:12], 1)
+	binary.LittleEndian.PutUint16(romBytes[12:14], 0x8000)
+	// Bank 2, offset 0x8000 => ROM data offset 32768. Triplet: port=1 (non-zero), addr=0x10, data=0x34.
+	romBytes[32+32768] = 0x01
+	romBytes[32+32769] = 0x10
+	romBytes[32+32770] = 0x34
+	if err := cart.LoadROM(romBytes); err != nil {
+		t.Fatalf("LoadROM failed: %v", err)
+	}
+
+	bus := NewBus(cart)
+	audio := apu.NewAPU(44100, nil)
+	bus.APUHandler = audio
+
+	bus.Write8(0, 0x9103, 0x01) // FM_CONTROL enable
+	bus.Write8(0, 0x9110, 0x01) // count low
+	bus.Write8(0, 0x9111, 0x00) // count high
+	bus.Write8(0, 0x9112, 0x02) // source bank
+	bus.Write8(0, 0x9113, 0x00) // source offset low
+	bus.Write8(0, 0x9114, 0x80) // source offset high
+	bus.Write8(0, 0x9115, 0x01) // trigger
+
+	if got := bus.Read8(0, 0x9104); got != 0x10 {
+		t.Fatalf("YM burst port-1 address register mismatch: got 0x%02X want 0x10", got)
+	}
+	if got := bus.Read8(0, 0x9105); got != 0x34 {
+		t.Fatalf("YM burst port-1 data register mismatch: got 0x%02X want 0x34", got)
+	}
+}

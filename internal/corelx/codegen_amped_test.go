@@ -54,13 +54,20 @@ function Start()
 	}
 	words := decodeROMWords(t, res.ROMBytes)
 
+	// Every entry function opens with a fixed 20-word IRQ/NMI vector fix-up
+	// preamble (emitIRQVectorFix) that itself uses MOV mode 7 (8-bit I/O
+	// stores) to redirect the interrupt vectors -- unrelated to Vec2 member
+	// codegen, so it's excluded from the mode-7 check below.
+	const irqVectorPreambleWords = 20
+	memberCodeWords := words[irqVectorPreambleWords:]
+
 	if !hasOpcodeMode(words, 0x1, 10) {
 		t.Fatalf("expected MOV mode 10 in vec2 member store path")
 	}
 	if !hasOpcodeMode(words, 0x1, 9) {
 		t.Fatalf("expected MOV mode 9 in vec2 member load path")
 	}
-	if hasOpcodeMode(words, 0x1, 7) {
+	if hasOpcodeMode(memberCodeWords, 0x1, 7) {
 		t.Fatalf("did not expect MOV mode 7 byte member path for Vec2.y")
 	}
 }

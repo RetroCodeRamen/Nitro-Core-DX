@@ -112,10 +112,21 @@ func TestGraphicsPipelineShowcaseGoldenFrames(t *testing.T) {
 		hash  string
 		name  string
 	}{
-		{frame: 120, hash: "e7fad03b63a3afb48799386efe751276d4ae14ec8b6cf98a9fe2a4841a8d280b", name: "phase1_static"},
-		{frame: 240, hash: "64ab9a9efeb179f76d07bc2620d4443d9d0d444db445d3886d487839c4746906", name: "phase2_sprite"},
-		{frame: 420, hash: "e3f9c4dadd6885e8d254d0a752e00432b27e228fee917239fe220c43015d9bb7", name: "phase3_split"},
-		{frame: 600, hash: "97ac6c794dfdf97d9eafea3e234f48faaeef4d28d387f30a1ba91f0f0350eafa", name: "phase4_warp"},
+		// Hashes updated 2026-07-20: the entry function now redirects the
+		// IRQ/NMI vectors away from the ROM entry point (see
+		// CodeGenerator.emitIRQVectorFix) instead of leaving them aliased to
+		// it. The PPU fires an IRQ unconditionally on every VBlank; with the
+		// old default vectors, the very first VBlank silently re-entered
+		// Start() from the top once (interrupts then stay masked), so these
+		// hashes previously captured a ROM whose entry-function setup ran
+		// twice before settling. The scene composition is unchanged (still
+		// matches each phase's documented expected result); only the exact
+		// framebuffer bytes shifted along with the corrected, single-run
+		// boot sequence.
+		{frame: 120, hash: "7a6feccbd8ce2ccd1622b40a718e4e72054047f7d0d13f928f64aac273b054bf", name: "phase1_static"},
+		{frame: 240, hash: "d6c331c270915748091b3baa2994acd8cf2deef58190a7e4dec78e7042d41b58", name: "phase2_sprite"},
+		{frame: 420, hash: "b020c4ff5defffe938c27a3fd54a225f10742d36981f7c2c611c8d049cd8e6c7", name: "phase3_split"},
+		{frame: 600, hash: "ce0c848072a51e23c7010a8cceda8bb704c851c79e95fe84328568abbb9598d6", name: "phase4_warp"},
 	}
 
 	frame := 0

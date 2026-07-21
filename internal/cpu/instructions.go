@@ -696,19 +696,22 @@ func (c *CPU) executeJMP(mode, reg1, reg2 uint8) error {
 
 // executeCALL executes CALL instruction
 func (c *CPU) executeCALL(mode, reg1, reg2 uint8) error {
-	// Push return address and flags (matching RET pop order: Flags, PCOffset, PBR).
-	// RET pops 3 words: Flags first, then PCOffset, then PBR.
-	// Push in the reverse order so LIFO matches.
-	c.Push16(uint16(c.State.PCBank)) // PBR  (popped last by RET)
-	c.Push16(c.State.PCOffset)       // PCOffset (popped second by RET)
-	c.Push16(uint16(c.State.Flags))  // Flags (popped first by RET)
-
 	switch mode {
 	case 0: // CALL #rel16
+		// Fetch the immediate offset first, so PCOffset is already advanced
+		// past both words of this instruction (opcode + immediate) before we
+		// capture it as the return address below. Branches (BEQ/BNE/etc, see
+		// executeCMPAndBranches) apply their offset the same way — relative
+		// to the fully-advanced PC — and rom.CalculateBranchOffset bakes that
+		// same "+2 past the offset word" convention into every branch/call
+		// target it computes. Pushing PCOffset before this fetch (as this
+		// code used to) captures the address of the immediate word itself,
+		// not the instruction after it — RET would then resume execution by
+		// decoding that immediate value as if it were a fresh instruction.
 		offset := int16(c.FetchImmediate())
 		c.State.Cycles++
 
-		// Jump to target
+		// Jump to target, relative to the now-correct post-fetch PC.
 		newOffset := int32(c.State.PCOffset) + int32(offset)
 
 		// Validate that the new offset is valid for ROM execution
@@ -716,6 +719,14 @@ func (c *CPU) executeCALL(mode, reg1, reg2 uint8) error {
 		if newOffset < 0x8000 {
 			return fmt.Errorf("CRITICAL: CALL to invalid address 0x%04X (ROM code must be at 0x8000+). This indicates a bug in the ROM or invalid call offset", newOffset)
 		}
+
+		// Push return address and flags (matching RET pop order: Flags, PCOffset, PBR).
+		// RET pops 3 words: Flags first, then PCOffset, then PBR.
+		// Push in the reverse order so LIFO matches.
+		c.Push16(uint16(c.State.PCBank)) // PBR  (popped last by RET)
+		c.Push16(c.State.PCOffset)       // PCOffset (popped second by RET) -- correct return address
+		c.Push16(uint16(c.State.Flags))  // Flags (popped first by RET)
+
 		if newOffset > 0xFFFF {
 			c.State.PCOffset = 0xFFFF
 		} else {
@@ -731,6 +742,12 @@ func (c *CPU) executeCALL(mode, reg1, reg2 uint8) error {
 		if err != nil {
 			return err
 		}
+		// This mode has no immediate operand, so PCOffset already points
+		// right after the instruction — safe to push as-is.
+		c.Push16(uint16(c.State.PCBank))
+		c.Push16(c.State.PCOffset)
+		c.Push16(uint16(c.State.Flags))
+
 		c.State.PBR = targetBank
 		c.State.PCBank = targetBank
 		c.State.PCOffset = targetOffset

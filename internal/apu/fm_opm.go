@@ -19,6 +19,13 @@ const (
 	FMRegControl = 0x03 // Enable/mute/reset
 	FMRegMixL    = 0x04 // Left mix gain (future stereo path)
 	FMRegMixR    = 0x05 // Right mix gain (future stereo path)
+	// FMRegVolume is a dedicated master output gain (0-255, default 255 =
+	// unattenuated), applied to the final generated sample regardless of
+	// which FM backend produced it. Added for music.set_volume/fade_to
+	// (internal/corelx's music.* builtins) — FMRegMixL/FMRegMixR were not
+	// usable for this: the production YMFM backend consumes them as the
+	// port-1 register-select pair (see fm_backend_ymfm_cgo.go), not gain.
+	FMRegVolume = 0x06
 )
 
 const (
@@ -98,6 +105,7 @@ type FMOPM struct {
 	Control uint8
 	MixL    uint8
 	MixR    uint8
+	Volume  uint8 // master output gain (0-255); see FMRegVolume
 
 	Enabled    bool
 	Muted      bool
@@ -130,6 +138,7 @@ func NewFMOPM(logger *debug.Logger) *FMOPM {
 		logger:     logger,
 		MixL:       0xFF,
 		MixR:       0xFF,
+		Volume:     0xFF,
 		SampleRate: fmDefaultHz,
 	}
 
@@ -155,6 +164,8 @@ func (f *FMOPM) Read8(offset uint16) uint8 {
 			return f.MixL
 		case FMRegMixR:
 			return f.MixR
+		case FMRegVolume:
+			return f.Volume
 		case FMRegStatus:
 			f.Status = f.backend.Read8(offset)
 			return f.Status
@@ -176,6 +187,8 @@ func (f *FMOPM) Read8(offset uint16) uint8 {
 		return f.MixL
 	case FMRegMixR:
 		return f.MixR
+	case FMRegVolume:
+		return f.Volume
 	default:
 		return 0
 	}
@@ -197,6 +210,8 @@ func (f *FMOPM) Write8(offset uint16, value uint8) {
 		case FMRegMixR:
 			f.MixR = value
 			f.backend.Write8(offset, value)
+		case FMRegVolume:
+			f.Volume = value
 		case FMRegStatus:
 			// Read-only.
 		default:
@@ -217,6 +232,8 @@ func (f *FMOPM) Write8(offset uint16, value uint8) {
 		f.MixL = value
 	case FMRegMixR:
 		f.MixR = value
+	case FMRegVolume:
+		f.Volume = value
 	case FMRegStatus:
 		// Status is read-only in the phase 1 interface.
 	default:
@@ -299,7 +316,7 @@ func (f *FMOPM) GenerateSampleFixed() int16 {
 			f.backend.SetSampleRate(f.SampleRate)
 			f.backendSampleRate = f.SampleRate
 		}
-		return f.backend.GenerateSampleFixed()
+		return f.applyVolume(f.backend.GenerateSampleFixed())
 	}
 
 	var sample int32
@@ -376,7 +393,18 @@ func (f *FMOPM) GenerateSampleFixed() int16 {
 	} else if sample < -32768 {
 		sample = -32768
 	}
-	return int16(sample)
+	return f.applyVolume(int16(sample))
+}
+
+// applyVolume scales a generated sample by FMRegVolume (0-255, 255 =
+// unattenuated). Applied uniformly after either FM synthesis path (the YMFM
+// backend or the in-tree fallback), so music.set_volume/fade_to work
+// regardless of which one is active.
+func (f *FMOPM) applyVolume(sample int16) int16 {
+	if f.Volume == 0xFF {
+		return sample
+	}
+	return int16((int32(sample) * int32(f.Volume)) / 255)
 }
 
 // Step advances timers/state from the APU scheduler.

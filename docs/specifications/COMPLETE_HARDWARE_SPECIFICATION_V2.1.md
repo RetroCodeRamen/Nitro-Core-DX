@@ -833,6 +833,7 @@ The YM2608/OPNA host interface is implemented as an APU sub-block. The memory bu
 | 0x9103 | FM_CONTROL | 8-bit | Bit0=enable, bit1=mute, bit7=write-one reset |
 | 0x9104 | FM_PORT1_ADDR (`FM_MIX_L` legacy alias) | 8-bit | Port 1 address select in the active YM2608 path |
 | 0x9105 | FM_PORT1_DATA (`FM_MIX_R` legacy alias) | 8-bit | Port 1 data port in the active YM2608 path |
+| 0x9106 | FM_VOLUME | 8-bit | Master output gain (0-255, default 255 = unattenuated), applied to the final generated sample after either FM synthesis path. Backs CoreLX's `music.set_volume`/`music.fade_to`. |
 
 `FM_STATUS` bits (current emulator behavior):
 - Bit 0: Timer A flag
@@ -846,7 +847,7 @@ Current host-interface notes:
 - Timer-oriented OPM-style writes (`0x10/0x11/0x12/0x14`) are translated to the YM2608 timer registers in the active YMFM backend.
 
 Current implementation status:
-- ✅ MMIO host interface (`FM_ADDR/FM_DATA/FM_STATUS/FM_CONTROL/FM_PORT1_ADDR/DATA`, with `FM_MIX_L/R` retained as legacy aliases)
+- ✅ MMIO host interface (`FM_ADDR/FM_DATA/FM_STATUS/FM_CONTROL/FM_PORT1_ADDR/DATA/FM_VOLUME`, with `FM_MIX_L/R` retained as legacy aliases)
 - ✅ Timer/status behavior and IRQ bridge (deterministic placeholder timer timing)
 - ✅ YM2608 runtime path operational through the YMFM backend in cgo builds
 - ✅ Emulator/devkit entrypoints default `NCDX_YM_BACKEND` to `ymfm` and currently expose `-audio-backend ymfm`

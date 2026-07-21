@@ -108,6 +108,7 @@ This wraps the YM2608/OPNA dual-port register bus in a CPU-friendly MMIO shell:
 - `0x9103` `FM_CONTROL` (write/read): Enable/mute/reset/debug options
 - `0x9104` `FM_PORT1_ADDR` (`FM_MIX_L` legacy alias) (write/read): Port 1 register address select
 - `0x9105` `FM_PORT1_DATA` (`FM_MIX_R` legacy alias) (write/read): Port 1 data port
+- `0x9106` `FM_VOLUME` (write/read): Master output gain (0-255, default 255), applied after either FM synthesis path. Backs CoreLX's `music.set_volume`/`music.fade_to`.
 
 Notes:
 - The active YMFM backend treats `0x9104/0x9105` as YM2608 upper-port address/data, not just abstract mix-gain bytes.

@@ -44,6 +44,11 @@ type CodeGenerator struct {
 	callPatches   []callPatch    // pending CALL offset patches
 	globalStack   uint16         // tracks per-function stack base to avoid overlap
 
+	// IRQ/NMI vector fix-up: word positions of the placeholder offset-high
+	// bytes written by emitIRQVectorFix, patched once __irqstub's real
+	// address is known (see patchIRQVector).
+	irqVectorPatchPositions []int
+
 	// Innermost-enclosing-loop stack, for break/continue target patching.
 	loopStack []*loopContext
 }
@@ -469,6 +474,20 @@ func (cg *CodeGenerator) Generate() error {
 	// Generate code for each function, recording start addresses.
 	for _, fn := range functions {
 		cg.functionAddrs[fn.Name] = cg.builder.GetCodeLength()
+		if fn == entryFunction {
+			// Every real frame's VBlank fires an IRQ unconditionally (see
+			// ppu/scanline.go), and the default IRQ/NMI vectors alias this
+			// entry point (InitSystemVectors: bank 1, 0x8000). CoreLX has no
+			// interrupt language surface -- wait_vblank() works by polling a
+			// status flag, not by handling this IRQ -- so left alone, the
+			// very first VBlank would silently re-enter the entry function
+			// from the top (interrupts then stay masked, since nothing here
+			// ever clears the CPU's I flag once the handler sets it), running
+			// every statement before the first wait_vblank() call a second
+			// time. Redirect both vectors to a harmless RET stub before any
+			// other entry code runs.
+			cg.emitIRQVectorFix()
+		}
 		if err := cg.generateFunction(fn); err != nil {
 			return err
 		}
@@ -481,6 +500,10 @@ func (cg *CodeGenerator) Generate() error {
 	if cg.needDrawInt {
 		cg.emitDrawIntHelper()
 	}
+	if len(cg.musicAssets) > 0 {
+		cg.emitMusicAdvanceHelper()
+	}
+	cg.patchIRQVector()
 
 	// Patch all pending CALL offsets now that every function address is known.
 	for _, patch := range cg.callPatches {
@@ -1714,6 +1737,56 @@ func (cg *CodeGenerator) generateCall(call *CallExpr, destReg uint8) error {
 		return nil
 	}
 
+	// music.play(asset) / music.play_loop(asset) / music.play_jingle(asset):
+	// the argument is a music asset name (resolved at compile time against
+	// cg.musicAssets), not a runtime expression — it can't go through the
+	// generic arg-evaluation loop below the same way text.draw's
+	// string-literal argument can't.
+	if funcName == "music.play" || funcName == "music.play_loop" || funcName == "music.play_jingle" {
+		if len(call.Args) != 1 {
+			return fmt.Errorf("%s requires 1 argument (a music asset)", funcName)
+		}
+		assetIdent, ok := call.Args[0].(*IdentExpr)
+		if !ok {
+			return fmt.Errorf("%s: argument must be a music asset name", funcName)
+		}
+		asset, ok := cg.musicAssets[assetIdent.Name]
+		if !ok {
+			return fmt.Errorf("%s: %q is not a declared music asset", funcName, assetIdent.Name)
+		}
+		mode := uint16(1)
+		switch funcName {
+		case "music.play_loop":
+			mode = 2
+		case "music.play_jingle":
+			mode = 3
+		}
+		store := func(addr uint16, v uint16) {
+			cg.hMovImm(6, v)
+			cg.hStore16(addr, 6)
+		}
+		if funcName == "music.play_jingle" {
+			// Stash the currently-playing song's state (whatever it is,
+			// including "nothing playing") so __musicadvance can restore it
+			// once the jingle reaches its end.
+			cg.copyWRAMSlot(musicSavedActiveSlot, musicActiveSlot)
+			cg.copyWRAMSlot(musicSavedFrameSlot, musicFrameSlot)
+			cg.copyWRAMSlot(musicSavedCountSlot, musicCountSlot)
+			cg.copyWRAMSlot(musicSavedCBankSlot, musicCBankSlot)
+			cg.copyWRAMSlot(musicSavedCOffSlot, musicCOffSlot)
+			cg.copyWRAMSlot(musicSavedPBankSlot, musicPBankSlot)
+			cg.copyWRAMSlot(musicSavedPOffSlot, musicPOffSlot)
+		}
+		store(musicActiveSlot, mode)
+		store(musicFrameSlot, 0)
+		store(musicCountSlot, uint16(asset.FrameCount))
+		store(musicCBankSlot, uint16(asset.CountsBank))
+		store(musicCOffSlot, asset.CountsOff)
+		store(musicPBankSlot, uint16(asset.PtrBank))
+		store(musicPOffSlot, asset.PtrOff)
+		return nil
+	}
+
 	if funcName == "" {
 		return fmt.Errorf("cannot determine function name in call")
 	}
@@ -1817,6 +1890,11 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		currentPC := uint16(cg.builder.GetCodeLength() * 2)
 		offset := rom.CalculateBranchOffset(currentPC, uint16(waitPos*2))
 		cg.builder.AddImmediate(uint16(offset))
+		// Advance any playing music once per VBlank (only emitted/called when
+		// the program declares a music asset — see emitMusicAdvanceHelper).
+		if len(cg.musicAssets) > 0 {
+			cg.emitHelperCall("__musicadvance")
+		}
 		return nil
 
 	case "frame_counter":
@@ -2723,6 +2801,46 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		}
 		cg.storeIOByte(0x9104, 0) // port-1 address select
 		cg.storeIOByte(0x9105, 1) // port-1 data
+		return nil
+
+	case "music.stop":
+		// music.stop() - silence the chip and mark nothing playing.
+		if len(args) != 0 {
+			return fmt.Errorf("music.stop takes no arguments")
+		}
+		cg.emitYM2608Silence()
+		cg.hMovImm(6, 0)
+		cg.hStore16(musicActiveSlot, 6)
+		return nil
+
+	case "music.set_volume":
+		// music.set_volume(value: u8) - sets FMRegVolume (0x9106) immediately,
+		// canceling any in-progress fade (an explicit set wins over a stale
+		// fade still counting down). Arg is in R0.
+		if len(args) != 1 {
+			return fmt.Errorf("music.set_volume requires 1 argument (0-255)")
+		}
+		cg.hMovImm(6, 0)
+		cg.hStore16(musicFadeActiveSlot, 6)
+		cg.storeIOByte(0x9106, 0)
+		return nil
+
+	case "music.fade_to":
+		// music.fade_to(value: u8, frames: int) - fades FMRegVolume to value
+		// over the given number of real frames. Advanced once per real frame
+		// by __musicadvance's emitMusicFadeStep, which requires the program
+		// to declare a music asset (that's what wires __musicadvance into
+		// wait_vblank() at all). Args: R0 = value, R1 = frames.
+		if len(args) != 2 {
+			return fmt.Errorf("music.fade_to requires 2 arguments (value, frames)")
+		}
+		if len(cg.musicAssets) == 0 {
+			return fmt.Errorf("music.fade_to requires the program to declare a music asset (its per-frame advance is driven by the same helper that plays songs)")
+		}
+		cg.hStore16(musicFadeTargetSlot, 0)
+		cg.hStore16(musicFadeFramesLeftSlot, 1)
+		cg.hMovImm(6, 1)
+		cg.hStore16(musicFadeActiveSlot, 6)
 		return nil
 
 	case "bg.set_scroll":
@@ -5268,13 +5386,31 @@ const (
 	// Music player state (music.play / music.stop). The __musicadvance helper,
 	// called once per wait_vblank when the program declares a music asset,
 	// reads these to stream the current frame's YM2608 writes and advance.
-	musicActiveSlot = runtimeBlockBase + 0x40 // 1 = playing, 0 = stopped
-	musicFrameSlot  = runtimeBlockBase + 0x42 // current frame index
-	musicCountSlot  = runtimeBlockBase + 0x44 // total frame count (one-shot end)
-	musicCBankSlot  = runtimeBlockBase + 0x46 // counts-table bank
-	musicCOffSlot   = runtimeBlockBase + 0x48 // counts-table offset
-	musicPBankSlot  = runtimeBlockBase + 0x4A // pointer-table bank
-	musicPOffSlot   = runtimeBlockBase + 0x4C // pointer-table offset
+	musicActiveSlot    = runtimeBlockBase + 0x40 // 3 = jingle, 2 = looping, 1 = one-shot, 0 = stopped
+	musicFrameSlot     = runtimeBlockBase + 0x42 // current frame index
+	musicCountSlot     = runtimeBlockBase + 0x44 // total frame count (one-shot end)
+	musicCBankSlot     = runtimeBlockBase + 0x46 // counts-table bank
+	musicCOffSlot      = runtimeBlockBase + 0x48 // counts-table offset
+	musicPBankSlot     = runtimeBlockBase + 0x4A // pointer-table bank
+	musicPOffSlot      = runtimeBlockBase + 0x4C // pointer-table offset
+	musicLastFrameSlot = runtimeBlockBase + 0x4E // last frame_counter() value processed
+
+	// music.fade_to state, advanced once per real frame alongside the song
+	// player (independent of whether a song is actively playing).
+	musicFadeActiveSlot     = runtimeBlockBase + 0x50 // 1 = fading, 0 = idle
+	musicFadeTargetSlot     = runtimeBlockBase + 0x52 // target volume (0-255)
+	musicFadeFramesLeftSlot = runtimeBlockBase + 0x54 // frames remaining
+
+	// music.play_jingle save slots: the BGM's state (mode 0/1/2, never 3)
+	// stashed while a jingle (mode 3) plays, restored when the jingle ends.
+	// Mirror the musicActiveSlot..musicPOffSlot layout one-for-one.
+	musicSavedActiveSlot = runtimeBlockBase + 0x56
+	musicSavedFrameSlot  = runtimeBlockBase + 0x58
+	musicSavedCountSlot  = runtimeBlockBase + 0x5A
+	musicSavedCBankSlot  = runtimeBlockBase + 0x5C
+	musicSavedCOffSlot   = runtimeBlockBase + 0x5E
+	musicSavedPBankSlot  = runtimeBlockBase + 0x60
+	musicSavedPOffSlot   = runtimeBlockBase + 0x62
 )
 
 // emitHelperCall emits a CALL to a named helper routine, patched after all
@@ -5298,6 +5434,12 @@ func (cg *CodeGenerator) hStore16(addr uint16, src uint8) {
 func (cg *CodeGenerator) hLoad16(dst uint8, addr uint16) {
 	cg.hMovImm(7, addr)
 	cg.builder.AddInstruction(rom.EncodeMOV(2, dst, 7))
+}
+
+// copyWRAMSlot copies a 16-bit WRAM value from src to dst. Clobbers R6-R7.
+func (cg *CodeGenerator) copyWRAMSlot(dst, src uint16) {
+	cg.hLoad16(6, src)
+	cg.hStore16(dst, 6)
 }
 func (cg *CodeGenerator) hAndImm(reg uint8, v uint16) {
 	cg.builder.AddInstruction(rom.EncodeAND(1, reg, 0))
@@ -5334,6 +5476,49 @@ func (cg *CodeGenerator) hJumpBack(toWordIdx int) {
 	cg.builder.AddInstruction(rom.EncodeJMP())
 	fromPC := uint16(cg.builder.GetCodeLength() * 2)
 	cg.builder.AddImmediate(uint16(rom.CalculateBranchOffset(fromPC, uint16(toWordIdx*2))))
+}
+
+// romCodeBank is the single ROM bank all CoreLX-compiled code lives in.
+// CALL #rel16 (the only CALL mode codegen emits) has no bank operand, so
+// every function must live in one bank -- this mirrors compiler.go's
+// CompileOptions.EntryBank default.
+const romCodeBank = 1
+
+// emitIRQVectorFix writes bank0:0xFFE0-0xFFE3 (the IRQ and NMI vectors) so
+// they point at a trivial RET stub instead of the hardware default, which
+// aliases the entry point. Must run before any other entry-function code.
+// The offset-high bytes are placeholders, patched by patchIRQVector once
+// __irqstub's real address is known. Clobbers R6-R7.
+func (cg *CodeGenerator) emitIRQVectorFix() {
+	patchVector := func(vectorAddr uint16) {
+		cg.hMovImm(6, uint16(romCodeBank))
+		cg.storeIOByte(vectorAddr, 6)
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+		pos := cg.builder.GetCodeLength()
+		cg.builder.AddImmediate(0) // placeholder: patched to __irqstub's page
+		cg.storeIOByte(vectorAddr+1, 6)
+		cg.irqVectorPatchPositions = append(cg.irqVectorPatchPositions, pos)
+	}
+	patchVector(0xFFE0) // IRQ vector
+	patchVector(0xFFE2) // NMI vector
+}
+
+// patchIRQVector emits __irqstub (a lone RET) padded to a 0x100-byte page
+// boundary -- the vector format only stores a page number (offset low byte
+// is always 0x00) -- then backfills the placeholders emitIRQVectorFix left
+// in the entry function's prologue with that page's high byte.
+func (cg *CodeGenerator) patchIRQVector() {
+	if len(cg.irqVectorPatchPositions) == 0 {
+		return
+	}
+	for (cg.builder.GetCodeLength()*2)%256 != 0 {
+		cg.builder.AddInstruction(rom.EncodeNOP())
+	}
+	stubAbsAddr := 0x8000 + uint16(cg.builder.GetCodeLength()*2)
+	cg.builder.AddInstruction(rom.EncodeRET())
+	for _, pos := range cg.irqVectorPatchPositions {
+		cg.builder.SetImmediateAt(pos, uint16(stubAbsAddr>>8))
+	}
 }
 
 // emitFixmulHelper emits __fixmul: signed 8.8 fixed multiply with
@@ -5411,6 +5596,270 @@ func (cg *CodeGenerator) emitFixmulHelper() {
 	cg.builder.AddInstruction(rom.EncodeRET())
 	cg.hPatchToHere(pos)
 	cg.builder.AddInstruction(rom.EncodeMOV(0, 0, 2))
+	cg.builder.AddInstruction(rom.EncodeRET())
+}
+
+// emitYM2608Silence emits the YM2608 silence sequence: FM key-off on all six
+// melodic channels, mute the SSG mixer/channels, and disable rhythm/ADPCM
+// playback. Mirrors the hand-verified sequence in
+// test/roms/build_pong_ym2608.go's emitSilenceYM2608. Clobbers R6.
+func (cg *CodeGenerator) emitYM2608Silence() {
+	writeYM := func(port0Addr, port0Data uint16) {
+		cg.hMovImm(6, port0Addr)
+		cg.storeIOByte(0x9100, 6)
+		cg.hMovImm(6, port0Data)
+		cg.storeIOByte(0x9101, 6)
+	}
+	for _, ch := range []uint16{0x00, 0x01, 0x02, 0x04, 0x05, 0x06} {
+		writeYM(0x28, ch) // key-off (no operator bits set)
+	}
+	writeYM(0x07, 0x3F) // SSG mixer: all channels off
+	writeYM(0x08, 0x00) // SSG channel A level
+	writeYM(0x09, 0x00) // SSG channel B level
+	writeYM(0x0A, 0x00) // SSG channel C level
+	writeYM(0x10, 0x00) // rhythm: all off
+
+	// ADPCM-B reset/stop, via port 1.
+	cg.hMovImm(6, 0x00)
+	cg.storeIOByte(0x9104, 6)
+	cg.hMovImm(6, 0x01)
+	cg.storeIOByte(0x9105, 6)
+}
+
+// emitMusicFadeStep emits the music.fade_to per-frame interpolation step,
+// inlined into __musicadvance so it runs once per real frame regardless of
+// whether a song is actively playing via music.play/play_loop. Recomputes
+// the step fresh each frame (current +/- abs(target-current)/framesLeft)
+// rather than storing a fixed per-frame delta, so it lands exactly on the
+// target volume when framesLeft reaches 1 regardless of rounding along the
+// way. Clobbers R3-R7; assumes DBR is already 0 (true at every call site —
+// this only ever runs before __musicadvance's own DBR-touching sections).
+func (cg *CodeGenerator) emitMusicFadeStep() {
+	cg.hLoad16(6, musicFadeActiveSlot)
+	cg.hCmpImm(6, 0)
+	noFadePos := cg.hBranch(rom.EncodeBEQ())
+
+	cg.hLoad16(3, musicFadeFramesLeftSlot)
+	cg.hCmpImm(3, 1)
+	notLastStepPos := cg.hBranch(rom.EncodeBGT())
+
+	// Last step: snap exactly to the target and stop fading (avoids drifting
+	// off-target from repeated integer-division rounding).
+	cg.hLoad16(6, musicFadeTargetSlot)
+	cg.storeIOByte(0x9106, 6)
+	cg.hMovImm(6, 0)
+	cg.hStore16(musicFadeActiveSlot, 6)
+	fadeDonePos := cg.hBranch(rom.EncodeJMP())
+
+	cg.hPatchToHere(notLastStepPos)
+	// Partial step: current +/- abs(target-current)/framesLeft (framesLeft > 1).
+	cg.hLoad16(4, 0x9106) // R4 = current volume (I/O-aware 8-bit load)
+	cg.hLoad16(5, musicFadeTargetSlot)
+	cg.builder.AddInstruction(rom.EncodeSUB(0, 5, 4)) // R5 = target - current (signed delta)
+
+	// Extract the sign bit (same idiom as emitFixmulHelper's sign handling):
+	// a logical shift right by 15 isolates bit 15, giving 0 (delta >= 0) or
+	// 1 (delta < 0) regardless of shift signedness, since only that one bit
+	// survives.
+	cg.builder.AddInstruction(rom.EncodeMOV(0, 6, 5))
+	cg.hShrImm(6, 15)
+	cg.hCmpImm(6, 0)
+	deltaPositivePos := cg.hBranch(rom.EncodeBEQ())
+	cg.hMovImm(7, 0)
+	cg.builder.AddInstruction(rom.EncodeSUB(0, 7, 5)) // R7 = 0 - delta
+	cg.builder.AddInstruction(rom.EncodeMOV(0, 5, 7)) // R5 = abs(delta)
+	cg.hPatchToHere(deltaPositivePos)
+
+	cg.builder.AddInstruction(rom.EncodeDIV(0, 5, 3)) // R5 = abs(delta) / framesLeft (hardware DIV is unsigned)
+
+	// Re-apply the sign and add to the current volume.
+	cg.hCmpImm(6, 0)
+	stepPositivePos := cg.hBranch(rom.EncodeBEQ())
+	cg.builder.AddInstruction(rom.EncodeSUB(0, 4, 5)) // fading down: current -= step
+	appliedPos := cg.hBranch(rom.EncodeJMP())
+	cg.hPatchToHere(stepPositivePos)
+	cg.builder.AddInstruction(rom.EncodeADD(0, 4, 5)) // fading up: current += step
+	cg.hPatchToHere(appliedPos)
+
+	cg.storeIOByte(0x9106, 4)
+
+	cg.hLoad16(3, musicFadeFramesLeftSlot)
+	cg.builder.AddInstruction(rom.EncodeSUB(1, 3, 0))
+	cg.builder.AddImmediate(1)
+	cg.hStore16(musicFadeFramesLeftSlot, 3)
+
+	cg.hPatchToHere(fadeDonePos)
+	cg.hPatchToHere(noFadePos)
+}
+
+// emitMusicAdvanceHelper emits __musicadvance: called once per wait_vblank()
+// whenever the program declares any music asset. If a song is playing
+// (musicActiveSlot != 0), streams the current frame's YM2608 writes through
+// the bus-side burst streamer (0x9110-0x9115, see internal/memory/bus.go's
+// executeYMBurst) and advances the frame index. At the end of the song, a
+// one-shot (musicActiveSlot == 1) silences the chip and stops; a loop
+// (musicActiveSlot == 2) wraps back to frame 0. If nothing is playing,
+// returns immediately.
+//
+// Mirrors the hand-verified sequence in
+// test/roms/build_pong_ym2608.go's emitSongPlayerFrame, with one correctness
+// fix: that reference writes a stale register (always 0, left over from an
+// unrelated earlier assignment) as the burst count's high byte instead of
+// deriving the real value, silently truncating any per-frame write count
+// >= 256. This version computes it fresh from the actual combined count.
+//
+// Reloads the frame index from WRAM at each use rather than keeping it live
+// in a register across calls to the hLoad16/hStore16/storeIOByte helpers —
+// they all use R7 as internal scratch, so nothing survives a call to them
+// except registers those helpers don't touch.
+//
+// wait_vblank()'s VBlank flag persists for the whole VBlank window by design
+// (internal/ppu/ppu.go: "allows ROM to read the flag multiple times during
+// VBlank"), so a `while true: wait_vblank()` loop can complete several times
+// within a single real video frame if the loop body is short. Without a
+// guard, that would advance the song several steps per real frame instead of
+// one. musicLastFrameSlot tracks the last frame_counter() value actually
+// processed, so repeat calls within the same real frame are no-ops.
+func (cg *CodeGenerator) emitMusicAdvanceHelper() {
+	cg.functionAddrs["__musicadvance"] = cg.builder.GetCodeLength()
+
+	// Read frame_counter() (same sequence as the frame_counter() builtin:
+	// FRAME_COUNTER_LOW 0x803F, FRAME_COUNTER_HIGH 0x8040) and skip this call
+	// if it's already been processed for the current real frame.
+	cg.hMovImm(4, 0x803F)
+	cg.builder.AddInstruction(rom.EncodeMOV(2, 5, 4)) // R5 = low byte
+	cg.hMovImm(4, 0x8040)
+	cg.builder.AddInstruction(rom.EncodeMOV(2, 6, 4)) // R6 = high byte
+	cg.hShlImm(6, 8)
+	cg.builder.AddInstruction(rom.EncodeOR(0, 5, 6)) // R5 = current frame_counter()
+	cg.hLoad16(6, musicLastFrameSlot)
+	cg.builder.AddInstruction(rom.EncodeCMP(0, 5, 6))
+	alreadyProcessedPos := cg.hBranch(rom.EncodeBEQ())
+	cg.hStore16(musicLastFrameSlot, 5)
+
+	// Advance any in-progress music.fade_to, independent of whether a song
+	// is actively playing via music.play/play_loop.
+	cg.emitMusicFadeStep()
+
+	cg.hLoad16(7, musicActiveSlot)
+	cg.hCmpImm(7, 0)
+	notPlayingPos := cg.hBranch(rom.EncodeBEQ())
+
+	// Counts-table lookup: address = countsOff + frameIndex*2, DBR = countsBank.
+	cg.hLoad16(3, musicFrameSlot)
+	cg.hShlImm(3, 1)
+	cg.hLoad16(6, musicCOffSlot)
+	cg.builder.AddInstruction(rom.EncodeADD(0, 3, 6))
+	cg.hLoad16(6, musicCBankSlot)
+	cg.builder.AddInstruction(rom.EncodeMOV(8, 6, 0)) // DBR = countsBank
+	cg.builder.AddInstruction(rom.EncodeMOV(6, 4, 3)) // R4 = count lo, [R3]
+	cg.builder.AddInstruction(rom.EncodeADD(1, 3, 0))
+	cg.builder.AddImmediate(1)
+	cg.builder.AddInstruction(rom.EncodeMOV(6, 5, 3)) // R5 = count hi, [R3]
+	cg.hShlImm(5, 8)
+	cg.builder.AddInstruction(rom.EncodeADD(0, 5, 4)) // R5 = combined write count
+
+	// Reset DBR to 0 before the pointer-table lookup's own WRAM reads below
+	// (musicFrameSlot/musicPOffSlot/musicPBankSlot) — they're 16-bit loads,
+	// which are DBR-relative for non-I/O addresses just like the 8-bit ROM
+	// reads above, so leaving DBR at countsBank here would silently read
+	// those WRAM slots from the wrong bank.
+	cg.hMovImm(1, 0)
+	cg.builder.AddInstruction(rom.EncodeMOV(8, 1, 0))
+
+	// Pointer-table lookup: address = ptrOff + frameIndex*4, DBR = ptrBank.
+	cg.hLoad16(3, musicFrameSlot)
+	cg.hShlImm(3, 2)
+	cg.hLoad16(6, musicPOffSlot)
+	cg.builder.AddInstruction(rom.EncodeADD(0, 3, 6))
+	cg.hLoad16(6, musicPBankSlot)
+	cg.builder.AddInstruction(rom.EncodeMOV(8, 6, 0)) // DBR = ptrBank
+	cg.builder.AddInstruction(rom.EncodeMOV(6, 6, 3)) // R6 = data bank, [R3]
+	cg.builder.AddInstruction(rom.EncodeADD(1, 3, 0))
+	cg.builder.AddImmediate(1)
+	cg.builder.AddInstruction(rom.EncodeMOV(6, 0, 3)) // R0 = data offset lo, [R3]
+	cg.builder.AddInstruction(rom.EncodeADD(1, 3, 0))
+	cg.builder.AddImmediate(1)
+	cg.builder.AddInstruction(rom.EncodeMOV(6, 1, 3)) // R1 = data offset hi, [R3]
+	cg.hShlImm(1, 8)
+	cg.builder.AddInstruction(rom.EncodeADD(0, 0, 1)) // R0 = combined data offset
+
+	// Reset DBR to 0 before touching bank-0 I/O/WRAM again — every other
+	// generated instruction (globals, stack locals, I/O) assumes DBR == 0.
+	cg.hMovImm(1, 0)
+	cg.builder.AddInstruction(rom.EncodeMOV(8, 1, 0))
+
+	// If this frame has no writes, skip the burst.
+	cg.hCmpImm(5, 0)
+	writeDonePos := cg.hBranch(rom.EncodeBEQ())
+
+	// Program the bus-side YM burst streamer:
+	// 0x9110/11 count, 0x9112 bank, 0x9113/14 offset, 0x9115 trigger.
+	cg.storeIOByte(0x9110, 4) // count lo
+	cg.builder.AddInstruction(rom.EncodeMOV(0, 2, 5))
+	cg.hShrImm(2, 8)
+	cg.storeIOByte(0x9111, 2) // count hi
+	cg.storeIOByte(0x9112, 6) // source bank
+	cg.storeIOByte(0x9113, 0) // source offset lo (I/O store truncates to the low byte)
+	cg.builder.AddInstruction(rom.EncodeMOV(0, 1, 0))
+	cg.hShrImm(1, 8)
+	cg.storeIOByte(0x9114, 1) // source offset hi
+	cg.hMovImm(1, 1)
+	cg.storeIOByte(0x9115, 1) // trigger burst
+
+	cg.hPatchToHere(writeDonePos)
+
+	// Advance the frame index.
+	cg.hLoad16(3, musicFrameSlot)
+	cg.builder.AddInstruction(rom.EncodeADD(1, 3, 0))
+	cg.builder.AddImmediate(1)
+	cg.hLoad16(6, musicCountSlot)
+	cg.builder.AddInstruction(rom.EncodeCMP(0, 3, 6))
+	notAtEndPos := cg.hBranch(rom.EncodeBLT()) // frame+1 < count: not at the end yet
+
+	// Reached the end of the song.
+	cg.hLoad16(6, musicActiveSlot)
+	cg.hCmpImm(6, 2)
+	loopPos := cg.hBranch(rom.EncodeBEQ()) // mode == 2 (loop): wrap to 0
+	cg.hCmpImm(6, 3)
+	jingleEndPos := cg.hBranch(rom.EncodeBEQ()) // mode == 3 (jingle): restore the saved BGM
+
+	// mode == 1 (one-shot): silence the chip, mark stopped, done.
+	cg.emitYM2608Silence()
+	cg.hMovImm(6, 0)
+	cg.hStore16(musicActiveSlot, 6)
+	cg.builder.AddInstruction(rom.EncodeRET())
+
+	cg.hPatchToHere(jingleEndPos)
+	// Restore whatever was playing (or not) before the jingle started.
+	cg.copyWRAMSlot(musicActiveSlot, musicSavedActiveSlot)
+	cg.copyWRAMSlot(musicFrameSlot, musicSavedFrameSlot)
+	cg.copyWRAMSlot(musicCountSlot, musicSavedCountSlot)
+	cg.copyWRAMSlot(musicCBankSlot, musicSavedCBankSlot)
+	cg.copyWRAMSlot(musicCOffSlot, musicSavedCOffSlot)
+	cg.copyWRAMSlot(musicPBankSlot, musicSavedPBankSlot)
+	cg.copyWRAMSlot(musicPOffSlot, musicSavedPOffSlot)
+	// If nothing was playing before the jingle, silence the chip too —
+	// otherwise the restored song's own next-frame writes take over cleanly.
+	cg.hLoad16(6, musicActiveSlot)
+	cg.hCmpImm(6, 0)
+	restoredSomethingPos := cg.hBranch(rom.EncodeBNE())
+	cg.emitYM2608Silence()
+	cg.hPatchToHere(restoredSomethingPos)
+	cg.builder.AddInstruction(rom.EncodeRET())
+
+	cg.hPatchToHere(loopPos)
+	cg.hMovImm(3, 0) // loop: wrap frame index to 0
+
+	cg.hPatchToHere(notAtEndPos)
+	// R3 holds the new frame index (frame+1, or 0 if the loop path just ran).
+	cg.hStore16(musicFrameSlot, 3)
+	cg.builder.AddInstruction(rom.EncodeRET())
+
+	cg.hPatchToHere(notPlayingPos)
+	cg.builder.AddInstruction(rom.EncodeRET())
+
+	cg.hPatchToHere(alreadyProcessedPos)
 	cg.builder.AddInstruction(rom.EncodeRET())
 }
 
