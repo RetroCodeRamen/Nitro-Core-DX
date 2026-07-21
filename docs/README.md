@@ -33,18 +33,23 @@ The project ships two distinct manuals for two audiences:
 - `NITRO_CORE_DX_OWNERS_MANUAL.md` — **Console Owner's Manual** (player-facing):
   what the console is, the controller, running games. Clean Retro Code Ramen
   product voice.
-- `CORELX_PROGRAMMING_GUIDE.md` — **Programming Guide** (programmer-facing): the
+- `../PROGRAMMING_MANUAL.md` — **Programming Guide** (programmer-facing): the
   full DevKit + CoreLX teaching, taught by Fletcher. Every demo program in it is
   compiled and run against the emulator by the test suite
   (`internal/corelx/manual_examples_test.go`, sources in `manual_examples/`).
-  Style governed by `CORELX_MANUAL_STYLE_GUIDE.md`.
+  Style governed by `CORELX_MANUAL_STYLE_GUIDE.md`. As of 2026-07-21 this
+  merges what used to be two separate, drifting docs (the old
+  `PROGRAMMING_MANUAL.md` and `CORELX_PROGRAMMING_GUIDE.md`) into one current
+  manual — `CORELX_PROGRAMMING_GUIDE.md` no longer exists as a separate file.
 
 ## Deferred Until CoreLX v1 Ships
 
-- `../PROGRAMMING_MANUAL.md` and `guides/PROGRAMMING_GUIDE.md`
-  - Both document the current pre-v1 compiler and will be rewritten against
-    the finished v1 language. Until then they carry scope notes and remain
-    usable for the shipping compiler.
+- `guides/PROGRAMMING_GUIDE.md`
+  - An older, pre-v1 project-based walkthrough (a Pong-style mini-game
+    tutorial). Documents the current pre-v1 compiler and will be rewritten (or
+    folded into `../PROGRAMMING_MANUAL.md`'s Part 2) against the finished v1
+    language. Until then it carries scope notes and remains usable for the
+    shipping compiler.
 - `../SYSTEM_MANUAL.md`
   - Under revision; verify claims against current hardware specs/tests.
 

@@ -6,7 +6,7 @@
 
 > This is the **owner's manual** — everything you need to start the system and
 > play. If you want to *make* games for the Nitro-Core-DX, you want the
-> **Programming Guide** (`CORELX_PROGRAMMING_GUIDE.md`) instead, where Fletcher
+> **Programming Guide** (`PROGRAMMING_MANUAL.md`) instead, where Fletcher
 > will teach you the CoreLX language and the DevKit. This book is for players.
 
 ---
@@ -130,7 +130,7 @@ everything.
 
 Want to make your own games? You can. The Nitro-Core-DX was built to be
 programmed — that's the whole point — and the **Programming Guide**
-(`CORELX_PROGRAMMING_GUIDE.md`) will take you from your first line of CoreLX to a
+(`PROGRAMMING_MANUAL.md`) will take you from your first line of CoreLX to a
 playable pseudo-3D demo, with Fletcher grumbling helpfully the whole way.
 
 Welcome to the machine. Now go play something.

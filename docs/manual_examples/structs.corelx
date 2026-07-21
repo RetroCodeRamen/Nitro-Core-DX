@@ -1,0 +1,34 @@
+-- structs.corelx
+-- Your own struct, not just Sprite(). `struct Name:` followed by an indented
+-- list of `field: type` lines declares a new type; `Name()` creates one.
+-- Structs are reference types -- passing one to a function shares it, so the
+-- callee's writes are visible to the caller. No `&`, no pointers: CoreLX
+-- doesn't have a unary address-of operator at all.
+
+struct Player:
+    x: int
+    y: int
+    lives: int
+
+function damage(p: Player)
+    p.lives = p.lives - 1
+
+-- hero itself is a local (`:=`), so it doesn't get a fixed WRAM address the
+-- way a `var` global does -- this mirrors hero.lives out to a global once,
+-- same as you'd do to feed a HUD, so it's easy to check from outside too.
+var hero_lives: int = 0
+
+function Start()
+    hero := Player()
+    hero.x = 100
+    hero.y = 50
+    hero.lives = 3
+
+    damage(hero)
+    damage(hero)
+    hero_lives = hero.lives
+
+    while true
+        wait_vblank()
+        text.draw(8, 8, 255, 255, 255, "LIVES LEFT")
+        text.draw_int(120, 8, 255, 255, 0, hero_lives)

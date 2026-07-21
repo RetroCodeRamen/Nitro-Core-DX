@@ -1,7 +1,7 @@
 # CoreLX Programming Guide Style Guide
 
 This is the **binding style reference** for the **Programming Guide**
-(`CORELX_PROGRAMMING_GUIDE.md`) — the Fletcher-voiced book that teaches CoreLX
+(`PROGRAMMING_MANUAL.md`) — the Fletcher-voiced book that teaches CoreLX
 and the DevKit. Any chapter written for that guide must follow it.
 
 > **Scope:** this style guide governs the *Programming Guide* only. The separate

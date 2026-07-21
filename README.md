@@ -411,7 +411,7 @@ The project documentation is organized into several main documents:
 
 **The two end-user books (v1, in progress):**
 - **[docs/NITRO_CORE_DX_OWNERS_MANUAL.md](docs/NITRO_CORE_DX_OWNERS_MANUAL.md)**: Console Owner's Manual (player-facing — what the console is, the controller, running games)
-- **[docs/CORELX_PROGRAMMING_GUIDE.md](docs/CORELX_PROGRAMMING_GUIDE.md)**: Programming Guide (programmer-facing — learn CoreLX and the DevKit, taught by Fletcher; every demo is test-verified)
+- **[PROGRAMMING_MANUAL.md](PROGRAMMING_MANUAL.md)**: Programming Guide (programmer-facing — learn CoreLX and the DevKit, taught by Fletcher; every demo is test-verified). This merges what used to be two separate, drifting docs (`PROGRAMMING_MANUAL.md` and `docs/CORELX_PROGRAMMING_GUIDE.md`) into one.
 
 **Specs & reference:**
 - **[docs/specifications/CORELX_SYNTAX_V1.md](docs/specifications/CORELX_SYNTAX_V1.md)**: CoreLX v1 language syntax charter (frozen design)
@@ -419,7 +419,7 @@ The project documentation is organized into several main documents:
 - **[docs/CORELX.md](docs/CORELX.md)**: older CoreLX reference (partially stale — predates the M8 builtins; see its banner)
 - **[docs/specifications/COMPLETE_HARDWARE_SPECIFICATION_V2.1.md](docs/specifications/COMPLETE_HARDWARE_SPECIFICATION_V2.1.md)**: evidence-based hardware specification (authoritative)
 - **[docs/specifications/APU_FM_OPM_EXTENSION_SPEC.md](docs/specifications/APU_FM_OPM_EXTENSION_SPEC.md)**: YM2608 audio subsystem design + implementation status (file to be renamed in a later step)
-- **[SYSTEM_MANUAL.md](SYSTEM_MANUAL.md)** / **[PROGRAMMING_MANUAL.md](PROGRAMMING_MANUAL.md)**: older manuals, under revision (will be superseded by the two books above at v1)
+- **[SYSTEM_MANUAL.md](SYSTEM_MANUAL.md)**: older manual, under revision (hardware/system-level, distinct from the programming guide above)
 
 ### Additional Documentation
 - **[CHANGELOG.md](CHANGELOG.md)**: Version history and change log
@@ -540,7 +540,7 @@ Contributions are welcome! This project is in active development.
 1. Read the [README.md](README.md) for project overview
 2. Read [docs/README.md](docs/README.md) for the current documentation map
 3. Read [docs/CORELX_V1_IMPLEMENTATION_STATUS.md](docs/CORELX_V1_IMPLEMENTATION_STATUS.md) for the current CoreLX state (the authoritative live builtin list is the registration block in `internal/corelx/semantic.go`)
-4. Use the [Programming Guide](docs/CORELX_PROGRAMMING_GUIDE.md) to learn CoreLX; treat `PROGRAMMING_MANUAL.md`/`SYSTEM_MANUAL.md` as older manuals under revision
+4. Use the [Programming Guide](PROGRAMMING_MANUAL.md) to learn CoreLX; treat `SYSTEM_MANUAL.md` as an older manual under revision
 
 **Development Status:**
 ✅ **Architecture Stable**: Core hardware architecture is stable; active work continues on tooling, tests, and documentation alignment.

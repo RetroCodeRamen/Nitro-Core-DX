@@ -1,0 +1,25 @@
+-- anim_module.corelx
+-- The `anim` module (modules/anim.corelx, ships with the project) handles
+-- sprite frame timing and mirroring so you don't hand-roll a tick counter
+-- every time. Frame lists stay as plain arrays in your own code -- a module
+-- can only index arrays declared in the same file.
+
+--! modules: anim
+
+const WALK_FRAME_COUNT = 4
+var walk_frames: int[4] = [10, 11, 12, 13]
+
+function Start()
+    hero := Sprite()
+    hero.attr = SPR_PAL(1)
+    hero.ctrl = SPR_ENABLE() | SPR_SIZE_8()
+    sprite.set_pos(hero, 156, 96)
+
+    while true
+        wait_vblank()
+        idx := anim.frame_index(WALK_FRAME_COUNT, 8)  -- new frame every 8 ticks
+        hero.tile = walk_frames[idx]
+        oam.write(0, hero)
+        oam.flush()
+        text.draw(8, 8, 255, 255, 255, "ANIM MODULE: FRAME INDEX")
+        text.draw_int(220, 8, 255, 255, 0, idx)

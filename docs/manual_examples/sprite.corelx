@@ -1,0 +1,58 @@
+-- sprite.corelx
+-- Get One Sprite On Screen And Move It: the smallest complete Sprite()/OAM
+-- workflow. A Sprite() variable is a handle into one OAM record -- set its
+-- fields, then oam.write it and oam.flush() to actually push it to the PPU.
+-- Hold the D-pad to move; the sprite is clamped to stay fully on screen.
+
+asset BoxTile: tiles8 hex
+    00 00 01 01 01 00 00 00
+    00 01 01 01 01 01 00 00
+    00 01 01 01 01 01 00 00
+    00 00 02 02 02 00 00 00
+    00 02 02 02 02 02 00 00
+    00 02 02 02 02 02 00 00
+    00 02 00 02 00 02 00 00
+    00 02 00 00 00 02 00 00
+
+const SPEED = 2
+
+var box_x: int = 152
+var box_y: int = 92
+
+function Start()
+    gfx.init_default_palettes()
+    tile_base := gfx.load_tiles(ASSET_BoxTile, 8)
+
+    box := Sprite()
+    box.tile = tile_base
+    box.attr = SPR_PAL(1)
+    box.ctrl = SPR_ENABLE() | SPR_SIZE_8()
+
+    ppu.enable_display()
+
+    while true
+        wait_vblank()
+        input.poll()
+        if input.held(UP)
+            box_y = box_y - SPEED
+        if input.held(DOWN)
+            box_y = box_y + SPEED
+        if input.held(LEFT)
+            box_x = box_x - SPEED
+        if input.held(RIGHT)
+            box_x = box_x + SPEED
+
+        -- Keep the whole 8x8 sprite on the 320x200 screen.
+        if box_x < 0
+            box_x = 0
+        if box_x > 312
+            box_x = 312
+        if box_y < 0
+            box_y = 0
+        if box_y > 192
+            box_y = 192
+
+        sprite.set_pos(box, box_x, box_y)
+        oam.write(0, box)
+        oam.flush()
+        text.draw(8, 8, 255, 255, 255, "DPAD TO MOVE THE BOX")

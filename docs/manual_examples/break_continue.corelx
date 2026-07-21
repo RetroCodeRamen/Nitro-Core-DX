@@ -1,0 +1,21 @@
+-- break_continue.corelx
+-- `continue` skips the rest of the current iteration (the for loop's counter
+-- still advances); `break` exits the loop immediately. Sums 0..9, skipping 5
+-- and stopping dead at 8 -- so the total is 0+1+2+3+4+6+7 = 23, not 45 and
+-- not 28 (what you'd get if you stopped instead of skipped at 5, or skipped
+-- instead of stopping at 8).
+
+var total: int = 0
+
+function Start()
+    for i = 0 to 9
+        if i == 5
+            continue
+        if i == 8
+            break
+        total = total + i
+
+    while true
+        wait_vblank()
+        text.draw(8, 8, 255, 255, 255, "TOTAL (WANT 23)")
+        text.draw_int(160, 8, 255, 255, 0, total)
