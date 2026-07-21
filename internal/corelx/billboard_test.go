@@ -63,11 +63,12 @@ func TestOverworldBuildingBillboard(t *testing.T) {
 	}
 
 	// Camera sync: at boot (heading_index 48, North: headingX=0,
-	// headingY=-256), the floor camera trails the player by heading>>2 (feet
-	// pivot) -- 768 - (-256>>2) = 832 -- while the billboard tracks the raw
+	// headingY=-256), the floor camera trails the player by pivot_x/y[48]
+	// (feet pivot, magnitude 48 -- tuned to match the sprite's screenY=160
+	// depth) -- 768 - (-48) = 816 -- while the billboard tracks the raw
 	// player position (768). Both share the same heading vector.
-	if floor.CameraX != 512 || floor.CameraY != 832 {
-		t.Errorf("floor camera want (512,832), got (%d,%d)", floor.CameraX, floor.CameraY)
+	if floor.CameraX != 512 || floor.CameraY != 816 {
+		t.Errorf("floor camera want (512,816), got (%d,%d)", floor.CameraX, floor.CameraY)
 	}
 	if billboard.CameraX != 512 || billboard.CameraY != 768 {
 		t.Errorf("billboard camera want (512,768) (raw player position), got (%d,%d)", billboard.CameraX, billboard.CameraY)
@@ -94,11 +95,11 @@ func TestOverworldBuildingCollision(t *testing.T) {
 	emu.SetFrameLimit(false)
 	syncOverworldForTest(t, emu, addrs)
 
-	// heading_index starts at 48 (North: move_x=0, move_y=-4), and cam_x=512
+	// heading_index starts at 48 (North: move_x=0, move_y=-2), and cam_x=512
 	// sits inside the building's collision footprint (472..552), so walking
 	// UP for long enough should stop the player at cam_y=600, not below it.
 	emu.SetInputButtons(0x0001) // UP held
-	for i := 0; i < 60; i++ {
+	for i := 0; i < 100; i++ {
 		emu.RunFrame()
 	}
 	emu.SetInputButtons(0x0000)

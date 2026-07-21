@@ -16,13 +16,13 @@ func TestOverworldDoorInteraction(t *testing.T) {
 	emu.SetFrameLimit(false)
 	syncOverworldForTest(t, emu, addrs)
 
-	// heading_index starts at 48 (North: move_x=0, move_y=-4) and cam_x=512
+	// heading_index starts at 48 (North: move_x=0, move_y=-2) and cam_x=512
 	// sits inside the door's X footprint (494..530) already, so walking UP
 	// (no turning needed) approaches the door head-on. Building collision
 	// stops cam_y at 600, well inside the door's Y footprint (<=696), long
 	// before A is ever pressed.
 	emu.SetInputButtons(0x0001) // UP
-	for i := 0; i < 60; i++ {
+	for i := 0; i < 100; i++ {
 		emu.RunFrame()
 	}
 	if y := read16(emu, addrs["cam_y"]); y != 600 {

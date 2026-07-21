@@ -46,20 +46,25 @@ function __boot_show_default()
     matrix.set_flags(0, false, false, 1, false)
     matrix_plane.enable(0, 32)
     matrix_plane.load_bitmap(__BootLogo, 0)
-    bg.set_scroll(0, 0, 200)
+    -- The logo plane is a 256x256 canvas on a 320x200 screen: scrollX=-32
+    -- centers it horizontally (320-256)/2, and the slide settles at
+    -- scrollY=30 rather than 0 so the logo centers vertically too (its own
+    -- art sits in the upper portion of the 256-tall canvas, so stopping the
+    -- slide at 0 left it sitting high with excess black space below it).
+    bg.set_scroll(0, 0 - 32, 230)
     ppu.enable_display()
 
-    __boot_scroll = 200
+    __boot_scroll = 230
     __boot_hold = 0
     __boot_last_frame = frame_counter()
-    while __boot_scroll > 0
+    while __boot_scroll > 30
         while frame_counter() == __boot_last_frame
             wait_vblank()
         __boot_last_frame = frame_counter()
         __boot_scroll = __boot_scroll - 5
-        if __boot_scroll < 0
-            __boot_scroll = 0
-        bg.set_scroll(0, 0, __boot_scroll)
+        if __boot_scroll < 30
+            __boot_scroll = 30
+        bg.set_scroll(0, 0 - 32, __boot_scroll)
 
     while __boot_hold < 150
         while frame_counter() == __boot_last_frame

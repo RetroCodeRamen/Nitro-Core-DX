@@ -49,7 +49,7 @@ func TestOverworldWalkBackward(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		emu.RunFrame()
 	}
-	const wantX, wantY = 512, 788 // 768 + 5*4
+	const wantX, wantY = 512, 778 // 768 + 5*2
 	if x := read16(emu, addrs["cam_x"]); x != wantX {
 		t.Errorf("cam_x after walking backward at North: want %d (unchanged), got %d", wantX, x)
 	}
@@ -79,7 +79,7 @@ func TestOverworldTurnAndWalkSimultaneously(t *testing.T) {
 		emu.RunFrame()
 	}
 
-	const wantHeading, wantX, wantY = 39, 491, 732
+	const wantHeading, wantX, wantY = 39, 500, 747
 	if h := read16(emu, addrs["heading_index"]); h != wantHeading {
 		t.Errorf("heading_index after 12 simultaneous LEFT+UP frames: want %d, got %d", wantHeading, h)
 	}
@@ -105,8 +105,8 @@ func TestOverworldBuildingCollisionOffRange(t *testing.T) {
 	emu.SetFrameLimit(false)
 	syncOverworldForTest(t, emu, addrs)
 
-	// Turn right 12 frames (heading_index -> 57, move_x=3/move_y=-2) then
-	// walk that heading for 100 frames: cam_x drifts from 512 to 812 (well
+	// Turn right 12 frames (heading_index -> 57, move_x=2/move_y=-1) then
+	// walk that heading for 200 frames: cam_x drifts from 512 to 912 (well
 	// outside the 472..552 collision footprint well before cam_y approaches
 	// 600), and cam_y drifts from 768 to 568 -- below the facade line.
 	emu.SetInputButtons(0x0008) // RIGHT
@@ -114,11 +114,11 @@ func TestOverworldBuildingCollisionOffRange(t *testing.T) {
 		emu.RunFrame()
 	}
 	emu.SetInputButtons(0x0001) // UP
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 200; i++ {
 		emu.RunFrame()
 	}
 
-	const wantX, wantY = 812, 568
+	const wantX, wantY = 912, 568
 	if x := read16(emu, addrs["cam_x"]); x != wantX {
 		t.Fatalf("cam_x want %d, got %d (test setup assumption broken)", wantX, x)
 	}
