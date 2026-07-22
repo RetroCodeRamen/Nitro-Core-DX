@@ -1,5 +1,28 @@
 # Blog Posts
 
+## July 22, 2026 - Audio Runtime Ready For Sound Studio MVP
+
+The audio milestone has moved from "bring up the runtime" to "build the
+authoring workflow." YM2608/OPNA remains the final audio identity, and the
+runtime path now has enough real pieces for Dev Kit work:
+
+- YM2608 MMIO and dual-port register writes are operational.
+- The compact `.ncdxmusic` stream format exists.
+- VGM/VGZ can be converted through `cmd/vgm_to_ncdxmusic`.
+- CoreLX `music.*` playback streams per-frame YM writes through the bus-side
+  burst path.
+- Dev Kit already has SDL audio queueing for embedded emulator playback.
+
+The missing piece is not another audio engine. It is Sound Studio:
+import/inspect/preview/export for `.ncdxmusic`, project/source insertion, and a
+small SFX helper workflow over the current `ym.*`/`sfx` layer. Full tracker
+composition and deep instrument editing stay post-MVP unless explicitly pulled
+into scope.
+
+Conformance work still matters. Runtime readiness does not mean timbre, pitch,
+SSG/rhythm/ADPCM edge behavior, and reference thresholds are done for V1. It
+means Sound Studio can start without faking playback.
+
 ## March 9, 2026 - YM2608 Runtime Bring-Up Update
 
 Why the change: after a retro PC sound deep dive (and a YouTube rabbit hole), the intended sonic character became clearer, and YM2608 better matches the direction we actually want Nitro-Core-DX to sound like at release.

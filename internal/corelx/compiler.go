@@ -2,6 +2,7 @@ package corelx
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"regexp"
@@ -268,9 +269,15 @@ func CompileSource(source, sourcePath string, opts *CompileOptions) (result *Com
 		return result, &DiagnosticsError{Diagnostics: result.Diagnostics}
 	}
 
-	// Load external image (.cxasset) bitmaps, lay them out in the ROM data
-	// region, and hand them to codegen for load_bitmap.
-	imageAssets, imageRegion, imgErr := loadImageAssets(program, sourcePath)
+	// Load external image (.cxasset) bitmaps and music (.ncdxmusic) YM2608
+	// streams, laid out in the ROM data region starting at a provisional
+	// bank (2 -- the single-bank default). This only affects baked-in DMA
+	// bank/offset immediates, not instruction count, so it's a safe guess
+	// for pass 1; if pass 1's code doesn't fit in one bank, the multi-bank
+	// path below reloads both at their real starting bank once the code
+	// bank count is known.
+	const singleBankDataStart = 2
+	imageAssets, imageRegion, imgErr := loadImageAssets(program, sourcePath, singleBankDataStart)
 	if imgErr != nil {
 		result.Diagnostics = append(result.Diagnostics, Diagnostic{
 			Category: CategoryAssetParseError,
@@ -282,10 +289,7 @@ func CompileSource(source, sourcePath string, opts *CompileOptions) (result *Com
 		})
 		return result, &DiagnosticsError{Diagnostics: result.Diagnostics}
 	}
-
-	// Load external music (.ncdxmusic) YM2608 streams, placed in the same ROM
-	// data region immediately after the image bytes.
-	musicAssets, musicRegion, musErr := loadMusicAssets(program, sourcePath, len(imageRegion))
+	musicAssets, musicRegion, musErr := loadMusicAssets(program, sourcePath, singleBankDataStart, len(imageRegion))
 	if musErr != nil {
 		result.Diagnostics = append(result.Diagnostics, Diagnostic{
 			Category: CategoryAssetParseError,
@@ -298,17 +302,24 @@ func CompileSource(source, sourcePath string, opts *CompileOptions) (result *Com
 		return result, &DiagnosticsError{Diagnostics: result.Diagnostics}
 	}
 
-	builder := rom.NewROMBuilder()
-	generator := NewCodeGenerator(program, builder)
+	// Pass 1: compact, single-bank compile -- today's exact behavior byte
+	// for byte when it fits. Real codegen errors (unrelated to ROM size)
+	// are surfaced here directly, same as always; only a ROM-size overflow
+	// (code alone, or code + data together) triggers the multi-bank
+	// fallback below.
+	pass1Builder := rom.NewROMBuilder()
+	generator := NewCodeGenerator(program, pass1Builder)
 	generator.SetNormalizedAssets(assets)
 	generator.SetImageAssets(imageAssets)
 	generator.SetMusicAssets(musicAssets)
 	currentStage = StageCodegen
-	if err := generator.Generate(); err != nil {
+	genErr := generator.Generate()
+	needsMultiBank := errors.Is(genErr, errCodeOverflowsBank)
+	if genErr != nil && !needsMultiBank {
 		result.Diagnostics = append(result.Diagnostics, Diagnostic{
 			Category: CategoryBackendCodegenError,
 			Code:     "E_CODEGEN_GENERATE",
-			Message:  err.Error(),
+			Message:  genErr.Error(),
 			File:     sourcePath,
 			Severity: SeverityError,
 			Stage:    StageCodegen,
@@ -318,23 +329,47 @@ func CompileSource(source, sourcePath string, opts *CompileOptions) (result *Com
 
 	// Image and music bytes share one contiguous ROM data region (images first,
 	// then music — matching the bank/offset cursor used during placement).
-	if dataRegion := append(append([]byte{}, imageRegion...), musicRegion...); len(dataRegion) > 0 {
-		builder.SetDataRegion(imageDataStartBank, dataRegion)
+	dataRegion := append(append([]byte{}, imageRegion...), musicRegion...)
+
+	if !needsMultiBank {
+		needsMultiBank = pass1Builder.GetCodeLength()*2 > int(rom.ROMBankSizeBytes)
+	}
+	var (
+		romBytes  []byte
+		codeBytes uint32
+	)
+	if !needsMultiBank {
+		if len(dataRegion) > 0 {
+			pass1Builder.SetDataRegion(singleBankDataStart, dataRegion)
+		}
+		currentStage = StagePack
+		rb, buildErr := pass1Builder.BuildROMBytes(cfg.EntryBank, cfg.EntryOffset)
+		if buildErr == nil {
+			romBytes = rb
+			codeBytes = uint32(pass1Builder.GetCodeLength() * 2)
+		} else {
+			// Code alone fit, but code+data together didn't -- same
+			// remedy as a pure code overflow: fall back to multi-bank.
+			needsMultiBank = true
+		}
 	}
 
-	currentStage = StagePack
-	codeBytes := uint32(builder.GetCodeLength() * 2)
-	romBytes, err := builder.BuildROMBytes(cfg.EntryBank, cfg.EntryOffset)
-	if err != nil {
-		result.Diagnostics = append(result.Diagnostics, Diagnostic{
-			Category: CategoryLayoutError,
-			Code:     "E_PACK_BUILD_ROM",
-			Message:  err.Error(),
-			File:     sourcePath,
-			Severity: SeverityError,
-			Stage:    StagePack,
-		})
-		return result, &DiagnosticsError{Diagnostics: result.Diagnostics}
+	if needsMultiBank {
+		mgen, mRomBytes, mCodeBytes, mErr := compileMultiBank(program, sourcePath, assets, cfg)
+		if mErr != nil {
+			result.Diagnostics = append(result.Diagnostics, Diagnostic{
+				Category: CategoryLayoutError,
+				Code:     "E_PACK_MULTIBANK",
+				Message:  mErr.Error(),
+				File:     sourcePath,
+				Severity: SeverityError,
+				Stage:    StagePack,
+			})
+			return result, &DiagnosticsError{Diagnostics: result.Diagnostics}
+		}
+		generator = mgen
+		romBytes = mRomBytes
+		codeBytes = mCodeBytes
 	}
 
 	if cfg.EmitROMBytes {
@@ -413,6 +448,122 @@ func CompileSource(source, sourcePath string, opts *CompileOptions) (result *Com
 	}
 
 	return result, nil
+}
+
+// compileMultiBank compiles program via the 3-pass multi-bank strategy,
+// used only when a single-bank (pass 1) compile doesn't fit. Pass 2
+// measures every function/helper's size in wide-call form (a flat
+// single-bank ROMBuilder, but every call site sized as if it were a far
+// call) and greedily packs them into ROM banks in emission order -- the
+// entry function is always first, so it always lands in bank 1, matching
+// the hardware boot vector requirement. With the resulting code-bank count
+// known, image/music assets are reloaded at their real starting bank
+// (immediately above the code banks), and pass 3 does the final emission
+// against a BankedROMBuilder using pass 2's schedule.
+func compileMultiBank(program *Program, sourcePath string, assets []AssetIR, cfg CompileOptions) (*CodeGenerator, []byte, uint32, error) {
+	// Pass 2: measurement. The provisional data-start-bank guess doesn't
+	// matter here -- only instruction counts feed the bank schedule, and
+	// asset bank/offset values are baked into immediates, not sizes.
+	const provisionalDataStart = 2
+	measureImageAssets, measureImageRegion, imgErr := loadImageAssets(program, sourcePath, provisionalDataStart)
+	if imgErr != nil {
+		return nil, nil, 0, imgErr
+	}
+	measureMusicAssets, _, musErr := loadMusicAssets(program, sourcePath, provisionalDataStart, len(measureImageRegion))
+	if musErr != nil {
+		return nil, nil, 0, musErr
+	}
+
+	measureBuilder := rom.NewROMBuilder()
+	measureGen := NewCodeGenerator(program, measureBuilder)
+	measureGen.SetNormalizedAssets(assets)
+	measureGen.SetImageAssets(measureImageAssets)
+	measureGen.SetMusicAssets(measureMusicAssets)
+	measureGen.EnableWideCallMode()
+	if err := measureGen.Generate(); err != nil {
+		return nil, nil, 0, fmt.Errorf("bank measurement pass: %w", err)
+	}
+
+	schedule, codeBankCount := packFunctionBanks(measureGen)
+
+	// Finalize: image/music data starts immediately above the code banks
+	// pass 2 determined are needed.
+	dataStartBank := uint8(1 + codeBankCount)
+	finalImageAssets, finalImageRegion, imgErr := loadImageAssets(program, sourcePath, dataStartBank)
+	if imgErr != nil {
+		return nil, nil, 0, imgErr
+	}
+	finalMusicAssets, finalMusicRegion, musErr := loadMusicAssets(program, sourcePath, dataStartBank, len(finalImageRegion))
+	if musErr != nil {
+		return nil, nil, 0, musErr
+	}
+	dataRegion := append(append([]byte{}, finalImageRegion...), finalMusicRegion...)
+
+	// Pass 3: final emission -- BankedROMBuilder via a bankCursor adapter,
+	// wide-call mode, real bank schedule.
+	banked := rom.NewBankedROMBuilder()
+	finalGen := NewCodeGenerator(program, nil)
+	finalGen.builder = &bankCursor{b: banked, cg: finalGen}
+	finalGen.SetNormalizedAssets(assets)
+	finalGen.SetImageAssets(finalImageAssets)
+	finalGen.SetMusicAssets(finalMusicAssets)
+	finalGen.EnableWideCallMode()
+	finalGen.SetBankedBuilder(banked, schedule)
+	if err := finalGen.Generate(); err != nil {
+		return nil, nil, 0, fmt.Errorf("final multi-bank emission: %w", err)
+	}
+
+	if len(dataRegion) > 0 {
+		banked.SetDataRegion(dataStartBank, dataRegion)
+	}
+	romBytes, err := banked.BuildROMBytes(cfg.EntryBank, cfg.EntryOffset)
+	if err != nil {
+		return nil, nil, 0, fmt.Errorf("final multi-bank emission: %w", err)
+	}
+
+	var codeWords int
+	for bank := uint8(1); bank <= uint8(codeBankCount); bank++ {
+		codeWords += banked.GetCodeLength(bank)
+	}
+	return finalGen, romBytes, uint32(codeWords * 2), nil
+}
+
+// packFunctionBanks computes a function/helper -> ROM bank assignment from
+// pass 2's flat measurement build: each entry's size is the word-index
+// delta to the next entry in emission order, so the last entry's size
+// naturally includes the trailing __irqstub bytes patchIRQVector appends
+// after every named function/helper. Functions are packed greedily in
+// emission order into ROMBankSizeWords-sized banks, starting a new bank
+// whenever the next function wouldn't fit whole -- the entry function is
+// always first in emission order, so it always lands in bank 1.
+func packFunctionBanks(measureGen *CodeGenerator) (map[string]uint8, int) {
+	order := measureGen.emitOrder
+	schedule := make(map[string]uint8, len(order))
+	if len(order) == 0 {
+		return schedule, 1
+	}
+	totalWords := measureGen.builder.GetCodeLength()
+	sizes := make([]int, len(order))
+	for i, name := range order {
+		start := measureGen.functionAddrs[name].index
+		end := totalWords
+		if i+1 < len(order) {
+			end = measureGen.functionAddrs[order[i+1]].index
+		}
+		sizes[i] = end - start
+	}
+
+	bank := uint8(1)
+	used := 0
+	for i, name := range order {
+		if used > 0 && used+sizes[i] > rom.ROMBankSizeWords {
+			bank++
+			used = 0
+		}
+		schedule[name] = bank
+		used += sizes[i]
+	}
+	return schedule, int(bank)
 }
 
 func mergeCompileOptions(dst *CompileOptions, src CompileOptions) {

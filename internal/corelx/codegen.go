@@ -8,11 +8,59 @@ import (
 	"nitro-core-dx/internal/rom"
 )
 
+// codeSink is the minimal interface codegen needs from its instruction
+// stream. *rom.ROMBuilder satisfies it directly (used for pass 1/compact
+// output and pass 2/measurement, both single-bank). *bankCursor wraps
+// *rom.BankedROMBuilder for pass 3/final multi-bank output, forwarding each
+// call with the generator's current bank injected automatically -- every
+// one of the ~2000 AddInstruction/AddImmediate/GetCodeLength/SetImmediateAt
+// call sites throughout this file stays untouched, since intra-function
+// control flow (if/for/while, bounds checks) never spans a bank boundary
+// and is always resolved relative to "wherever we currently are." Only
+// cross-function call patching needs bank-explicit handling -- see
+// setPatchImmediate.
+type codeSink interface {
+	AddInstruction(instruction uint16)
+	AddImmediate(value uint16)
+	GetCodeLength() int
+	SetImmediateAt(wordIndex int, value uint16)
+}
+
+// bankCursor adapts *rom.BankedROMBuilder to codeSink, always operating on
+// cg.currentBank -- the single bank codegen is actively emitting into at
+// the moment of each call. Bank transitions happen in exactly one place
+// (the top-level per-function loop in Generate), never mid-function.
+type bankCursor struct {
+	b  *rom.BankedROMBuilder
+	cg *CodeGenerator
+}
+
+func (c *bankCursor) AddInstruction(instruction uint16) {
+	c.b.AddInstruction(c.cg.currentBank, instruction)
+}
+func (c *bankCursor) AddImmediate(value uint16) {
+	c.b.AddImmediate(c.cg.currentBank, value)
+}
+func (c *bankCursor) GetCodeLength() int {
+	return c.b.GetCodeLength(c.cg.currentBank)
+}
+func (c *bankCursor) SetImmediateAt(wordIndex int, value uint16) {
+	c.b.SetImmediateAt(c.cg.currentBank, wordIndex, value)
+}
+
+// funcAddr is a function's start position: which bank it landed in, plus
+// its bank-local word index (matching what GetCodeLength/PC report for that
+// bank). In compact/measurement mode (single implicit bank), bank is always 1.
+type funcAddr struct {
+	bank  uint8
+	index int
+}
+
 // CodeGenerator generates Nitro Core DX machine code from AST
 type CodeGenerator struct {
-	program          *Program
-	builder          *rom.ROMBuilder
-	symbols          map[string]*Symbol
+	program *Program
+	builder codeSink
+	symbols map[string]*Symbol
 	regAlloc         *RegisterAllocator
 	labelCounter     int
 	assets           map[string]*AssetDecl
@@ -40,24 +88,58 @@ type CodeGenerator struct {
 	needDrawInt bool
 
 	// Function call support
-	functionAddrs map[string]int // function name -> code word index of function start
-	callPatches   []callPatch    // pending CALL offset patches
-	globalStack   uint16         // tracks per-function stack base to avoid overlap
+	functionAddrs map[string]funcAddr // function name -> (bank, code word index) of function start
+	callPatches   []callPatch         // pending CALL offset patches
+	globalStack   uint16              // tracks per-function stack base to avoid overlap
 
-	// IRQ/NMI vector fix-up: word positions of the placeholder offset-high
+	// IRQ/NMI vector fix-up: word positions of the placeholder bank/offset
 	// bytes written by emitIRQVectorFix, patched once __irqstub's real
-	// address is known (see patchIRQVector).
-	irqVectorPatchPositions []int
+	// (bank, address) is known (see patchIRQVector).
+	irqVectorPatchPositions []irqVectorPatch
 
 	// Innermost-enclosing-loop stack, for break/continue target patching.
 	loopStack []*loopContext
+
+	// Multi-bank support (see internal/rom/banked_builder.go and the
+	// codeSink/bankCursor types above). currentBank is which bank cg.builder
+	// (when it's a *bankCursor) is actively emitting into -- changed only
+	// between functions in the top-level emission loop, never mid-function.
+	// wideCallMode, when set, makes every function/helper call emit the
+	// 5-word far-call form (see emitCallPatch) even for same-bank targets,
+	// so call-site sizes are identical across the measurement pass and the
+	// final emission pass that uses its bank schedule. bankedBuilder is the
+	// concrete builder backing cg.builder in pass 3 (nil otherwise), needed
+	// because cross-function patches resolve after cg.currentBank has moved
+	// on and must target an explicit bank rather than "wherever we are now"
+	// (see setPatchImmediate). bankSchedule maps function name -> assigned
+	// bank, computed by pass 2 and consulted by pass 3's emission loop.
+	currentBank   uint8
+	wideCallMode  bool
+	bankedBuilder *rom.BankedROMBuilder
+	bankSchedule  map[string]uint8
+
+	// emitOrder records every function/helper name in the exact order
+	// recordFuncAddr saw it emitted. A pass-2 measurement build's emitOrder
+	// plus functionAddrs is the sole input to packFunctionBanks -- sizes
+	// are derived from consecutive word-index deltas, so this order must
+	// exactly match what pass 3 will later emit (guaranteed, since both
+	// passes run the same codegen logic over the same AST).
+	emitOrder []string
 }
 
 // callPatch records a pending CALL that needs its offset patched once the
-// target function address is known.
+// target function address is known. In compact mode (wide == false) this is
+// exactly today's single relative-offset patch. In wide mode, two immediate
+// words are patched: the bank byte at bankPos and the absolute bank-local
+// offset at offsetPos -- both resolved against the patch's own recorded
+// bank (the bank the call site itself lives in), not cg.currentBank, since
+// resolution happens after emission has moved on to later functions/banks.
 type callPatch struct {
 	offsetPos int    // word index of the offset immediate
+	bankPos   int    // word index of the bank immediate (wide mode only)
+	bank      uint8  // bank the call site itself was emitted into
 	target    string // target function name
+	wide      bool   // true if this patch is the 5-word far-call form
 }
 
 // loopContext tracks pending break/continue jumps for the innermost
@@ -214,8 +296,19 @@ type RegisterAllocator struct {
 
 var errUnknownBuiltin = errors.New("unknown builtin")
 
-// NewCodeGenerator creates a new code generator
-func NewCodeGenerator(program *Program, builder *rom.ROMBuilder) *CodeGenerator {
+// errCodeOverflowsBank signals that a compact-mode (non-wide-call) Generate
+// call produced more code than fits in one ROM bank -- a normal "pass 1
+// doesn't fit, fall back to multi-bank" condition (see compileMultiBank in
+// compiler.go), not a real compile error. Checked via errors.Is rather than
+// surfaced as a diagnostic directly.
+var errCodeOverflowsBank = errors.New("code exceeds one ROM bank")
+
+// NewCodeGenerator creates a new code generator. builder may be a
+// *rom.ROMBuilder (compact pass 1, or flat wide-call measurement pass 2) or
+// left nil and assigned afterward as a *bankCursor wrapping a
+// *rom.BankedROMBuilder (pass 3 final multi-bank emission) -- see
+// SetBankedBuilder.
+func NewCodeGenerator(program *Program, builder codeSink) *CodeGenerator {
 	return &CodeGenerator{
 		program:          program,
 		builder:          builder,
@@ -229,13 +322,35 @@ func NewCodeGenerator(program *Program, builder *rom.ROMBuilder) *CodeGenerator 
 		variables:        make(map[string]*VariableInfo),
 		varCounter:       0,
 		stackOffset:      stackTopAddr - callStackReserveBytes, // Below CALL stack reserve
-		functionAddrs:    make(map[string]int),
+		functionAddrs:    make(map[string]funcAddr),
 		callPatches:      nil,
 		globalStack:      stackTopAddr - callStackReserveBytes, // Reserve top bytes for CALL/RET stack
 		consts:           make(map[string]int64),
 		constFixed:       make(map[string]bool),
 		globals:          make(map[string]*VariableInfo),
+		currentBank:      1,
 	}
+}
+
+// EnableWideCallMode makes every function/helper call emit the 5-word
+// far-call form (see emitCallPatch), even for same-bank targets. Used by
+// pass 2 (size measurement) and pass 3 (final multi-bank emission) so
+// call-site sizes match between the pass that computes the bank schedule
+// and the pass that emits against it.
+func (cg *CodeGenerator) EnableWideCallMode() {
+	cg.wideCallMode = true
+}
+
+// SetBankedBuilder switches cg into pass-3 final multi-bank emission:
+// bankedBuilder lets cross-function patches (which resolve after
+// cg.currentBank has moved on to later functions) target their own
+// recorded bank explicitly; schedule is pass 2's function -> bank
+// assignment, consulted by the top-level emission loop to move
+// cg.currentBank between functions. Callers must also point cg.builder at
+// a *bankCursor wrapping the same *rom.BankedROMBuilder.
+func (cg *CodeGenerator) SetBankedBuilder(b *rom.BankedROMBuilder, schedule map[string]uint8) {
+	cg.bankedBuilder = b
+	cg.bankSchedule = schedule
 }
 
 // MemoryMapEntry records one allocated WRAM symbol for the build's memory
@@ -473,7 +588,7 @@ func (cg *CodeGenerator) Generate() error {
 
 	// Generate code for each function, recording start addresses.
 	for _, fn := range functions {
-		cg.functionAddrs[fn.Name] = cg.builder.GetCodeLength()
+		cg.recordFuncAddr(fn.Name)
 		if fn == entryFunction {
 			// Every real frame's VBlank fires an IRQ unconditionally (see
 			// ppu/scanline.go), and the default IRQ/NMI vectors alias this
@@ -505,19 +620,71 @@ func (cg *CodeGenerator) Generate() error {
 	}
 	cg.patchIRQVector()
 
-	// Patch all pending CALL offsets now that every function address is known.
+	// Compact mode's CALL patches are same-bank relative offsets, which
+	// CalculateBranchOffset hard-panics on once a call site and its target
+	// end up more than +-32767 words apart -- a real possibility once the
+	// program is large enough to need more than one bank in the first
+	// place, and exactly the scenario the multi-bank compile driver
+	// (compileMultiBank in compiler.go) exists to handle instead. Bail out
+	// with a normal error before ever reaching that resolution loop, rather
+	// than let it panic: pass 1 doesn't need correct patches for an attempt
+	// it's about to discard anyway. Wide-call mode's own resolution
+	// (below) uses absolute bank+offset addressing regardless of distance,
+	// so it isn't at risk here and isn't gated by this check.
+	if !cg.wideCallMode && cg.builder.GetCodeLength()*2 > rom.ROMBankSizeBytes {
+		return errCodeOverflowsBank
+	}
+
+	// Patch all pending CALL offsets/targets now that every function address
+	// is known. Resolution happens after cg.currentBank has moved on past
+	// most call sites' original banks, so each patch is applied against its
+	// own recorded bank (setPatchImmediate), never cg.currentBank.
 	for _, patch := range cg.callPatches {
-		targetWordIdx, ok := cg.functionAddrs[patch.target]
+		target, ok := cg.functionAddrs[patch.target]
 		if !ok {
 			return fmt.Errorf("undefined function: %s", patch.target)
 		}
+		if patch.wide {
+			cg.setPatchImmediate(patch.bank, patch.bankPos, uint16(target.bank))
+			cg.setPatchImmediate(patch.bank, patch.offsetPos, uint16(rom.ROMBankOffsetBase+target.index*2))
+			continue
+		}
 		currentPC := uint16(patch.offsetPos * 2)
-		targetPC := uint16(targetWordIdx * 2)
+		targetPC := uint16(target.index * 2)
 		offset := rom.CalculateBranchOffset(currentPC, targetPC)
-		cg.builder.SetImmediateAt(patch.offsetPos, uint16(offset))
+		cg.setPatchImmediate(patch.bank, patch.offsetPos, uint16(offset))
 	}
 
 	return nil
+}
+
+// recordFuncAddr switches cg.currentBank per pass 2's bank schedule (if
+// one is set) and records name's start address. Called once per
+// function/helper immediately before its body is emitted -- bank
+// transitions happen only here, never mid-function.
+func (cg *CodeGenerator) recordFuncAddr(name string) {
+	if cg.bankSchedule != nil {
+		if b, ok := cg.bankSchedule[name]; ok {
+			cg.currentBank = b
+		}
+	}
+	cg.functionAddrs[name] = funcAddr{bank: cg.currentBank, index: cg.builder.GetCodeLength()}
+	cg.emitOrder = append(cg.emitOrder, name)
+}
+
+// setPatchImmediate patches a single immediate word at wordIndex in the
+// given bank. Used for cross-function patches (callPatches, the IRQ vector
+// fix-up) that resolve after cg.currentBank has moved past the bank the
+// patch site was originally emitted in -- resolving via cg.builder directly
+// would silently patch the wrong bank's code. In single-bank builds (pass
+// 1/2, cg.bankedBuilder == nil) bank is irrelevant and the flat builder is
+// patched directly, identical to today's cg.builder.SetImmediateAt.
+func (cg *CodeGenerator) setPatchImmediate(bank uint8, wordIndex int, value uint16) {
+	if cg.bankedBuilder != nil {
+		cg.bankedBuilder.SetImmediateAt(bank, wordIndex, value)
+		return
+	}
+	cg.builder.SetImmediateAt(wordIndex, value)
 }
 
 func (cg *CodeGenerator) generateFunction(fn *FunctionDecl) error {
@@ -539,8 +706,8 @@ func (cg *CodeGenerator) generateFunction(fn *FunctionDecl) error {
 
 	// Function prologue: save parameters from registers to local stack variables.
 	for i, param := range fn.Params {
-		if i >= 8 {
-			return fmt.Errorf("function %s: too many parameters (max 8)", fn.Name)
+		if i >= 6 {
+			return fmt.Errorf("function %s: too many parameters (max 6)", fn.Name)
 		}
 		stackAddr, err := cg.allocateStack(2, "function parameter "+param.Name)
 		if err != nil {
@@ -1791,10 +1958,20 @@ func (cg *CodeGenerator) generateCall(call *CallExpr, destReg uint8) error {
 		return fmt.Errorf("cannot determine function name in call")
 	}
 
-	// Generate arguments (simplified - pass in R0-R7)
+	// User-defined function calls are capped to R0-R5: R6/R7 are reserved
+	// scratch for far-call bank/offset operands in multi-bank builds (see
+	// the matching param cap in generateFunctionPrologue). Builtins are
+	// inlined -- no CALL is ever emitted for them -- so they're free to use
+	// the full R0-R7 register file (matrix_plane.fill_rect needs 7 args).
+	argCap := 8
+	if cg.findFunction(funcName) != nil {
+		argCap = 6
+	}
+
+	// Generate arguments (pass in R0..R(argCap-1)).
 	for i, arg := range call.Args {
-		if i >= 8 {
-			return fmt.Errorf("too many arguments (max 8)")
+		if i >= argCap {
+			return fmt.Errorf("too many arguments (max %d)", argCap)
 		}
 		if err := cg.generateExpr(arg, uint8(i)); err != nil {
 			return err
@@ -1812,14 +1989,9 @@ func (cg *CodeGenerator) generateCall(call *CallExpr, destReg uint8) error {
 	// Check if it's a user-defined function -- emit CALL instruction.
 	if fn := cg.findFunction(funcName); fn != nil {
 		// Arguments are already evaluated into R0..R(n-1) by the loop above.
-		// Emit CALL with a placeholder offset; patch later.
-		cg.builder.AddInstruction(rom.EncodeCALL())
-		offsetPos := cg.builder.GetCodeLength()
-		cg.builder.AddImmediate(0) // placeholder
-		cg.callPatches = append(cg.callPatches, callPatch{
-			offsetPos: offsetPos,
-			target:    funcName,
-		})
+		// Emit CALL (or far-CALL, in wide-call mode) with placeholder
+		// operands; patched once every function's final address is known.
+		cg.emitCallPatch(funcName)
 		// Return value is in R0; move to destReg if needed.
 		if destReg != 0 {
 			cg.builder.AddInstruction(rom.EncodeMOV(0, destReg, 0))
@@ -1930,24 +2102,36 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		// R0 has sprite address (from &hero), R1 has x, R2 has y
 		// Write x_lo (low byte of x)
 		cg.builder.AddInstruction(rom.EncodeMOV(0, 3, 0)) // MOV R3, R0 (save sprite addr)
-		cg.builder.AddInstruction(rom.EncodeMOV(0, 4, 1)) // MOV R4, R1 (save x)
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 4, 1)) // MOV R4, R1 (save x, kept pristine)
 		cg.builder.AddInstruction(rom.EncodeMOV(0, 5, 2)) // MOV R5, R2 (save y)
 
-		// Write x_lo (offset 0) - low byte of x
-		cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0)) // MOV R6, #0xFF
-		cg.builder.AddImmediate(0xFF)
-		cg.builder.AddInstruction(rom.EncodeAND(0, 4, 6)) // AND R4, R6 (mask to low byte)
-		cg.builder.AddInstruction(rom.EncodeMOV(7, 3, 4)) // MOV [R3], R4 (8-bit store x_lo)
+		// Write x_lo (offset 0) - low byte of x, into scratch R6 (not R4)
+		// so R4 still holds the original, unmasked x below.
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 6, 4)) // MOV R6, R4 (x copy)
+		cg.hAndImm(6, 0xFF)
+		cg.builder.AddInstruction(rom.EncodeMOV(7, 3, 6)) // MOV [R3], R6 (8-bit store x_lo)
 
-		// Write x_hi (offset 1) - high byte (sign bit)
+		// Write x_hi (offset 1): sign bit (bit 0), preserving whatever
+		// size-code bits (bits [3:1]) sprite.set_size already put there --
+		// set_pos has no size/ctrl information of its own and must not
+		// clobber them, so this is a read-modify-write, not a blind
+		// overwrite. Previously this read the ALREADY-masked-to-low-byte
+		// R4 (from the x_lo step above) rather than the original x, so
+		// shifting right by 8 always gave 0 -- every sprite moved via
+		// set_pos silently got x_hi=0 regardless of sign. Harmless only
+		// because every existing caller uses small positive X (the hero's
+		// fixed on-screen position).
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0)) // MOV R6, #1
 		cg.builder.AddImmediate(1)
-		cg.builder.AddInstruction(rom.EncodeADD(0, 3, 6)) // ADD R3, R6 (increment to offset 1)
-		cg.builder.AddInstruction(rom.EncodeMOV(0, 6, 4)) // MOV R6, R4 (copy x)
-		cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0)) // MOV R7, #8
-		cg.builder.AddImmediate(8)
-		cg.builder.AddInstruction(rom.EncodeSHR(0, 6, 7)) // SHR R6, R7 -> R6 = x >> 8 (high byte)
-		cg.builder.AddInstruction(rom.EncodeMOV(7, 3, 6)) // MOV [R3], R6 (write x_hi)
+		cg.builder.AddInstruction(rom.EncodeADD(0, 3, 6))  // ADD R3, R6 (offset 1: x_hi)
+		cg.builder.AddInstruction(rom.EncodeMOV(6, 6, 3))  // MOV R6, [R3] (existing x_hi, 8-bit load)
+		cg.hAndImm(6, 0xFE)                                // clear old sign bit, keep size-code bits
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 7, 4))  // MOV R7, R4 (pristine x)
+		cg.hShrImm(7, 8)                                   // R7 = x >> 8
+		cg.hAndImm(7, 1)                                   // R7 = sign bit only
+		cg.builder.AddInstruction(rom.EncodeOR(0, 6, 7))   // OR R6, R7 -> merged x_hi
+		cg.builder.AddInstruction(rom.EncodeMOV(7, 3, 6))  // MOV [R3], R6 (8-bit store x_hi)
+
 		// Write y (offset 2)
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0)) // MOV R6, #1
 		cg.builder.AddImmediate(1)
@@ -1955,30 +2139,52 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		cg.builder.AddInstruction(rom.EncodeMOV(7, 3, 5)) // MOV [R3], R5 (write y)
 		return nil
 
+	case "sprite.set_size":
+		// sprite.set_size(s: *Sprite, size_flags: u16)
+		// Args: R0 = sprite pointer, R1 = a SPR_SIZE_* value (the same
+		// constants used for oam.write_sprite_data's ctrl argument, or a
+		// Sprite's .ctrl field -- see emitSizeCodeBits).
+		// Sets the sprite's 3-bit size code in the struct's x_hi byte
+		// (offset 1), preserving whatever sign bit sprite.set_pos has
+		// already written there (or will write later -- the two can be
+		// called in either order, each preserves the other's bits via
+		// read-modify-write). Needed because a Sprite struct's size lives
+		// in x_hi, not ctrl (ctrl's bits are already fully packed with
+		// enable/blend mode/alpha), and unlike oam.write_sprite_data
+		// (which gets ctrl and x together in one call), a struct's x/y and
+		// ctrl are typically set by separate statements at different
+		// times, so there's no single call site to fold the size code into
+		// automatically.
+		if len(args) != 2 {
+			return fmt.Errorf("sprite.set_size requires 2 arguments")
+		}
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 3, 0)) // MOV R3, R0 (sprite addr)
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #1
+		cg.builder.AddImmediate(1)
+		cg.builder.AddInstruction(rom.EncodeADD(0, 3, 4)) // ADD R3, R4 (offset 1: x_hi)
+		cg.builder.AddInstruction(rom.EncodeMOV(6, 5, 3)) // MOV R5, [R3] (existing x_hi, 8-bit load)
+		cg.hAndImm(5, 0x01)                                // keep only the sign bit
+		cg.emitSizeCodeBits(5, 1, 4)
+		cg.builder.AddInstruction(rom.EncodeMOV(7, 3, 5)) // MOV [R3], R5 (8-bit store x_hi)
+		return nil
+
 	case "oam.write":
 		// oam.write(id: u8, s: *Sprite)
 		// Args: R0 = sprite id, R1 = sprite pointer
-		// Set OAM_ADDR to id * 6, then write sprite data from struct to OAM_DATA
+		// Set OAM_ADDR to the raw sprite id (0-127); the PPU internally
+		// multiplies by 6 to get the byte offset -- writing id*6 here would
+		// double-multiply and corrupt every id > 0.
 
 		// Save sprite pointer (R1) to R3
 		cg.builder.AddInstruction(rom.EncodeMOV(0, 3, 1)) // MOV R3, R1 (sprite pointer)
 
-		// Calculate OAM address: id * 6
-		cg.builder.AddInstruction(rom.EncodeMOV(0, 2, 0)) // MOV R2, R0 (save id)
-		cg.builder.AddInstruction(rom.EncodeMOV(0, 6, 2)) // MOV R6, R2 (copy id)
-		cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0)) // MOV R7, #1
-		cg.builder.AddImmediate(1)
-		cg.builder.AddInstruction(rom.EncodeSHL(0, 6, 7)) // SHL R6, R7 -> R6 = id*2
-		cg.builder.AddInstruction(rom.EncodeMOV(0, 7, 2)) // MOV R7, R2 (id)
-		cg.builder.AddInstruction(rom.EncodeMOV(1, 5, 0)) // MOV R5, #2
-		cg.builder.AddImmediate(2)
-		cg.builder.AddInstruction(rom.EncodeSHL(0, 7, 5)) // SHL R7, R5 -> R7 = id*4
-		cg.builder.AddInstruction(rom.EncodeADD(0, 6, 7)) // ADD R6, R7 -> R6 = id*2 + id*4 = id*6
+		// Save id (R0) to R6
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 6, 0)) // MOV R6, R0 (save id)
 
-		// Set OAM_ADDR (0x8014)
+		// Set OAM_ADDR (0x8014) to raw id
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 4, 0)) // MOV R4, #0x8014
 		cg.builder.AddImmediate(0x8014)
-		cg.builder.AddInstruction(rom.EncodeMOV(0, 5, 6)) // MOV R5, R6 (OAM offset)
+		cg.builder.AddInstruction(rom.EncodeMOV(0, 5, 6)) // MOV R5, R6 (sprite id)
 		cg.builder.AddInstruction(rom.EncodeMOV(3, 4, 5)) // MOV [R4], R5 (write OAM_ADDR)
 
 		// Set OAM_DATA address (0x8015)
@@ -2061,17 +2267,22 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 
 		// X low byte (R1)
 		cg.builder.AddInstruction(rom.EncodeMOV(0, 2, xReg)) // MOV R2, R1 (x temp)
-		cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))    // MOV R7, #0xFF
-		cg.builder.AddImmediate(0xFF)
-		cg.builder.AddInstruction(rom.EncodeAND(0, 2, 7)) // AND R2, R7 (low byte)
+		cg.hAndImm(2, 0xFF)
 		cg.builder.AddInstruction(rom.EncodeMOV(3, 0, 2)) // MOV [R0], R2
 
-		// X high byte: extract sign bit from x (bit 8)
-		cg.builder.AddInstruction(rom.EncodeMOV(0, 2, xReg)) // MOV R2, R1 (x)
-		cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))    // MOV R7, #8
-		cg.builder.AddImmediate(8)
-		cg.builder.AddInstruction(rom.EncodeSHR(0, 2, 7)) // SHR R2, R7 -> x high
-		cg.builder.AddInstruction(rom.EncodeMOV(3, 0, 2)) // MOV [R0], R2
+		// X high byte: sign bit (bit 0) | sprite size code (bits [3:1],
+		// derived from ctrl -- see emitSizeCodeBits). x (R1) is no longer
+		// needed after this point (X-low already consumed it above), so
+		// it's safe to reuse as scratch here. This also fixes a latent
+		// bug: the old code did a bare SHR with no masking, so for
+		// negative x the *entire* upper byte (not just the sign bit) ended
+		// up set via two's-complement sign extension -- harmless before
+		// (the PPU only ever consulted bit 0), but would have silently
+		// corrupted every negative-X sprite's new size code.
+		cg.hShrImm(xReg, 8)
+		cg.hAndImm(xReg, 1)
+		cg.emitSizeCodeBits(xReg, ctrlReg, 2)
+		cg.builder.AddInstruction(rom.EncodeMOV(3, 0, xReg)) // MOV [R0], R1 (x_hi)
 
 		// Y (from saved R6)
 		cg.builder.AddInstruction(rom.EncodeMOV(3, 0, 6)) // MOV [R0], R6
@@ -2176,6 +2387,53 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		// Returns 0x02 (16×16 size bit, bit 1 of ctrl byte = 1)
 		cg.builder.AddInstruction(rom.EncodeMOV(1, destReg, 0))
 		cg.builder.AddImmediate(0x02)
+		return nil
+
+	// SPR_SIZE_32X16 through SPR_SIZE_128X128: the larger sprite sizes
+	// (see spriteSizeTable, internal/ppu/scanline.go). These return a
+	// wider ctrl-shaped value than SPR_SIZE_8/16 -- bit 1 plus new bits
+	// 8/9 -- which oam.write_sprite_data and sprite.set_size split apart
+	// via emitSizeCodeBits: bit 1 still goes to the control byte
+	// (harmlessly, it's the now-vestigial legacy size bit) while bits
+	// 8/9 exist only to be extracted into the X-high byte's size-code
+	// field. Never write one of these values into a Sprite's .ctrl field
+	// directly and expect it alone to work -- .ctrl is a plain 8-bit
+	// struct field, so bits 8/9 would simply be truncated away; always go
+	// through sprite.set_size (for Sprite structs) or
+	// oam.write_sprite_data's ctrl argument (which does the extraction
+	// inline) instead.
+	//
+	// CALLER PITFALL (pre-existing compiler limitation, not specific to
+	// these builtins, but far more likely to bite here): a computed
+	// expression used directly as a call argument beyond the first
+	// corrupts earlier-evaluated argument registers in this compiler (see
+	// corelx-nested-expr-register-bug) -- confirmed concretely for
+	// oam.write_sprite_data's ctrl argument (the 6th/last): calling it as
+	// `oam.write_sprite_data(id, x, y, tile, attr, SPR_ENABLE() |
+	// SPR_SIZE_32X32())` silently corrupts x (its sign bit reads back
+	// wrong) once the OR'd value needs bits above 8, which only these
+	// larger sizes ever do -- SPR_SIZE_8()/SPR_SIZE_16() never triggered
+	// this in existing code because their values fit in the low byte.
+	// Always precompute into a local first: `ctrl := SPR_ENABLE() |
+	// SPR_SIZE_32X32()` then pass `ctrl` -- the same pattern
+	// draw_object_sprite_lod already uses in overworld.corelx.
+	case "SPR_SIZE_32X16":
+		cg.hMovImm(destReg, 0x0100)
+		return nil
+	case "SPR_SIZE_32X32":
+		cg.hMovImm(destReg, 0x0102)
+		return nil
+	case "SPR_SIZE_64X32":
+		cg.hMovImm(destReg, 0x0200)
+		return nil
+	case "SPR_SIZE_64X64":
+		cg.hMovImm(destReg, 0x0202)
+		return nil
+	case "SPR_SIZE_128X64":
+		cg.hMovImm(destReg, 0x0300)
+		return nil
+	case "SPR_SIZE_128X128":
+		cg.hMovImm(destReg, 0x0302)
 		return nil
 
 	case "SPR_BLEND":
@@ -2440,10 +2698,7 @@ func (cg *CodeGenerator) generateBuiltinCall(name string, args []Expr, destReg u
 		if len(args) != 0 {
 			return fmt.Errorf("boot.show_default takes no arguments")
 		}
-		cg.builder.AddInstruction(rom.EncodeCALL())
-		offsetPos := cg.builder.GetCodeLength()
-		cg.builder.AddImmediate(0)
-		cg.callPatches = append(cg.callPatches, callPatch{offsetPos: offsetPos, target: bootShowDefaultFuncName})
+		cg.emitCallPatch(bootShowDefaultFuncName)
 		return nil
 
 	case "gfx.load_tiles":
@@ -5472,10 +5727,47 @@ const (
 // emitHelperCall emits a CALL to a named helper routine, patched after all
 // code is generated (same mechanism as user function calls).
 func (cg *CodeGenerator) emitHelperCall(name string) {
+	cg.emitCallPatch(name)
+}
+
+// emitCallPatch emits a CALL to target (a user function or internal helper
+// name) and records a callPatch, resolved once every function's final
+// address is known (see Generate's patch-resolution loop). In compact mode
+// this is the same 2-word relative CALL form used before multi-bank
+// support existed. In wide mode (pass 2 measurement, pass 3 final
+// multi-bank emission) it emits the 5-word far-call form instead: two
+// placeholder MOV immediates loading the target's bank/offset into R6/R7
+// (reserved scratch -- see the param cap in generateFunctionPrologue), then
+// a far CALL[R6:R7]. Every call site (user calls, boot.show_default,
+// internal helpers) goes through this one function so their emitted size
+// stays identical between the pass that measures it and the pass that
+// schedules banks against that measurement.
+func (cg *CodeGenerator) emitCallPatch(target string) {
+	if cg.wideCallMode {
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+		bankPos := cg.builder.GetCodeLength()
+		cg.builder.AddImmediate(0) // placeholder bank
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 7, 0))
+		offsetPos := cg.builder.GetCodeLength()
+		cg.builder.AddImmediate(0) // placeholder offset
+		cg.builder.AddInstruction(rom.EncodeCALLFar(6, 7))
+		cg.callPatches = append(cg.callPatches, callPatch{
+			bankPos:   bankPos,
+			offsetPos: offsetPos,
+			bank:      cg.currentBank,
+			target:    target,
+			wide:      true,
+		})
+		return
+	}
 	cg.builder.AddInstruction(rom.EncodeCALL())
 	offsetPos := cg.builder.GetCodeLength()
-	cg.builder.AddImmediate(0)
-	cg.callPatches = append(cg.callPatches, callPatch{offsetPos: offsetPos, target: name})
+	cg.builder.AddImmediate(0) // placeholder
+	cg.callPatches = append(cg.callPatches, callPatch{
+		offsetPos: offsetPos,
+		bank:      cg.currentBank,
+		target:    target,
+	})
 }
 
 // helper emit primitives
@@ -5514,6 +5806,27 @@ func (cg *CodeGenerator) hCmpImm(reg uint8, v uint16) {
 	cg.builder.AddImmediate(v)
 }
 
+// emitSizeCodeBits extracts a sprite's 3-bit size code from a ctrl-shaped
+// value in srcReg and ORs it, shifted into OAM X-high-byte bit positions
+// [3:1], into accumReg. Clobbers scratchReg; srcReg is read-only.
+//
+// The 3 bits come from: bit 1 = code bit 0 (the legacy SPR_SIZE_16
+// position -- existing CoreLX source that only ever calls
+// SPR_SIZE_8()/SPR_SIZE_16() keeps working unchanged, since that's the
+// only bit it ever sets); bits 8/9 = code bits 1/2, new, set only by
+// SPR_SIZE_32X16() and larger. See spriteSizeTable (internal/ppu/
+// scanline.go) for what each of the resulting 8 codes means, and
+// oam.write_sprite_data/sprite.set_size for the two call sites.
+func (cg *CodeGenerator) emitSizeCodeBits(accumReg, srcReg, scratchReg uint8) {
+	for _, bit := range []struct{ shr, shl uint16 }{{1, 1}, {8, 2}, {9, 3}} {
+		cg.builder.AddInstruction(rom.EncodeMOV(0, scratchReg, srcReg))
+		cg.hShrImm(scratchReg, bit.shr)
+		cg.hAndImm(scratchReg, 1)
+		cg.hShlImm(scratchReg, bit.shl)
+		cg.builder.AddInstruction(rom.EncodeOR(0, accumReg, scratchReg))
+	}
+}
+
 // hBranch emits a conditional branch with a placeholder offset and returns
 // the immediate position for later patching.
 func (cg *CodeGenerator) hBranch(inst uint16) int {
@@ -5534,26 +5847,40 @@ func (cg *CodeGenerator) hJumpBack(toWordIdx int) {
 	cg.builder.AddImmediate(uint16(rom.CalculateBranchOffset(fromPC, uint16(toWordIdx*2))))
 }
 
-// romCodeBank is the single ROM bank all CoreLX-compiled code lives in.
-// CALL #rel16 (the only CALL mode codegen emits) has no bank operand, so
-// every function must live in one bank -- this mirrors compiler.go's
-// CompileOptions.EntryBank default.
-const romCodeBank = 1
+// irqVectorPatch records one placeholder pair (bank byte + offset-high
+// byte) written into the entry function by emitIRQVectorFix, plus the bank
+// that placeholder pair itself lives in (== the entry function's bank,
+// always 1 by the hardware boot vector requirement, but recorded rather
+// than assumed so patchIRQVector never needs its own bank constant).
+type irqVectorPatch struct {
+	bank      uint8
+	bankPos   int
+	offsetPos int
+}
 
 // emitIRQVectorFix writes bank0:0xFFE0-0xFFE3 (the IRQ and NMI vectors) so
 // they point at a trivial RET stub instead of the hardware default, which
 // aliases the entry point. Must run before any other entry-function code.
-// The offset-high bytes are placeholders, patched by patchIRQVector once
-// __irqstub's real address is known. Clobbers R6-R7.
+// Both the bank byte and the offset-high byte are placeholders, patched by
+// patchIRQVector once __irqstub's real (bank, address) is known -- its
+// bank isn't fixed, since __irqstub is emitted wherever cg.currentBank
+// happens to be once every user function/helper has been emitted. Clobbers
+// R6-R7.
 func (cg *CodeGenerator) emitIRQVectorFix() {
 	patchVector := func(vectorAddr uint16) {
-		cg.hMovImm(6, uint16(romCodeBank))
+		cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
+		bankPos := cg.builder.GetCodeLength()
+		cg.builder.AddImmediate(0) // placeholder: patched to __irqstub's bank
 		cg.storeIOByte(vectorAddr, 6)
 		cg.builder.AddInstruction(rom.EncodeMOV(1, 6, 0))
-		pos := cg.builder.GetCodeLength()
+		offsetPos := cg.builder.GetCodeLength()
 		cg.builder.AddImmediate(0) // placeholder: patched to __irqstub's page
 		cg.storeIOByte(vectorAddr+1, 6)
-		cg.irqVectorPatchPositions = append(cg.irqVectorPatchPositions, pos)
+		cg.irqVectorPatchPositions = append(cg.irqVectorPatchPositions, irqVectorPatch{
+			bank:      cg.currentBank,
+			bankPos:   bankPos,
+			offsetPos: offsetPos,
+		})
 	}
 	patchVector(0xFFE0) // IRQ vector
 	patchVector(0xFFE2) // NMI vector
@@ -5562,7 +5889,8 @@ func (cg *CodeGenerator) emitIRQVectorFix() {
 // patchIRQVector emits __irqstub (a lone RET) padded to a 0x100-byte page
 // boundary -- the vector format only stores a page number (offset low byte
 // is always 0x00) -- then backfills the placeholders emitIRQVectorFix left
-// in the entry function's prologue with that page's high byte.
+// in the entry function's prologue with __irqstub's actual bank and that
+// page's high byte.
 func (cg *CodeGenerator) patchIRQVector() {
 	if len(cg.irqVectorPatchPositions) == 0 {
 		return
@@ -5571,9 +5899,11 @@ func (cg *CodeGenerator) patchIRQVector() {
 		cg.builder.AddInstruction(rom.EncodeNOP())
 	}
 	stubAbsAddr := 0x8000 + uint16(cg.builder.GetCodeLength()*2)
+	stubBank := cg.currentBank
 	cg.builder.AddInstruction(rom.EncodeRET())
-	for _, pos := range cg.irqVectorPatchPositions {
-		cg.builder.SetImmediateAt(pos, uint16(stubAbsAddr>>8))
+	for _, p := range cg.irqVectorPatchPositions {
+		cg.setPatchImmediate(p.bank, p.bankPos, uint16(stubBank))
+		cg.setPatchImmediate(p.bank, p.offsetPos, uint16(stubAbsAddr>>8))
 	}
 }
 
@@ -5583,7 +5913,7 @@ func (cg *CodeGenerator) patchIRQVector() {
 //
 //	result = (ah*bh)<<8 + ah*bl + al*bh + (al*bl)>>8   (on |a|,|b|)
 func (cg *CodeGenerator) emitFixmulHelper() {
-	cg.functionAddrs["__fixmul"] = cg.builder.GetCodeLength()
+	cg.recordFuncAddr("__fixmul")
 
 	// sign = (a ^ b) >> 15  -> R3 (kept live; no calls below)
 	cg.builder.AddInstruction(rom.EncodeMOV(0, 3, 0))
@@ -5777,7 +6107,7 @@ func (cg *CodeGenerator) emitMusicFadeStep() {
 // one. musicLastFrameSlot tracks the last frame_counter() value actually
 // processed, so repeat calls within the same real frame are no-ops.
 func (cg *CodeGenerator) emitMusicAdvanceHelper() {
-	cg.functionAddrs["__musicadvance"] = cg.builder.GetCodeLength()
+	cg.recordFuncAddr("__musicadvance")
 
 	// Read frame_counter() (same sequence as the frame_counter() builtin:
 	// FRAME_COUNTER_LOW 0x803F, FRAME_COUNTER_HIGH 0x8040) and skip this call
@@ -5973,7 +6303,7 @@ func (cg *CodeGenerator) writePlaneReg16(expr Expr, addrLow uint16) error {
 // unsigned DIV on the magnitude (works for -32768 since 0x8000 unsigned is its
 // own magnitude). Clobbers R0-R3, R6, R7.
 func (cg *CodeGenerator) emitDrawIntHelper() {
-	cg.functionAddrs["__drawint"] = cg.builder.GetCodeLength()
+	cg.recordFuncAddr("__drawint")
 
 	// sign = value >> 15 (logical). If set, emit '-' and negate.
 	cg.builder.AddInstruction(rom.EncodeMOV(0, 6, 0)) // R6 = value

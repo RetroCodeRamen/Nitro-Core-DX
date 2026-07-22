@@ -141,6 +141,10 @@ type PPU struct {
 	activeScanlineSprites     [128]spriteInfo
 	activeScanlineSpriteCount int
 	activeScanlineY           int
+	// Scratch buffer for evaluateSpritesForScanline's priority-ordering
+	// pass (see spriteScanlineByteBudget), reused across calls to avoid
+	// a per-scanline heap allocation.
+	scanlineCandidateScratch [128]spriteInfo
 
 	// Scanline/dot stepping state (for clock-driven operation)
 	currentScanline     int
@@ -2182,7 +2186,6 @@ func (p *PPU) renderSprites() {
 		// Byte 5: Control
 		control := uint8(p.OAM[oamAddr+5])
 		enabled := (control & 0x01) != 0
-		tileSize16 := (control & 0x02) != 0
 
 		// Log sprite 0 rendering state (for debugging blinking)
 		if spriteIndex == 0 && p.Logger != nil && p.currentScanline == 0 && p.currentDot == 0 {
@@ -2195,15 +2198,17 @@ func (p *PPU) renderSprites() {
 			continue
 		}
 
-		// Sprite size
-		spriteSize := 8
-		if tileSize16 {
-			spriteSize = 16
-		}
+		// Sprite size: see spriteSizeCodeFromOAM's doc comment (scanline.go)
+		// -- the 3-bit code lives in byte 1 (X-high) bits [3:1], falling
+		// back to the legacy control-byte bit for pre-existing content
+		// that never touches X-high.
+		sizeCode := spriteSizeCodeFromOAM(xHigh, control)
+		dims := spriteSizeTable[sizeCode]
+		spriteWidth, spriteHeight := dims[0], dims[1]
 
 		// Render sprite pixels
-		for py := 0; py < spriteSize; py++ {
-			for px := 0; px < spriteSize; px++ {
+		for py := 0; py < spriteHeight; py++ {
+			for px := 0; px < spriteWidth; px++ {
 				// Calculate screen position
 				screenX := spriteX + px
 				screenY := spriteY + py
@@ -2217,22 +2222,18 @@ func (p *PPU) renderSprites() {
 				tileX := px
 				tileY := py
 				if flipX {
-					tileX = spriteSize - 1 - tileX
+					tileX = spriteWidth - 1 - tileX
 				}
 				if flipY {
-					tileY = spriteSize - 1 - tileY
+					tileY = spriteHeight - 1 - tileY
 				}
 
 				// Read tile data (4bpp = 2 pixels per byte)
-				tileDataOffset := uint16(tileIndex) * uint16(spriteSize*spriteSize/2)
-				pixelOffsetInTile := tileY*spriteSize + tileX
-				byteOffsetInTile := pixelOffsetInTile / 2
-				pixelInByte := pixelOffsetInTile % 2
-
-				if uint32(tileDataOffset)+uint32(byteOffsetInTile) >= 65536 {
+				tileDataOffset, pixelInByte := spriteTileByteOffset(sizeCode, tileIndex, spriteWidth, spriteHeight, tileX, tileY)
+				if tileDataOffset >= 65536 {
 					continue
 				}
-				tileDataAddr := tileDataOffset + uint16(byteOffsetInTile)
+				tileDataAddr := uint16(tileDataOffset)
 
 				// Read pixel color index
 				tileByte := p.VRAM[tileDataAddr]

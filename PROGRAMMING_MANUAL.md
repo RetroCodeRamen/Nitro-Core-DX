@@ -226,6 +226,13 @@ go run ./cmd/corelx hello.corelx hello.rom
 go run ./cmd/emulator -rom hello.rom
 ```
 
+> **Fletcher:** One thing you'll never have to think about: how big your game
+> gets. Early on, the compiler could only fit your code into a single 32KB
+> ROM bank — write enough functions and you'd hit a wall. That's gone now;
+> the compiler spans your code across as many banks as it needs, completely
+> automatically. See "How Big Can My Game Get? ROM Banking" at the end of
+> Chapter 15 for how it actually works under the hood.
+
 ---
 
 # Part 1 — The CoreLX Language
@@ -815,6 +822,13 @@ function Start()
 Function parameters need an explicit type — `function damage(p: Player)`, not
 `function damage(p)` — the same way `var`/`asset` declarations do.
 
+> **Fletcher's Warning Label:** A function can take at most **six**
+> parameters. That's not an arbitrary nicety — two of the machine's eight
+> registers (R6/R7) are permanently reserved as scratch space for the
+> cross-bank calls described earlier, so only six are ever free for arguments.
+> If you find yourself reaching for a seventh, it's usually a sign the
+> function wants a struct instead of a fistful of loose values.
+
 > **Fletcher:** If you've used a language with real pointers, "reference type,
 > no address-of operator" might look like a contradiction. It isn't — it just
 > means the *only* way to hand a struct to something is to hand over the real
@@ -1216,8 +1230,52 @@ CoreLX has no address-of operator, and `Sprite()` is no exception to that.
 - `SPR_PRI(n)` — sprite priority bits (0-3; see the note below)
 - `SPR_ENABLE()` — enable bit
 - `SPR_SIZE_8()` / `SPR_SIZE_16()` — 8x8 or 16x16 sprite
+- `SPR_SIZE_32X16()` / `SPR_SIZE_32X32()` / `SPR_SIZE_64X32()` /
+  `SPR_SIZE_64X64()` / `SPR_SIZE_128X64()` / `SPR_SIZE_128X128()` — larger
+  sprite sizes, up to 128x128 (see "Bigger Sprites" below)
 - `SPR_HFLIP()` / `SPR_VFLIP()` — horizontal/vertical flip
 - `SPR_BLEND(mode)` / `SPR_ALPHA(a)` — blend mode and alpha bits
+
+### Bigger Sprites
+
+A single sprite isn't stuck at 16x16 — the hardware supports eight sizes in
+total, up to 128x128, built internally from a grid of 8x8 tiles (a 32x32
+sprite is a 4x4 grid, 128x128 is 16x16, and so on). Above 16x16, only the
+tiles you've actually loaded show anything — an unloaded grid cell reads as
+transparent, so you don't have to fill a full 128x128 image just to use a
+big sprite; a smaller shape inside a bigger bounding box (for hit-testing
+against, say) works fine too.
+
+> **Fletcher's Warning Label:** These larger sizes need TWO bits that don't
+> fit in `.ctrl` (an 8-bit field) — so unlike `SPR_SIZE_8()`/`SPR_SIZE_16()`,
+> you can't just write `box.ctrl = SPR_ENABLE() | SPR_SIZE_32X32()` and have
+> it work. Use `sprite.set_size(box, SPR_SIZE_32X32())` instead — a
+> dedicated call that writes the size where it actually needs to go. For
+> `oam.write_sprite_data`, the `ctrl` argument handles this correctly on its
+> own; no separate call needed there.
+>
+> **And a second one, while you're combining flags for either of those:**
+> always land the combined value in a local first —
+> `s := SPR_ENABLE() | SPR_SIZE_32X32()` — then pass `s`, rather than writing
+> the `|` expression directly inline as the call's argument. A computed
+> expression used directly as a call argument beyond the first can corrupt
+> an earlier argument already loaded into a register in this compiler; every
+> example in this manual and demo that combines flags already follows this
+> pattern for exactly that reason.
+
+```corelx
+big := Sprite()
+big.tile = tile_base
+big.attr = SPR_PAL(1) | SPR_PRI(0)
+sprite.set_size(big, SPR_SIZE_32X32())
+big.ctrl = SPR_ENABLE()
+sprite.set_pos(big, 100, 80)
+oam.write(0, big)
+oam.flush()
+```
+
+`sprite.set_pos` and `sprite.set_size` can be called in either order — each
+preserves whatever the other one already wrote.
 
 > **Why This Matters — Priority:** Sprites and background layers (Chapter 13)
 > share one compositing order, sorted by priority (`SPR_PRI(n)` for sprites,
@@ -1250,6 +1308,9 @@ off the edge.
 - `oam.write_sprite_data(id, x, y, tile, attr, ctrl)` writes the same record
   from plain values instead, when you don't want to keep a `Sprite()` variable
   around.
+- `sprite.set_size(sprite, size_flags)` sets one of the larger sizes (see
+  "Bigger Sprites" above) on a `Sprite()` variable — needed because that
+  size information doesn't fit in `.ctrl`.
 - `oam.clear_sprite(id)` disables a sprite by zeroing its control byte.
 - `oam.flush()` is the write-finalization call every one of the above needs
   before the change actually reaches the PPU.
@@ -1639,6 +1700,73 @@ you never touch the zip. But sometimes you need to get in there:
 > already own works on it — git can store it, a script can rip an asset out of
 > a hundred of them, a diff tool can show you what changed between two builds
 > (work on the unzipped folders for that; zips diff badly).
+
+### How Big Can My Game Get? ROM Banking
+
+The DX's cartridge ROM isn't one flat block of memory — it's organized into
+**32KB banks** (banks 1-125 are yours; bank 0 is WRAM/I/O, and 126-127 are
+extended WRAM). Historically that mattered to you directly: your *compiled
+code* — not your art, your code — had to fit inside a single 32KB bank, and
+once a project grew past that, the compiler would simply refuse to build it.
+
+That ceiling is gone. The compiler now spans your code across as many banks
+as it needs, automatically, and there is nothing in the language for you to
+write to opt into it — it just happens. This section explains what's actually
+going on, because "it just happens" is a lot less confusing once you've seen
+the machinery once.
+
+**The three-pass compile.** Every build tries the cheap path first:
+1. **Compact pass.** Your whole program compiles into one bank, using
+   ordinary same-bank `CALL`s (2 words each) — this is faster to run and
+   produces a smaller ROM, so it's always tried first. If it fits, that's
+   your ROM. This is still exactly what happens for small-to-medium
+   projects, byte for byte the same as before banking existed.
+2. **Measure pass.** If the compact pass overflows 32KB, the compiler
+   recompiles once in "wide-call" mode: every function call — yours and the
+   compiler's own internal helpers — is sized as a **far call** (5 words: two
+   register loads for the target bank/offset, then the call itself), because
+   that's the only kind of call that can safely cross a bank boundary. This
+   pass exists purely to measure how big each of your functions actually is
+   under that scheme.
+3. **Bank-packing + final pass.** Using those measurements, the compiler
+   walks your functions **in the order they're declared** (with `Start()` /
+   `__Boot()` always first, since the hardware's boot vector requires your
+   entry point to live in bank 1) and greedily fills each 32KB bank until the
+   next function wouldn't fit, then starts a new one. It then does one more
+   full compile against that bank assignment, producing your final ROM. Your
+   image and music assets are placed immediately above wherever your code
+   banks end.
+
+**What this means for you, practically:**
+- **You don't write anything differently.** No bank keyword, no `--!`
+  directive, no pragma. A ten-line program and a ten-thousand-line program
+  are written the same way.
+- **The one real, visible consequence: a function can take at most six
+  parameters**, not eight — see the warning label in Chapter 7. Two registers
+  are permanently reserved as scratch space for far-call targets, whether or
+  not your particular program ends up needing more than one bank.
+- **A program that needs more than one bank pays a small, constant cost**:
+  every call becomes 5 words instead of 2, and there's a couple of extra
+  register loads before each call. At 60 frames a second this is not
+  something you'll ever notice in ordinary game logic — it would only matter
+  in an extremely tight, latency-critical inner loop, which isn't a thing
+  CoreLX games typically need.
+- **The real ceiling is now 125 banks (≈3.9MB of code)** — not a number any
+  hobby-scale CoreLX game is likely to approach. Practically speaking, you
+  can just keep writing functions.
+- **How to tell if your build spilled into a second bank**: there's no
+  dedicated report for it yet, but the crude signal works fine — a
+  single-bank `.cart`/`.rom` is at most 32KB plus a small header; once your
+  compiled output is noticeably larger than that, you're multi-bank.
+
+> **Fletcher:** I mention the measure-then-pack mechanics not because you'll
+> ever touch them, but because the day you *do* care — chasing down a weird
+> timing difference, reading a disassembly, wondering why your ROM got
+> bigger after adding one small function — you'll want to know a whole
+> extra compile pass happened quietly in between, and that where a function
+> physically lands depends on *declaration order*, not call order or
+> importance. Move a rarely-used function earlier in the file and it can
+> shift which bank several other functions land in too.
 
 ---
 

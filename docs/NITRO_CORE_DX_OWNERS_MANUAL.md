@@ -95,7 +95,8 @@ in plain terms:
   unlike the old machines, it can do this on *multiple* layers at once. Racing
   games, pseudo-3D adventures, and sweeping landscapes all live here.
 - **128 sprites.** Plenty of moving characters, bullets, and effects on screen
-  at once, with priority and blending so things layer correctly.
+  at once, with small and large hardware sprite sizes, priority, and blending
+  so things layer correctly.
 - **Real speed.** A roughly 7.67 MHz CPU — close to three times the SNES's —
   driving a steady **60 frames per second**. Fast games feel fast.
 - **Full sound.** Multiple audio channels with an FM synthesis path for that
@@ -149,13 +150,14 @@ For the curious. None of this is required reading to play.
 | Color palette | 256-color CGRAM, RGB555 format (32,768 possible colors) |
 | Tile size | 8×8 or 16×16 pixels (per layer) |
 | Max sprites | 128 |
+| Sprite sizes | 8×8 through 128×128, per sprite |
 | Background layers | 4 independent (BG0–BG3) |
 | Matrix Mode | Mode 7-style per-layer transforms, perspective, direct color |
 | Audio | Multiple channels + YM2608-capable FM path |
 | Audio sample rate | 44,100 Hz |
 | CPU speed | ~7.67 MHz (127,820 cycles per frame at 60 FPS) |
 | Memory | 64KB per bank, up to 256 banks |
-| ROM size | Up to ~7.8 MB cartridges |
+| ROM size | Up to ~3.9 MB cartridges |
 | Frame rate | 60 FPS |
 
 These figures describe the Nitro-Core-DX as implemented by the emulator, which

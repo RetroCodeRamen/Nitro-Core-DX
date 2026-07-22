@@ -42,12 +42,28 @@ type bankProgram struct {
 // It supports per-bank code streams plus relocations, while preserving the current ROM file format.
 type BankedROMBuilder struct {
 	banks map[uint8]*bankProgram
+
+	// Optional read-only data region placed in higher ROM banks (for DMA
+	// sources like bitmap images), mirroring ROMBuilder.SetDataRegion. Code
+	// banks must not reach dataStartBank -- BuildROMBytes checks this
+	// against the highest code bank actually used, once callers finish
+	// emitting.
+	dataStartBank uint8
+	dataRegion    []byte
 }
 
 func NewBankedROMBuilder() *BankedROMBuilder {
 	return &BankedROMBuilder{
 		banks: make(map[uint8]*bankProgram),
 	}
+}
+
+// SetDataRegion places a contiguous read-only data blob starting at the given
+// ROM bank (offset 0x8000), for use as a DMA source. Mirrors
+// ROMBuilder.SetDataRegion exactly -- code must fit below dataStartBank.
+func (b *BankedROMBuilder) SetDataRegion(startBank uint8, data []byte) {
+	b.dataStartBank = startBank
+	b.dataRegion = data
 }
 
 func (b *BankedROMBuilder) bank(bank uint8) *bankProgram {
@@ -160,6 +176,20 @@ func (b *BankedROMBuilder) BuildROMBytes(entryBank uint8, entryOffset uint16) ([
 
 	highestBank := uint8(usedBanks[len(usedBanks)-1])
 	romSize := uint32(highestBank) * ROMBankSizeBytes // bank 1 starts at ROM offset 0
+
+	// Data region (mirrors ROMBuilder's overflow check and layout exactly):
+	// code banks must not reach dataStartBank, and the data region can
+	// itself extend romSize if it's larger than the code so far.
+	if len(b.dataRegion) > 0 {
+		if highestBank >= b.dataStartBank {
+			return nil, fmt.Errorf("code (uses banks up to %d) overflows into the data region starting at bank %d", highestBank, b.dataStartBank)
+		}
+		dataStart := uint32(b.dataStartBank-1) * ROMBankSizeBytes
+		dataEnd := dataStart + uint32(len(b.dataRegion))
+		if dataEnd > romSize {
+			romSize = dataEnd
+		}
+	}
 	romData := make([]byte, 32+romSize)
 
 	// Header (same format as ROMBuilder)
@@ -181,6 +211,12 @@ func (b *BankedROMBuilder) BuildROMBytes(entryBank uint8, entryOffset uint16) ([
 			off := base + i*2
 			binary.LittleEndian.PutUint16(romData[off:off+2], word)
 		}
+	}
+
+	// Write the high-bank data region (DMA source), if any.
+	if len(b.dataRegion) > 0 {
+		base := 32 + uint32(b.dataStartBank-1)*ROMBankSizeBytes
+		copy(romData[base:base+uint32(len(b.dataRegion))], b.dataRegion)
 	}
 
 	return romData, nil

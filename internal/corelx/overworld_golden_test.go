@@ -136,12 +136,43 @@ func TestOverworldGoldenFrames(t *testing.T) {
 // Golden hashes, captured 2026-07-21 right after the M8 Phase 5 post-review
 // tuning pass (sprite position/pivot/speed, floor rescale, building
 // collision/depth-sort, camera-eye alignment fix) -- see
-// m8-implementation-progress.md for what each of those changed.
+// m8-implementation-progress.md for what each of those changed. Updated
+// again the same day for the hero sprite resize (8x8 -> a 2-tile 16x32
+// composite, much closer to human-scaled next to the building's door), once
+// more for the door-prompt heading-tolerance fix, again once the multi-bank
+// compiler let overworld.corelx's world-projected trees/creature sprites
+// actually ship, again for bump combat, and twice more on 2026-07-22: once
+// for two real projection bugs (OAM anchor point; OBJ_FOV_K drastically
+// undertuned, read as "everything bunches up around the player" -- see
+// project_object/draw_object_sprite's comments), and once more for a
+// distance-based near/far LOD swap (16x16 far, 32x32 4-tile composite near
+// -- OAM sprites have no scale registers in this hardware, so a discrete
+// size swap is the answer instead, AJ's call over adding real hardware
+// scale registers) -- see draw_object_sprite_lod/OBJ_NEAR_LOD_FWD.
+// Updated once more 2026-07-22 for a hardware-level sprite-size feature: OAM
+// sprites now support 8 sizes (8x8 up to 128x128, see spriteSizeTable in
+// internal/ppu/scanline.go) via a 3-bit code in the X-high byte, which
+// required properly masking that byte's sign-bit computation everywhere it's
+// written (oam.write_sprite_data, sprite.set_pos) instead of the previous
+// raw/unmasked shift. That fix changes rendering for any sprite at a small
+// negative screen X (previously got garbage in what are now the size-code
+// bits, though harmless before since only bit 0 was ever consulted) --
+// visually confirmed as more trees now correctly rendering near the screen
+// edges rather than being silently corrupted.
+// Updated once more 2026-07-22 for the tree/creature near-LOD simplification:
+// once native OAM sprite sizes shipped, the software 4-tile 32x32 composite
+// (4 OAM writes/tiles) was replaced with a single native SPR_SIZE_32X32()
+// sprite (1 OAM write, one `tileset` asset holding the same 16 tiles laid
+// out row-major). Visually identical (confirmed by PNG inspection -- same
+// pixels, same positions); the hash changes are from OAM byte-layout
+// differences leaking into checkpoints that still show a leftover
+// tree/creature sprite from a previous scene (a pre-existing, harmless
+// quirk -- see the multi-bank-era note above).
 const (
-	goldenOverworldSpawn    = "e5550e9ee2c46bc3583d027e158ce27dbf05e5ede4cedee26b3733f15042d6ce"
-	goldenOverworldAtFacade = "6a16423056837ef62a83a2137f34772ce5e11c4d2f9f127b9658d92e73b772fa"
-	goldenOverworldSideView = "283c19b257bdaf61c0860e0f18e43c940bec0b1e95c91823720899de3c2ec51b"
-	goldenInteriorEntry     = "a5a063c9f64ea5218e110fc5972943537ee88777db6f2924ba7868a2a55b5574"
-	goldenDialoguePage0     = "00f63faaa23c2a5ced8ff46f221e77517a314c410a4582b66a46c14c1197d3f0"
-	goldenCredits           = "64c4fafbe7f877e6a0eebab7e89d281b2a0a93630903b6d6733defdae95ba2ce"
+	goldenOverworldSpawn    = "10ce19de8c2406e48b922574c22f0086068d79f93380b42fb6633db886cfc5af"
+	goldenOverworldAtFacade = "776a4d9b6ed7ad09b573f5987c5f14c0da45ac5417628f5f22be4b6e29632e0a"
+	goldenOverworldSideView = "1a97552a14f38b1d0b5a94a87fb962bc5711a4ba9c0c16e8712819547acdd908"
+	goldenInteriorEntry     = "d1648573190f871354343cd84aaa4265c06926a438ac59d783fc8c02e84ba662"
+	goldenDialoguePage0     = "cc8ff0c407c221488694e0f7e7d40804e9fd090457c7b818dbcf7b5c0ff0a893"
+	goldenCredits           = "62838c47b803457083d7afc692853f0cdf4022ca669a8b667c103f82d0084a3f"
 )

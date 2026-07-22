@@ -1,8 +1,11 @@
 # Nitro-Core-DX Hardware Features Status
 
-**Last Updated:** March 9, 2026
+**Last Updated:** July 22, 2026
 
-This document tracks the implementation status of all hardware features for the emulated console itself (not emulator UI or dev tools). For Dev Kit and tooling status, see the README.md project status section.
+This document tracks the implementation status of hardware-facing emulator
+features for the console itself. It does not track CoreLX language completion
+or Dev Kit UI/tool readiness; use `README.md`, `docs/README.md`, and
+`docs/planning/NEXT_STEPS_PLAN.md` for product/tooling status.
 
 ---
 
@@ -27,9 +30,11 @@ This document tracks the implementation status of all hardware features for the 
 - ✅ VRAM, CGRAM, OAM management
 - ✅ 4 background layers (BG0-BG3)
 - ✅ Basic tile rendering (4bpp)
-- ✅ Basic sprite rendering (8×8, 16×16)
+- ✅ Hardware sprite rendering with size codes from 8×8 through 128×128
 - ✅ Sprite flip (X/Y)
 - ✅ Sprite transparency (color index 0)
+- ✅ Larger-sprite tile-grid addressing for 32×16 and above
+- ✅ Per-scanline sprite pixel-fetch budget with priority-ordered dropping
 - ✅ Windowing system structure
 - ✅ **Matrix Mode (per-layer)** - ✅ NEWLY COMPLETED
   - ✅ Per-layer matrix transformations (BG0-BG3)
@@ -43,6 +48,8 @@ This document tracks the implementation status of all hardware features for the 
 - ✅ YM2608/OPNA MMIO host interface (`0x9100-0x91FF`) — FM, SSG, rhythm, ADPCM
 - ✅ Sample generation at 44,100 Hz
 - ✅ YM2608 audio operational through the YMFM-backed runtime
+- ✅ Bus-side YM burst streamer (`0x9110-0x9115`) for efficient register-stream playback
+- ✅ Compact `.ncdxmusic` stream playback path exists above the hardware runtime
 - 🚧 YM2608 hardware conformance under active refinement (not yet fully verified)
 
 **Legacy 4-channel synth — temporary migration scaffolding (not final hardware):**
@@ -70,6 +77,7 @@ This document tracks the implementation status of all hardware features for the 
   - ✅ Priority bits read from attributes (bits [7:6])
   - ✅ Priority-based sprite sorting and rendering order
   - ✅ Sprites sorted by priority, then by index
+  - ✅ Scanline bandwidth pressure keeps higher-priority sprites first
 
 - ✅ **Sprite-to-Background Priority** - ✅ NEWLY COMPLETED
   - ✅ Proper priority interaction between sprites and backgrounds
@@ -88,6 +96,7 @@ This document tracks the implementation status of all hardware features for the 
 ### PPU Features
 - ❌ **Vertical Sprites for Matrix Mode**
   - Documented but not implemented
+  - This is separate from the now-implemented larger flat hardware sprites
   - **Needs:** Sprites that scale/position based on Matrix Mode transformation
   - **Needs:** Depth sorting for 3D sprites
   - **Needs:** World coordinate system for sprites
@@ -97,6 +106,7 @@ This document tracks the implementation status of all hardware features for the 
   - ✅ FM host interface (`FM_ADDR`, `FM_DATA`, `FM_STATUS`, `FM_CONTROL`, `FM_MIX_L/R`)
   - ✅ Timer/status/IRQ bridge behavior (deterministic runtime model)
   - ✅ Song replay and gameplay BGM playback working via YM write streams
+  - ✅ `.ncdxmusic` compact stream assets can be replayed through the runtime path
   - ✅ Fixed-point sample generation is the canonical emulator runtime path
   - ✅ Legacy floating-point phase fields remain only as compatibility/savestate support
   - ❌ Final timbre/pitch parity tuning against expanded external references
@@ -113,7 +123,8 @@ This document tracks the implementation status of all hardware features for the 
 
 ### High Priority (Active Implementation)
 1. **YM2608 Conformance Accuracy/Polish** - Continue parity tuning and broader behavioral validation
-2. **FPGA Parity Documentation/Planning** - Keep RTL-vs-emulator gaps explicit before new FPGA implementation pushes
+2. **Sound Studio Runtime Integration Support** - Keep the emulator/YM stream path stable while the Dev Kit adds import/preview/export UI
+3. **FPGA Parity Documentation/Planning** - Keep target hardware gaps explicit before new FPGA implementation pushes
 
 ### Medium Priority (Enhanced Features)
 1. **Vertical Sprites for Matrix Mode** - Enables 3D sprite rendering
@@ -145,4 +156,8 @@ enhancement — tracked under APU Features above.)
 
 **System Status:** ✅ **READY FOR SOFTWARE DEVELOPMENT**
 
-All core hardware features are implemented and functional for game/application development. The YM2608/OPNA audio subsystem is operational through the YMFM-backed runtime; current remaining work is conformance/polish, not basic functionality. (A legacy 4-channel synth remains in the tree only as temporary migration scaffolding.)
+All core hardware features are implemented and functional for game/application
+development. The YM2608/OPNA audio subsystem is operational through the
+YMFM-backed runtime and has a working register-stream playback path; current
+remaining work is conformance/polish, not basic functionality. A legacy
+4-channel synth remains in the tree only as temporary migration scaffolding.

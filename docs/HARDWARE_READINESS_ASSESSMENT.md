@@ -3,7 +3,19 @@
 **Date**: January 27, 2026  
 **Question**: Are CPU, PPU, APU, and memory systems ready for asset embedding implementation?
 
-> **Historical Snapshot:** This is a point-in-time assessment for asset embedding readiness (January 2026). Use current specs/tests for present implementation status.
+> **Historical Snapshot:** This is a point-in-time assessment for asset
+> embedding readiness (January 2026). Use current specs/tests for present
+> implementation status.
+
+> **Current alignment note (2026-07-22):** the original conclusion was
+> answered. Asset embedding and external asset packaging are no longer only a
+> plan: image assets, project containers, manifests, music assets, and Dev Kit
+> tool flows now exist in the active codebase. This file remains useful for the
+> reasoning that led to asset embedding, but its ROM-size limits, "needs
+> implementation" checklist items, and 4-channel APU framing are historical.
+> Current hardware status lives in `HARDWARE_FEATURES_STATUS.md` and
+> `specifications/COMPLETE_HARDWARE_SPECIFICATION_V2.1.md`; current product
+> milestones live in `planning/NEXT_STEPS_PLAN.md`.
 
 ---
 
@@ -165,9 +177,12 @@
 ## ⚠️ **POTENTIAL ISSUES TO VERIFY**
 
 ### 1. ROM Size Limit
-- **Current**: Up to 7.8MB (125 banks × 64KB)
-- **Check**: Ensure asset data doesn't exceed ROM size
-- **Solution**: Validate total size (code + assets) < 7.8MB
+- **Original assessment:** Up to 7.8MB (listed as 125 banks × 64KB)
+- **Current correction:** Active LoROM windows are 125 banks × 32KB, or about
+  3.9MB total ROM capacity.
+- **Check**: Ensure asset data doesn't exceed ROM size.
+- **Solution**: Validate total size (code + assets) against the current ROM
+  capacity from the hardware spec.
 
 ### 2. Asset Alignment
 - **Question**: Do assets need to be aligned to specific boundaries?

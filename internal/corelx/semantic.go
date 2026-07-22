@@ -132,7 +132,7 @@ func (a *SemanticAnalyzer) registerBuiltinFunctions() {
 		"int", "fixed", // charter D4 numeric conversions
 		"text.draw", "text.draw_int", // HUD text via the text port
 		"wait_vblank", "frame_counter",
-		"sprite.set_pos", "oam.write", "oam.write_sprite_data", "oam.clear_sprite", "oam.flush",
+		"sprite.set_pos", "sprite.set_size", "oam.write", "oam.write_sprite_data", "oam.clear_sprite", "oam.flush",
 		// LEGACY (scaffolding): apu.* drives the legacy 4-channel synth and is
 		// transitional only. The final audio subsystem is YM2608/OPNA; these
 		// builtins are pending replacement by the future music.* YM2608 API.
@@ -149,6 +149,7 @@ func (a *SemanticAnalyzer) registerBuiltinFunctions() {
 		"input.read", "input.poll", "input.held", "input.pressed", "input.released",
 		"SPR_PAL", "SPR_HFLIP", "SPR_VFLIP", "SPR_PRI",
 		"SPR_ENABLE", "SPR_SIZE_8", "SPR_SIZE_16",
+		"SPR_SIZE_32X16", "SPR_SIZE_32X32", "SPR_SIZE_64X32", "SPR_SIZE_64X64", "SPR_SIZE_128X64", "SPR_SIZE_128X128",
 		"SPR_BLEND", "SPR_ALPHA",
 		"mem.write", "mem.read", "mem.write16", "mem.read16",
 		"bg.set_scroll", "bg.enable", "bg.disable", "bg.set_priority", "bg.set_tilemap_base", "bg.load_tilemap", "bg.set_source_mode", "bg.bind_transform", "bg.set_tile_size",

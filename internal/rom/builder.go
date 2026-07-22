@@ -197,14 +197,34 @@ func EncodeSHR(mode, reg1, reg2 uint8) uint16 {
 	return 0xB000 | (uint16(mode) << 8) | (uint16(reg1) << 4) | uint16(reg2)
 }
 
-// EncodeJMP encodes a JMP instruction
+// EncodeJMP encodes a JMP instruction (mode 0: PC-relative #rel16, same bank)
 func EncodeJMP() uint16 {
 	return 0xD000
 }
 
-// EncodeCALL encodes a CALL instruction
+// EncodeJMPFar encodes a far JMP (mode 1: absolute [bankReg:offsetReg],
+// crosses ROM banks). Unlike the mode-0 form, there is no immediate-encoded
+// far jump -- the target bank and offset must already be loaded into
+// bankReg/offsetReg (e.g. via EncodeMOV(1, reg, 0) + AddImmediate) before
+// this instruction executes. See CPU.executeJMP mode 1 /
+// resolveAbsoluteROMTarget(bankReg, offsetReg) in internal/cpu/instructions.go.
+func EncodeJMPFar(bankReg, offsetReg uint8) uint16 {
+	return 0xD000 | (1 << 8) | (uint16(bankReg) << 4) | uint16(offsetReg)
+}
+
+// EncodeCALL encodes a CALL instruction (mode 0: PC-relative #rel16, same bank)
 func EncodeCALL() uint16 {
 	return 0xE000
+}
+
+// EncodeCALLFar encodes a far CALL (mode 1: absolute [bankReg:offsetReg],
+// crosses ROM banks). Same operand convention as EncodeJMPFar -- no
+// immediate-encoded far call exists in this ISA, target bank/offset must be
+// pre-loaded into registers. RET pops PBR/PCOffset/Flags exactly the same
+// way for both CALL modes, so no special RET handling is needed for calls
+// made this way. See CPU.executeCALL mode 1 in internal/cpu/instructions.go.
+func EncodeCALLFar(bankReg, offsetReg uint8) uint16 {
+	return 0xE000 | (1 << 8) | (uint16(bankReg) << 4) | uint16(offsetReg)
 }
 
 // EncodeRET encodes a RET instruction

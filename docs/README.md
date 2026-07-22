@@ -4,15 +4,25 @@ This directory contains the project's active documentation, historical reviews, 
 
 This file is the primary navigation entry for docs maintenance.
 
+**Last alignment pass:** 2026-07-22. This pass updated product, tooling,
+audio, milestone, and documentation-routing status. CoreLX-specific manuals and
+specs are intentionally waiting for a separate deep dive.
+
 ## Current Sources of Truth (Read These First)
 
 - `../README.md`
   - Project overview, current status snapshot, quick start
+- `planning/NEXT_STEPS_PLAN.md`
+  - Current product/tooling milestone sequence and release-blocking work
+- `planning/V1_CHARTER.md`, `planning/V1_ACCEPTANCE.md`, `planning/V1_RISKS.md`
+  - Product V1 scope, release gates, and live risk register
 - `CORELX_V1_IMPLEMENTATION_STATUS.md`
-  - **Read first for CoreLX work** — what is built/verified vs pending, the
-    asset/project pipeline, build/test/run commands, where decisions live
+  - CoreLX-focused implementation handoff. Scheduled for a separate CoreLX
+    deep-dive alignment pass; verify live details against compiler tests/code
+    until that pass is complete.
 - `specifications/CORELX_SYNTAX_V1.md`
-  - CoreLX v1 language syntax charter (decided 2026-06-12)
+  - CoreLX v1 language syntax charter. Also scheduled for the separate CoreLX
+    documentation review before it should be treated as final prose.
 - `specifications/CORELX_CARTRIDGE_FORMAT.md`
   - CoreLX single-file cartridge format (draft)
 - `../Games/NitroPackInDemo/CORELX_EXTRACTION.md`
@@ -22,7 +32,8 @@ This file is the primary navigation entry for docs maintenance.
 - `specifications/APU_FM_OPM_EXTENSION_SPEC.md`
   - YM2608 audio subsystem design + implementation status
 - `CORELX.md`
-  - Reference for the **current shipping compiler** (the v1 charter above is where the language is going)
+  - Older CoreLX reference. Treat as stale until the CoreLX documentation deep
+    dive is complete.
 - `testing/README.md`
   - Current test command entrypoints and testing docs map
 
@@ -68,6 +79,23 @@ The project ships two distinct manuals for two audiences:
 - `archive/`
   - Superseded plans, historical reviews/audits, incident postmortems —
     retained for history, never current status
+
+## Current Milestone Snapshot (2026-07-22)
+
+- **Hardware/emulator:** software-ready; YM2608 runtime path is operational,
+  with conformance/timbre/subsystem parity still under refinement.
+- **CoreLX/toolchain:** active M8 stabilization. The NitroPackInDemo CoreLX
+  rebuild is the main acceptance target and currently exposes a large-program
+  codegen/banking stress issue.
+- **Dev Kit:** Build/Run, embedded emulator, diagnostics panel, Sprite Lab,
+  Tilemap Lab, autosave, settings, and view modes are present. Find/replace,
+  deeper debugger UX, editor intelligence polish, and Sound Studio remain open.
+- **Art suite:** Sprite Lab is the strongest and most complete; Tilemap Lab is
+  usable but needs production round-trip and manifest/source parity hardening.
+- **Audio suite:** `.ncdxmusic` runtime playback exists; Sound Studio is not
+  implemented beyond the placeholder tab.
+- **Docs:** product/tooling docs are aligned in this pass; CoreLX docs are
+  intentionally deferred.
 
 ## Documentation Status Conventions
 

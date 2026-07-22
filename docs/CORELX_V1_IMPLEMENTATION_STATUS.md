@@ -70,6 +70,7 @@ Every item below compiles and runs on the emulator with a passing test in
 | `corelx_import` | PNG → `.cxasset` text (conversion frozen here for determinism) | `cmd/corelx_import/` |
 | `asset X: image "file.cxasset"` | one-line external image reference | `loadbitmap_test.go` |
 | ROM data region | bitmap blobs placed in ROM banks 2+ (`rom.ROMBuilder.SetDataRegion`) | `internal/rom` |
+| ROM code banking | compiled code is no longer capped at one 32KB bank — a 3-pass compile (compact attempt, then measure + greedily pack functions into banks, then final banked emission) automatically spans as many ROM banks as needed via far calls (`CALL [bankReg:offsetReg]`), up to the hardware's 125-bank ceiling; transparent to CoreLX source, no syntax changes | `internal/corelx/compiler.go` (`compileMultiBank`), `codegen.go`, `internal/rom/banked_builder.go`, `multibank_test.go` |
 | `.ncdx` container | project = ZIP of `main.corelx` + `.cxasset` + `project.toml`; compiler reads it (extract-to-temp) or a plain folder | `container_test.go` |
 | `.cart` output | compiled ROM | — |
 | validation | missing reference **and** orphan `.cxasset` are blocking errors | `container_test.go`, `loadbitmap_test.go` |

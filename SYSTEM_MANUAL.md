@@ -1,9 +1,15 @@
 # Nitro-Core-DX System Manual
 
 **Version 1.0 (Under Revision)**  
-**Last Updated: March 10, 2026**
+**Last Updated: July 22, 2026**
 
-> **⚠️ Under Revision / Historical Snapshot:** This manual contains useful architectural context but includes stale values/status claims (for example CPU timing and audio/FM status). Verify against `README.md`, `docs/specifications/COMPLETE_HARDWARE_SPECIFICATION_V2.1.md`, and `docs/specifications/APU_FM_OPM_EXTENSION_SPEC.md` before using as current source-of-truth.
+> **⚠️ Under Revision / System Context:** This manual contains useful
+> architectural context, but the authoritative current sources are `README.md`,
+> `docs/HARDWARE_FEATURES_STATUS.md`,
+> `docs/specifications/COMPLETE_HARDWARE_SPECIFICATION_V2.1.md`,
+> `docs/specifications/APU_FM_OPM_EXTENSION_SPEC.md`, and
+> `docs/planning/NEXT_STEPS_PLAN.md`. CoreLX language/manual details are
+> intentionally excluded from this pass and will be handled separately.
 
 ---
 
@@ -31,13 +37,14 @@
 | **Color Palette** | 256-color CGRAM (RGB555 format, 32,768 possible colors) |
 | **Tile Size** | 8×8 or 16×16 pixels (configurable per layer) |
 | **Max Sprites** | 128 sprites |
+| **Sprite Sizes** | 8×8, 16×16, 32×16, 32×32, 64×32, 64×64, 128×64, 128×128 |
 | **Background Layers** | 4 independent layers (BG0, BG1, BG2, BG3) |
 | **Matrix Mode** | Mode 7-style per-layer transforms; vertical sprites remain future work |
 | **Audio** | YM2608/OPNA audio subsystem (FM + SSG + rhythm + ADPCM) — final audio hardware; a legacy 4-channel synth remains as temporary migration scaffolding |
 | **Audio Sample Rate** | 44,100 Hz |
 | **CPU Speed** | ~7.67 MHz (127,820 cycles per frame at 60 FPS) |
 | **Memory** | 64KB per bank, 256 banks (16MB total address space) |
-| **ROM Size** | Up to 7.8MB (125 banks × 32KB LoROM windows) |
+| **ROM Size** | Up to 3.9MB (125 banks × 32KB LoROM windows) |
 | **Frame Rate** | 60 FPS target |
 
 ### System Architecture
@@ -53,12 +60,12 @@
 ├─────────────────────────────────────────────────────────┤
 │  Memory System                                          │
 │  ├─ Bank 0: WRAM (32KB) + I/O (32KB)                   │
-│  ├─ Banks 1-125: ROM Space (7.8MB)                    │
+│  ├─ Banks 1-125: ROM Space (3.9MB)                    │
 │  └─ Banks 126-127: Extended WRAM (128KB)               │
 ├─────────────────────────────────────────────────────────┤
 │  PPU (Picture Processing Unit)                         │
 │  ├─ 4 Background Layers (BG0-BG3)                     │
-│  ├─ 128 Sprites                                        │
+│  ├─ 128 Sprites (8×8 through 128×128)                 │
 │  ├─ Matrix Mode (Mode 7-style, per-layer)              │
 │  ├─ Windowing System                                   │
 │  └─ HDMA (per-scanline scroll/transform/control)       │
@@ -317,13 +324,20 @@ When migrating to FPGA:
 
 ## Development Status
 
-### ✅ Completed Components
+### Current Snapshot (2026-07-22)
+
+The emulator hardware foundation is software-ready. Active work is concentrated
+in Dev Kit workflow completion, Sound Studio, CoreLX demo stabilization, YM2608
+conformance polish, editor ergonomics, debugger UX, and documentation
+alignment.
+
+### ✅ Completed / Operational Components
 
 #### Core Emulation
 - ✅ **CPU Core**: Complete instruction set implementation
 - ✅ **Memory System**: Complete banked memory architecture
-- ✅ **PPU (Graphics)**: Basic rendering pipeline, sprite system, background layers
-- ✅ **APU (Audio)**: YM2608/OPNA audio subsystem operational (conformance refinement in progress); legacy 4-channel synth remains as temporary migration scaffolding
+- ✅ **PPU (Graphics)**: background layers, native larger sprites, priority/blending, DMA/HDMA, Matrix Mode, matrix-plane rendering, and scanline effects operational in the emulator
+- ✅ **APU (Audio)**: YM2608/OPNA runtime operational; `.ncdxmusic` stream playback and bus-side YM burst streaming exist; conformance refinement remains in progress
 - ✅ **Input System**: Complete input handling with dual controllers
 - ✅ **ROM Loader**: Complete ROM loading with header parsing
 
@@ -333,35 +347,34 @@ When migrating to FPGA:
 - ✅ **VBlank Flag**: Implemented at 0x803E
 - ✅ **Execution Order**: Synchronized frame execution
 
-### 🚧 Partially Implemented
+#### Dev Kit Tooling
+- ✅ **Build/Build+Run**: integrated compiler/emulator path
+- ✅ **Embedded Emulator**: framebuffer presentation and SDL audio queue
+- ✅ **Diagnostics/Output/Manifest Panes**: build feedback and artifact visibility
+- ✅ **Sprite Lab**: strongest art tool; edit/import/export/manifest flows exist
+- 🚧 **Tilemap Lab**: usable but needs production round-trip hardening
+- 🚧 **Sound Studio**: placeholder only; runtime support exists, UI workflow missing
 
-#### PPU Rendering
-- 🚧 **Background Layer Rendering**: Basic structure, needs full tilemap implementation
-- 🚧 **Sprite Rendering**: Structure in place, needs full implementation
-- ✅ **Matrix Mode**: Implemented (transform-channel-backed per-layer matrix rendering, center/mirror/outside mode, perspective row projection, vertical projected quads, scanline command updates)
-- 🚧 **Tile Rendering**: Placeholder implementation, needs full 4bpp tile decoding
+### 🚧 Remaining / In Progress
 
-### ❌ Not Yet Implemented
+#### Product / Tooling
+- 🚧 **NitroPackInDemo CoreLX rebuild**: active acceptance target; currently
+  exposing a large-program codegen/banking stress case
+- 🚧 **Dev Kit generated-code alignment**: templates and tool snippets must
+  compile against current language rules
+- 🚧 **Sound Studio MVP**: VGM/VGZ import, `.ncdxmusic` inspection/export,
+  emulator-backed preview, and source/manifest insertion
+- 🚧 **Editor Essentials**: find/replace, go-to-line, symbol navigation, updated
+  namespace/builtin highlighting, diagnostics squiggle polish
+- 🚧 **Debugger UX**: pause/resume, frame step, CPU step, register/PC panels,
+  memory watch workflow
 
-#### UI Framework
-- ❌ Main window with SDL2 or similar
-- ❌ Menu bar (File, Emulation, View, Debug, Settings, Help)
-- ❌ Toolbar with quick actions
-- ❌ Status bar (FPS counter, cycle count, frame time)
-- ❌ Dockable panels system
-
-#### Development Tools
-- ❌ **Logging System**: Component logging (CPU, Memory, PPU, APU, Input)
-- ❌ **CPU Debugger**: Register viewer, instruction tracer, breakpoints, watchpoints
-- ❌ **PPU Debugger**: Layer viewer, sprite viewer, tile viewer, palette viewer
-- ❌ **Memory Viewer**: Hex editor, memory map, memory dump
-- ❌ **APU Debugger**: Channel viewer, waveform display
-
-#### Advanced Features
-- ❌ Full tilemap rendering with scrolling
-- ❌ Complete sprite rendering with priorities and blending
-- 🚧 Large world tilemap support
-- 🚧 Vertical sprite rendering for Matrix Mode
+#### Hardware / Rendering Enhancements
+- 🚧 **YM2608 Conformance**: runtime is operational; reference-quality
+  timbre/pitch/subsystem parity evidence remains
+- 🚧 **Large World Tilemap Workflows**: advanced streaming/stitching support
+- 🚧 **Vertical Sprites for Matrix Mode**: advanced pseudo-3D sprite scaling and
+  depth handling
 
 ---
 
@@ -375,7 +388,7 @@ Nitro-Core-DX is more than just an emulator—it's a **passion project**, a **lo
 - Advanced graphics capabilities (4 background layers, windowing, per-scanline scroll)
 - Mode 7-style perspective and rotation effects (Matrix Mode)
 - Rich 15-bit RGB555 color palette (32,768 colors)
-- Sophisticated PPU with sprite priorities and blending modes
+- Sophisticated PPU with large hardware sprites, priorities, and blending modes
 - Banked memory architecture for flexible addressing
 
 **From Genesis:**
@@ -409,14 +422,14 @@ A fantasy console that delivers **SNES-quality graphics** with **Genesis-level p
 ### Memory System
 
 - **Bank 0**: WRAM (32KB) + I/O Registers (32KB)
-- **Banks 1-125**: ROM Space (7.8MB)
+- **Banks 1-125**: ROM Space (3.9MB)
 - **Banks 126-127**: Extended WRAM (128KB)
 - **I/O Routing**: PPU (0x8000-0x8FFF), APU (0x9000-0x9FFF), Input (0xA000-0xAFFF)
 
 ### PPU (Graphics System)
 
 - **4 Background Layers**: BG0-BG3 with independent scrolling
-- **128 Sprites**: 8×8 or 16×16 pixels, priorities, blending modes
+- **128 Sprites**: native size codes for 8×8, 16×16, 32×16, 32×32, 64×32, 64×64, 128×64, and 128×128 sprites; priorities and blending modes
 - **Matrix Mode**: Mode 7-style effects with per-layer transforms; large-world workflows remain future work
 - **Windowing System**: 2 windows with OR/AND/XOR/XNOR logic
 - **HDMA**: Per-scanline scroll, transform, rebind, priority, tilemap-base, and source-mode updates
@@ -495,12 +508,12 @@ ROM-based tests verify the complete system:
 
 ### Running Tests
 
-**Run All Tests:**
-```bash
-go test ./...
-```
+Use the Makefile targets documented in `docs/testing/README.md` for the current
+baseline. `go test ./...` is not the preferred top-level command because the
+repository contains vendored/reference resources and standalone generator
+packages with their own build assumptions.
 
-**Run Specific Test Suite:**
+**Run Specific Test Suites:**
 ```bash
 go test ./internal/ppu -v
 go test ./internal/cpu -v
@@ -528,25 +541,29 @@ If sprite rendering fails, check:
    - Palette 1, Color 1 = CGRAM address `0x11 * 2 = 0x22`
 
 3. **VRAM Tile Data**: Ensure tile data is initialized
-   - 16x16 tile = 128 bytes
+   - 16x16 legacy sprite tile = 128 contiguous bytes
+   - Larger sprites use 8x8 tile-grid addressing from the base tile index
    - Color index 1 = `0x11` (two pixels per byte)
 
 4. **OAM Data**: Verify sprite is enabled and positioned correctly
    - Control byte bit 0 = enable
-   - Control byte bit 1 = 16x16 size
+   - X-high byte bits [3:1] hold the sprite size code
+   - Control byte bit 1 remains only as the legacy 16x16 fallback
 
 ### Test Coverage Goals
 
 - [x] PPU sprite rendering
 - [x] PPU OAM/VRAM/CGRAM writes
-- [ ] PPU background rendering
-- [ ] PPU scanline timing
-- [ ] CPU instruction execution
-- [ ] CPU cycle accuracy
-- [ ] APU sound generation
-- [ ] Clock scheduler coordination
-- [ ] Memory bus routing
-- [ ] Save/load state
+- [x] PPU background/matrix rendering regression coverage
+- [x] PPU scanline timing and frame behavior coverage
+- [x] CPU instruction execution coverage
+- [x] CPU cycle/counting regression coverage
+- [x] APU/YM2608 runtime coverage
+- [x] Clock scheduler coordination coverage
+- [x] Memory bus routing coverage
+- [x] Save/load state coverage
+- [ ] Expanded YM2608 reference-audio/timbre conformance coverage
+- [ ] Tool-generated asset render/audio acceptance coverage
 
 ### Performance Testing
 
@@ -586,79 +603,26 @@ The emulator includes a comprehensive development toolkit for debugging and ROM 
 
 ### Current Implementation Status
 
-#### Phase 1: UI Consolidation ✅ IN PROGRESS
+The active Dev Kit is `cmd/corelx_devkit` with a Fyne frontend over
+`internal/devkit/service.go`.
 
-**Goal**: All UI rendered externally using Fyne, nothing rendered by emulator internals
+Implemented:
 
-**Status**:
-- ✅ Fyne toolbar buttons functional with state updates
-- ⏳ SDL2-based UI rendering removal (keep only for emulator screen)
-- ⏳ All panels are Fyne widgets
-- ⏳ Menu items toggle panels
+- Menu bar, toolbar, status/build state, layout presets, and view modes
+- Core editor surface with syntax highlighting and diagnostic navigation
+- Diagnostics, output, manifest, and debugger text panes
+- Embedded emulator pane with input capture and SDL audio output
+- Sprite Lab with project insertion and manifest application
+- Tilemap Lab with import/export and source insertion
+- Autosave/recovery and persisted settings
 
-#### Phase 2: Debug Panels
+Open:
 
-**2.1 Register Viewer ✅ CREATED**
-
-- Real-time CPU register display (R0-R7)
-- Program Counter (PC) display (bank:offset)
-- Stack Pointer (SP) display
-- Bank registers (PBR, DBR)
-- Flags register (Z, N, C, V, I, D)
-- Updates at 60 FPS
-- **Status**: Panel created and integrated into FyneUI
-
-**2.2 Memory Viewer ⏳ PLANNED**
-
-- Hex dump view of memory
-- Bank selector (0-255)
-- Offset selector (0x0000-0xFFFF)
-- Real-time updates
-- Search functionality
-- Bookmark addresses
-
-**2.3 Tile Viewer ⏳ PLANNED**
-
-- Visual grid of tiles from VRAM
-- Palette selector
-- Tile size selector (8x8 or 16x16)
-- Click to select tile
-- Export tile as image
-- Real-time updates as VRAM changes
-
-#### Phase 3: Sprite Editor Tool
-
-**3.1 Basic Sprite Editor ✅ CREATED**
-
-- Pixel-level editing (8x8 or 16x16 tiles)
-- Palette selector (16 colors)
-- Clear/Export/Import buttons
-- Grid display
-- **Status**: Basic structure created, needs pixel editing and export functionality
-
-**3.2 Enhanced Sprite Editor ⏳ PLANNED**
-
-- Multi-tile sprite editing
-- Animation support
-- Sprite sheet management
-- Export to ROM format
-- Preview with different palettes
-
-#### Phase 4: Better Test ROMs
-
-**4.1 Animated Sprite ROM ⏳ PLANNED**
-
-- Multiple animation frames
-- Sprite movement
-- Collision detection
-- Sound effects
-
-**4.2 Character Sprite ROM ⏳ PLANNED**
-
-- Character sprite (not just a box)
-- Walking animation
-- Multiple directions
-- Background scrolling
+- Sound Studio tab implementation
+- Image/plane import UI over the existing CLI importer
+- Find/replace, go-to-line, and symbol navigation
+- Full debugger controls and structured state panels
+- More compile/render acceptance tests for tool-generated assets
 
 ### UI Architecture
 

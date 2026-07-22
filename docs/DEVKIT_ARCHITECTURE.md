@@ -1,6 +1,7 @@
 # Dev Kit Architecture (Frontend/Backend Boundary)
 
 Status: Active (pre-alpha)
+Last aligned: 2026-07-22
 
 ## Goal
 
@@ -42,6 +43,27 @@ Build a proper development environment wrapper around Nitro-Core-DX without chan
     - Framebuffer rendering/presentation
     - Host audio output queueing
 
+## Current Tool Status (2026-07-22)
+
+- **Code/Build/Run:** active and usable. The Dev Kit can compile, show
+  diagnostics, load ROM bytes into the embedded emulator, and queue emulator
+  audio frames to SDL.
+- **Sprite Lab:** strongest tool in the suite. Editing, palette handling,
+  import/export, undo/redo, project insertion, and manifest flows exist and are
+  backed by focused tests. It should now treat native larger hardware sprites
+  as first-class output targets rather than forcing composite OAM workarounds.
+- **Tilemap Lab:** usable, but not release-complete. It needs stronger
+  manifest-backed asset handling, generated-source compile tests, map-size
+  alignment, and emulator-visible round-trip acceptance tests.
+- **Image/Plane Import:** CLI path exists outside the Dev Kit; integrated UI is
+  still missing.
+- **Sound Studio:** placeholder tab only. Runtime support exists through
+  `.ncdxmusic`, YM2608 playback, and Dev Kit audio queueing; the missing work is
+  import/inspect/preview/export UI.
+- **Debugger:** backend/frame-control pieces exist, but V1 debugger UX still
+  needs pause/resume, frame-step, CPU-step, register/PC panels, and memory
+  watch workflow.
+
 ## Why this split matters
 
 This allows future frontend evolution (native Fyne editor improvements or alternate UI shell) without rewriting:
@@ -54,7 +76,25 @@ This allows future frontend evolution (native Fyne editor improvements or altern
 
 1. Continue moving non-UI workflow logic out of `cmd/corelx_devkit` into `internal/devkit`.
 2. Define a stable Dev Kit backend API contract (Go interface and/or JSON-RPC/IPC for alternate frontends).
-3. Build a new frontend against `internal/devkit` while keeping the Fyne frontend as a reference/fallback during transition.
+3. Add tool-service helpers for asset import flows that should not live in UI
+   widgets: image import, music import, project manifest update, and preview ROM
+   construction.
+4. Build a new frontend against `internal/devkit` while keeping the Fyne frontend as a reference/fallback during transition.
+
+## Sound Studio Integration Direction
+
+The Sound Studio MVP should use existing backend/runtime pieces instead of
+creating a separate audio implementation:
+
+- Use `internal/ymstream` for VGM/VGZ read, parse, encode, decode, and stream
+  inspection.
+- Write `.ncdxmusic` files into the current project directory.
+- Update source/project manifest with `asset Name: music "file.ncdxmusic"`.
+- Generate current-language snippets for `music.play`, `music.play_loop`,
+  `music.play_jingle`, `music.stop`, `music.set_volume`, and `music.fade_to`.
+- Preview through a temporary CoreLX project loaded into the embedded emulator
+  so preview audio follows the same YM2608 path as Build+Run.
+- Reuse the existing SDL audio queue owned by the Dev Kit frontend.
 
 ## Invariants
 

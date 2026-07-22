@@ -47,7 +47,7 @@
 | **Audio Sample Rate** | 44,100 Hz | `internal/emulator/emulator.go:76, 116` |
 | **CPU Speed** | ~7.67 MHz (127,820 cycles per frame at 60 FPS) | `internal/emulator/emulator.go:114, 147` |
 | **Memory** | 64KB per bank, 256 banks (16MB total address space) | `internal/memory/bus.go:7, 10` |
-| **ROM Size** | Up to 7.8MB (125 banks × 32KB) | `internal/memory/cartridge.go:72` |
+| **ROM Size** | Up to 3.9MB (125 banks × 32KB) | `internal/memory/cartridge.go:72` |
 | **Frame Rate** | 60 FPS target | `internal/emulator/emulator.go:139` |
 
 ### System Architecture
@@ -64,7 +64,7 @@
 ├─────────────────────────────────────────────────────────┤
 │  Memory System                                          │
 │  ├─ Bank 0: WRAM (32KB) + I/O (32KB)                   │
-│  ├─ Banks 1-125: ROM Space (7.8MB)                     │
+│  ├─ Banks 1-125: ROM Space (3.9MB)                     │
 │  └─ Banks 126-127: Extended WRAM (128KB)                │
 ├─────────────────────────────────────────────────────────┤
 │  PPU (Picture Processing Unit)                         │
@@ -336,7 +336,7 @@ All instructions are 16-bit words:
 | Bank Range | Type | Size | Description | Evidence |
 |------------|------|------|-------------|----------|
 | 0x00 | WRAM + I/O | 64KB | 32KB WRAM + 32KB I/O registers | `bus.go:38-46` |
-| 0x01-0x7D | ROM | 7.8MB | ROM space (LoROM mapping) | `bus.go:49-55` |
+| 0x01-0x7D | ROM | 3.9MB | ROM space (LoROM mapping) | `bus.go:49-55` |
 | 0x7E-0x7F | Extended WRAM | 128KB | Additional RAM | `bus.go:57-64` |
 | 0x80-0xFF | Reserved | - | Reserved for future use | Not implemented |
 
@@ -365,7 +365,7 @@ All instructions are 16-bit words:
 - **LoROM Mapping**: ROM appears at offset 0x8000+
 - **Formula**: `romOffset = (bank-1) × 32768 + (offset - 0x8000)` (`cartridge.go:72`)
 - **Read-Only**: Writes are ignored (`bus.go:83-85`)
-- **Max Size**: 7.8MB (125 banks × 32KB)
+- **Max Size**: 3.9MB (125 banks × 32KB)
 - **Unmapped Space**: Offset 0x0000-0x7FFF in ROM banks returns 0 (`cartridge.go:69-70`)
 
 ### Extended WRAM (Banks 0x7E-0x7F)
@@ -416,9 +416,12 @@ All instructions are 16-bit words:
 - **Auto-increment**: Byte index increments, wraps to next sprite after 6 bytes
 - **Write Protection**: Writes blocked during visible rendering (scanlines 0-199) (`ppu.go:356-360, 373-377`)
 
-**OAM Sprite Format (6 bytes per sprite) - Evidence: `ppu.go:963-991`**
+**OAM Sprite Format (6 bytes per sprite) - Evidence: `internal/ppu/ppu.go`, `internal/ppu/scanline.go` (`spriteSizeTable`, `spriteTileByteOffset`), `internal/ppu/sprite_size_test.go`**
 - Byte 0: X position low byte (unsigned)
-- Byte 1: X position high byte (bit 0 = sign bit, extends to 9-bit signed)
+- Byte 1: X position high byte
+  - Bit 0: Sign bit (extends to 9-bit signed X, range -256..255)
+  - Bits [3:1]: Sprite size code (0-7, see table below)
+  - Bits [7:4]: Reserved (unused)
 - Byte 2: Y position (8-bit, 0-255)
 - Byte 3: Tile index
 - Byte 4: Attributes
@@ -428,9 +431,49 @@ All instructions are 16-bit words:
   - Bits [7:6]: Priority (0-3)
 - Byte 5: Control
   - Bit 0: Enable
-  - Bit 1: 16×16 size (0=8×8, 1=16×16)
+  - Bit 1: Legacy 16×16 size bit (0=8×8, 1=16×16) -- superseded by byte 1's
+    size code, which is authoritative; kept only because bit 1's position
+    doubles as size-code bit 0, so existing content that only ever sets
+    this bit still decodes correctly with no changes.
   - Bits [3:2]: Blend mode (0=normal, 1=alpha, 2=additive, 3=subtractive)
   - Bits [7:4]: Alpha value (0-15)
+
+**Sprite size codes (byte 1, bits [3:1])**
+
+| Code | Size | Tile addressing |
+|---|---|---|
+| 0 | 8×8 | Legacy: one contiguous 32-byte block at `tileIndex*32` |
+| 1 | 16×16 | Legacy: one contiguous 128-byte block at `tileIndex*128` |
+| 2 | 32×16 | Tile-grid: 4×2 grid of 8×8 tiles, sequential from `tileIndex` |
+| 3 | 32×32 | Tile-grid: 4×4 grid |
+| 4 | 64×32 | Tile-grid: 8×4 grid |
+| 5 | 64×64 | Tile-grid: 8×8 grid |
+| 6 | 128×64 | Tile-grid: 16×8 grid |
+| 7 | 128×128 | Tile-grid: 16×16 grid |
+
+Codes 0/1 use the original contiguous-blob addressing unchanged (gfx.load_tiles'
+write-side addressing depends on it for every existing sprite). Codes 2-7 use
+tile-grid addressing instead: individually-addressed 8×8 4bpp tiles (32 bytes
+each, same convention as the code-0 case), fetched in row-major order from a
+base tile index, so tiles can be shared/reused across sprites -- the only way
+a 128×128 sprite's 256-tile pattern is viable in 64KB of shared VRAM at all.
+A sprite's per-scanline VRAM read cost is its width only (one horizontal row
+drawn per scanline, regardless of height); see the per-scanline sprite pixel
+budget below.
+
+**Per-scanline sprite pixel budget**: up to 128 bytes of sprite pixel data
+(4bpp, 2px/byte) may be fetched per scanline, across every sprite drawn on
+that line combined -- derived from the real committed timing (261 HBlank
+cycles at 1 VRAM byte/cycle, conservatively split 50/50 with background tile
+prefetch, which has no bandwidth model of its own yet either). This is a
+first-pass engineering estimate, not a value derived from an existing
+console, and should be revisited once real FPGA memory-arbitration timing is
+designed. When a scanline's combined sprite width would exceed the budget,
+sprites are kept in descending OAM-priority order (ties broken by ascending
+OAM index) and the remaining lowest-priority sprites are dropped for that
+scanline only -- consistently, not randomized/rotated, to avoid introducing
+flicker where none existed. See `spriteScanlineByteBudget` in
+`internal/ppu/scanline.go`.
 
 ### Background Layers
 
@@ -445,10 +488,13 @@ All instructions are 16-bit words:
 
 ### Sprites
 
-**Evidence:** `internal/ppu/ppu.go:17, 324-377, 955-1063`
+**Evidence:** `internal/ppu/ppu.go`, `internal/ppu/scanline.go`, `internal/ppu/sprite_size_test.go`
 
 - **Max Sprites**: 128
-- **Sizes**: 8×8 or 16×16 pixels (per-sprite via control bit 1)
+- **Sizes**: 8×8, 16×16, 32×16, 32×32, 64×32, 64×64, 128×64, 128×128
+- **Size Encoding**: byte 1 bits [3:1] are the authoritative size code; control byte bit 1 remains as a legacy 16×16 fallback
+- **Large-Sprite Addressing**: size codes 2-7 use 8×8 tile-grid addressing from the base tile index
+- **Scanline Budget**: 128 bytes of sprite pixel data per scanline; when exceeded, higher-priority sprites survive first
 - **Priority**: 4 levels (0-3, from sprite attributes bits [7:6])
 - **Transparency**: Color index 0 is transparent (`ppu.go:497, 1052`)
 - **Flip**: Horizontal and/or vertical flip (attributes bits 4-5)
@@ -963,7 +1009,7 @@ end
 
 - **Code Section**: Variable size, little-endian 16-bit words
 - **Asset Section**: Optional, appended after code
-- **Total Size**: Up to 7.8MB (125 banks × 32KB)
+- **Total Size**: Up to 3.9MB (125 banks × 32KB)
 
 ---
 

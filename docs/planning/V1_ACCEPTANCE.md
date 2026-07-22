@@ -1,9 +1,13 @@
 # Nitro-Core-DX V1 Acceptance Criteria
 
 Status: Active  
-Last Updated: March 6, 2026
+Last Updated: July 22, 2026
 
 This document defines release-blocking acceptance gates tied to `V1_CHARTER.md`.
+
+Current alignment note: YM2608 runtime playback is now implemented well enough
+to support Sound Studio MVP work. V1 still requires conformance/reference
+evidence before release.
 
 ## 1. Global Release Gates
 
@@ -61,21 +65,33 @@ This document defines release-blocking acceptance gates tied to `V1_CHARTER.md`.
 - Tool output builds and previews in emulator.
 - *Implemented: Sprite Lab with .clxsprite import/export, palette banks, and CoreLX code generation.*
 
+### ACC-TOOLS-1B Larger Sprite Workflow
+- Native larger hardware sprite sizes are surfaced deliberately in the workflow
+  rather than forcing manual multi-OAM composition.
+- V1 must either support every hardware size from 8×8 through 128×128 in the
+  tool UI, or clearly document/tool-enforce the supported subset and provide a
+  safe path for larger assets.
+
 ### ACC-TOOLS-2 Tilemap Tool
 - Tilemap edits round-trip with layer/attribute integrity.
 - Tool output builds and previews in emulator.
+- Manifest-backed and source-backed tile assets both work without manual cleanup.
+- Generated snippets compile against the current language/toolchain.
 
 ### ACC-TOOLS-3 Sound Studio
-- Music/SFX/ambience assets authored and exported via stable format.
-- Playback preview works and build pipeline consumes exported assets.
+- VGM/VGZ import converts to compact `.ncdxmusic`.
+- Existing `.ncdxmusic` files can be inspected for duration, frames, write count, and ROM footprint.
+- Playback preview uses the same emulator/YM2608 path as Build+Run, not a separate fake host player.
+- Exported music assets are added to the project and consumed by the build pipeline.
+- Generated source/manifest snippets compile without manual edits.
+- SFX MVP provides at least a safe register-snippet/preset workflow over the current `ym.*`/`sfx` layer; full tracker composition is post-MVP unless explicitly pulled into scope.
 
 ### ACC-TOOLS-4 Sequencing Gate
-- Sound Studio implementation does not begin until Sprite Lab + Dev Kit stabilization and required Tilemap flow gates are complete.
-- Sound Studio implementation also requires YM2608/APU runtime readiness baseline:
+- Sound Studio MVP may begin once the YM2608 runtime baseline exists:
   - MMIO register path implemented
   - timer/status/IRQ behavior path implemented
-  - baseline playback path available for in-tool preview integration
-- Before Sound Studio start, CoreLX/APU integration must be updated and validated against YM2608 runtime behavior in integrated Build+Run flow.
+  - baseline `.ncdxmusic` playback path available for in-tool preview integration
+- Sound Studio cannot be marked V1-complete until Sprite Lab, Tilemap Lab, Build+Run packaging, and generated-code compile gates all pass together.
 
 ## 5. CoreLX/Compiler Gates
 
@@ -98,6 +114,7 @@ This document defines release-blocking acceptance gates tied to `V1_CHARTER.md`.
 
 ### ACC-AUDIO-3 Audio Reference
 - Curated patch/test set passes approved reference comparison thresholds.
+- Report must distinguish runtime plumbing pass/fail from timbre/pitch/reference-quality pass/fail.
 
 ### ACC-AUDIO-4 Migration Non-Regression
 - During the migration, the legacy 4-channel path (temporary scaffolding) must
@@ -110,6 +127,8 @@ This document defines release-blocking acceptance gates tied to `V1_CHARTER.md`.
   and acceptance references target YM2608.
 - The legacy 4-channel APU is temporary migration scaffolding, not final hardware.
 - YM2151/OPM-lite is not the V1 release target or audio identity.
+- Sound Studio documentation and UI copy must present YM2608/OPNA as the audio
+  identity and `.ncdxmusic` as the V1 music asset format.
 
 ## 7. NitroPackInDemo + Documentation Gates
 

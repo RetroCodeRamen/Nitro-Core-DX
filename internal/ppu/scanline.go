@@ -26,6 +26,80 @@ const (
 	TotalScanlines   = 220
 )
 
+// spriteSizeTable maps a sprite's 3-bit size code (OAM byte 1, the X-high
+// byte, bits [3:1] -- see evaluateSpritesForScanline) to its (width, height)
+// in pixels. Codes 0/1 (8x8, 16x16) are the original sizes and use the
+// legacy contiguous-blob VRAM addressing (spriteUsesLegacyAddressing);
+// codes 2-7 are new and use tile-grid addressing (spriteTileByteOffset) --
+// see that function's doc comment for why the two schemes can't be unified
+// without breaking every already-shipped 8x8/16x16 sprite's VRAM layout.
+var spriteSizeTable = [8][2]int{
+	{8, 8},     // 0
+	{16, 16},   // 1
+	{32, 16},   // 2
+	{32, 32},   // 3
+	{64, 32},   // 4
+	{64, 64},   // 5
+	{128, 64},  // 6
+	{128, 128}, // 7
+}
+
+// spriteUsesLegacyAddressing reports whether a size code uses the original
+// contiguous-VRAM-blob tile addressing (true for 8x8/16x16) rather than the
+// tile-grid addressing used by every larger size.
+func spriteUsesLegacyAddressing(sizeCode uint8) bool {
+	return sizeCode <= 1
+}
+
+// spriteSizeCodeFromOAM decodes a sprite's size code from its X-high and
+// control bytes, with a backward-compatibility fallback: if X-high's size
+// bits are all zero, fall back to the legacy control-byte bit 1
+// (0=8x8, 1=16x16) instead of assuming code 0.
+//
+// This matters because moving the size code into X-high (bits [3:1]) only
+// gets populated by oam.write_sprite_data (which auto-extracts it from the
+// ctrl argument) or an explicit sprite.set_size call -- CoreLX code that
+// sets a Sprite struct's size the *original* way, via a plain field
+// assignment (`box.ctrl = SPR_ENABLE() | SPR_SIZE_16()`, no special
+// codegen hook), never touches X-high at all, so it stays at whatever
+// Sprite()'s zero-init left it. Without this fallback, every sprite using
+// that -- pre-existing, still-documented -- idiom would silently decode as
+// size code 0 (8x8) reading 8x8-addressed tile data, even though its art
+// was loaded as a 16x16 tile: wrong size *and* garbled pixels, since the
+// two sizes use different VRAM addressing schemes entirely.
+func spriteSizeCodeFromOAM(xHigh, control uint8) uint8 {
+	sizeCode := (xHigh >> 1) & 0x07
+	if sizeCode == 0 && (control&0x02) != 0 {
+		return 1
+	}
+	return sizeCode
+}
+
+// spriteScanlineByteBudget caps the total sprite pixel-fetch bandwidth
+// available on one scanline, in bytes (4bpp = 2px/byte), across every
+// sprite drawn on that line combined. Derived from the actual committed
+// hardware timing (COMPLETE_HARDWARE_SPECIFICATION_V2.1.md /
+// scanline.go's own DotsPerScanline/HBlankDots): 261 HBlank cycles at 1
+// VRAM byte/cycle (a conservative single-read-port assumption; no wider
+// bus is committed anywhere in the FPGA docs), with half reserved for
+// sprite pixel fetch and the other half left for background tile
+// prefetch (which has no bandwidth model of its own yet either -- see
+// FPGA_READINESS_ASSESSMENT.md's "missing sprite evaluation hardware"
+// note). This is a first-pass engineering estimate, not a value looked up
+// from an existing spec, and should be revisited once real FPGA memory-
+// arbitration timing is designed.
+//
+// A sprite's own per-scanline cost is its WIDTH only (width/2 bytes,
+// 4bpp): only one horizontal row of even a very tall sprite is ever drawn
+// on a given scanline, so cost never depends on height. When the combined
+// cost of a scanline's sprites would exceed this budget, sprites are kept
+// in descending OAM-priority order (ties broken by ascending OAM index)
+// and the remaining lowest-priority ones are dropped for that scanline
+// only -- consistently, not rotated/randomized, so the same low-priority
+// sprites (e.g. decorative background objects) predictably yield first
+// rather than introducing flicker where none existed.
+const spriteScanlineByteBudget = 128
+
 const (
 	hdmaLayerPayloadBytes      = 16
 	hdmaBaseScanlineBytes      = 4 * hdmaLayerPayloadBytes
@@ -525,7 +599,7 @@ func (p *PPU) collectSpritesAtPixel(x, y int, sprites []spriteInfo) int {
 		s := active[i]
 
 		// Scanline membership is already pre-evaluated. Only X bounds need per-pixel check.
-		if x < s.x || x >= s.x+s.size {
+		if x < s.x || x >= s.x+s.width {
 			continue
 		}
 
@@ -542,7 +616,9 @@ func (p *PPU) collectSpritesAtPixel(x, y int, sprites []spriteInfo) int {
 // evaluateSpritesForScanline builds the list of enabled sprites overlapping a scanline.
 // This mirrors a hardware sprite evaluation stage and avoids per-pixel full OAM scans.
 func (p *PPU) evaluateSpritesForScanline(y int) {
-	count := 0
+	// Pass 1: collect every enabled sprite whose Y-range covers this
+	// scanline (into a reused scratch buffer, no per-call allocation).
+	candidates := p.scanlineCandidateScratch[:0]
 	for spriteIndex := 0; spriteIndex < 128; spriteIndex++ {
 		oamAddr := spriteIndex * 6
 
@@ -562,27 +638,55 @@ func (p *PPU) evaluateSpritesForScanline(y int) {
 			continue
 		}
 
-		spriteSize := 8
-		if (control & 0x02) != 0 {
-			spriteSize = 16
-		}
-		if y < spriteY || y >= spriteY+spriteSize {
+		sizeCode := spriteSizeCodeFromOAM(xHigh, control)
+		dims := spriteSizeTable[sizeCode]
+		width, height := dims[0], dims[1]
+		if y < spriteY || y >= spriteY+height {
 			continue
 		}
-		if count >= len(p.activeScanlineSprites) {
-			break
-		}
 
-		p.activeScanlineSprites[count] = spriteInfo{
+		candidates = append(candidates, spriteInfo{
 			index:      spriteIndex,
 			priority:   (attributes >> 6) & 0x3,
 			x:          spriteX,
 			y:          spriteY,
-			size:       spriteSize,
+			width:      width,
+			height:     height,
+			sizeCode:   sizeCode,
 			tileIndex:  tileIndex,
 			attributes: attributes,
 			control:    control,
+		})
+	}
+
+	// Pass 2: keep candidates in descending-priority order (ties broken by
+	// ascending OAM index) until spriteScanlineByteBudget runs out -- see
+	// that constant's doc comment for where the number and the "keep
+	// highest priority, drop consistently" policy come from. A simple
+	// bubble sort is plenty here (at most 128 elements, once per
+	// scanline), matching the same O(n^2) sorting style already used
+	// elsewhere in this file (e.g. renderDot's element sort).
+	for i := 0; i < len(candidates); i++ {
+		for j := i + 1; j < len(candidates); j++ {
+			if candidates[i].priority < candidates[j].priority ||
+				(candidates[i].priority == candidates[j].priority && candidates[i].index > candidates[j].index) {
+				candidates[i], candidates[j] = candidates[j], candidates[i]
+			}
 		}
+	}
+
+	count := 0
+	usedBytes := 0
+	for i := range candidates {
+		cost := candidates[i].width / 2
+		if usedBytes+cost > spriteScanlineByteBudget {
+			break
+		}
+		if count >= len(p.activeScanlineSprites) {
+			break
+		}
+		usedBytes += cost
+		p.activeScanlineSprites[count] = candidates[i]
 		count++
 	}
 	p.activeScanlineSpriteCount = count
@@ -678,22 +782,19 @@ func (p *PPU) renderDotSpritePixel(x, y int, sprite *spriteInfo) {
 	tileX := px
 	tileY := py
 	if flipX {
-		tileX = sprite.size - 1 - tileX
+		tileX = sprite.width - 1 - tileX
 	}
 	if flipY {
-		tileY = sprite.size - 1 - tileY
+		tileY = sprite.height - 1 - tileY
 	}
 
 	// Read tile data
-	tileDataOffset := uint16(sprite.tileIndex) * uint16(sprite.size*sprite.size/2)
-	pixelOffsetInTile := tileY*sprite.size + tileX
-	byteOffsetInTile := pixelOffsetInTile / 2
-	pixelInByte := pixelOffsetInTile % 2
+	tileDataOffset, pixelInByte := spriteTileByteOffset(sprite.sizeCode, sprite.tileIndex, sprite.width, sprite.height, tileX, tileY)
 
-	if uint32(tileDataOffset)+uint32(byteOffsetInTile) >= 65536 {
+	if tileDataOffset >= 65536 {
 		return
 	}
-	tileDataAddr := tileDataOffset + uint16(byteOffsetInTile)
+	tileDataAddr := uint16(tileDataOffset)
 
 	// Read pixel color index
 	tileByte := p.VRAM[tileDataAddr]
@@ -1315,13 +1416,52 @@ func (p *PPU) renderDotMatrixMode(layerNum, x, y int) {
 
 // spriteInfo holds sprite data for priority sorting
 type spriteInfo struct {
-	index      int
-	priority   uint8
-	x, y       int
-	size       int
-	tileIndex  uint8
-	attributes uint8
-	control    uint8
+	index         int
+	priority      uint8
+	x, y          int
+	width, height int
+	sizeCode      uint8
+	tileIndex     uint8
+	attributes    uint8
+	control       uint8
+}
+
+// spriteTileByteOffset computes the VRAM byte offset and pixel-in-byte
+// (nibble) selector for one pixel of sprite tile data, given the sprite's
+// tileIndex, size code, and pixel-local (already flip-adjusted) tileX/tileY
+// coordinates in [0,width) x [0,height).
+//
+// Size codes 0 (8x8) and 1 (16x16) use the legacy contiguous-blob
+// addressing (tileIndex * width*height/2 bytes) -- unchanged since before
+// variable sprite sizes existed. This has to stay exactly as it was:
+// gfx.load_tiles' write-side addressing (internal/corelx/codegen.go,
+// generateInlineTileLoadFromBaseReg) writes a tiles16 asset as one
+// contiguous 128-byte block at tileIndex*128, not four separate 32-byte
+// tiles -- switching the read side to tile-grid addressing for these two
+// sizes would silently corrupt every already-shipped 8x8/16x16 sprite.
+//
+// Size codes 2-7 (32x16 and up) use tile-grid addressing instead: a WxH
+// (in 8x8 tiles) grid of individually-addressed tiles (32 bytes each,
+// same convention gfx.load_tiles already uses as its base-index unit),
+// fetched in row-major sequential order from tileIndex. This is what makes
+// the larger sizes viable at all: individual 8x8 tiles can be shared/
+// reused across sprites (same technique the Genesis VDP uses for its
+// multi-cell sprites), unlike one giant unique blob per image, which is
+// the only way a 128x128 sprite's 8192-byte pattern could ever fit more
+// than a handful of times in 64KB of shared VRAM.
+func spriteTileByteOffset(sizeCode uint8, tileIndex uint8, width, height, tileX, tileY int) (offset uint32, pixelInByte int) {
+	if spriteUsesLegacyAddressing(sizeCode) {
+		pixelOffsetInTile := tileY*width + tileX
+		byteOffsetInTile := pixelOffsetInTile / 2
+		return uint32(tileIndex)*uint32(width*height/2) + uint32(byteOffsetInTile), pixelOffsetInTile % 2
+	}
+	tilesWide := width / 8
+	cellX, localX := tileX/8, tileX%8
+	cellY, localY := tileY/8, tileY%8
+	cellTileIndex := int(tileIndex) + cellY*tilesWide + cellX
+	pixelOffsetInTile := localY*8 + localX
+	byteOffsetInTile := pixelOffsetInTile / 2
+	return uint32(cellTileIndex*32+byteOffsetInTile), pixelOffsetInTile % 2
 }
 
 // renderElement is a sortable render item (background layer or sprite).
@@ -1331,121 +1471,6 @@ type renderElement struct {
 	elementType int // 0=background, 1=sprite
 	layerNum    int // for backgrounds
 	spriteIndex int // for sprites (index into PPU scratch)
-}
-
-// renderDotSprites renders sprites for a single dot with proper priority handling
-func (p *PPU) renderDotSprites(x, y int) {
-	// Collect all sprites that overlap this pixel
-	var sprites []spriteInfo
-
-	for spriteIndex := 0; spriteIndex < 128; spriteIndex++ {
-		oamAddr := spriteIndex * 6
-
-		// Read sprite data
-		xLow := uint8(p.OAM[oamAddr])
-		xHigh := uint8(p.OAM[oamAddr+1])
-		spriteX := int(xLow)
-		if (xHigh & 0x01) != 0 {
-			spriteX |= 0xFFFFFF00
-		}
-
-		spriteY := int(p.OAM[oamAddr+2])
-		tileIndex := uint8(p.OAM[oamAddr+3])
-		attributes := uint8(p.OAM[oamAddr+4])
-		control := uint8(p.OAM[oamAddr+5])
-		enabled := (control & 0x01) != 0
-		tileSize16 := (control & 0x02) != 0
-
-		if !enabled {
-			continue
-		}
-
-		spriteSize := 8
-		if tileSize16 {
-			spriteSize = 16
-		}
-
-		// Check if this pixel is within sprite bounds
-		if x < spriteX || x >= spriteX+spriteSize || y < spriteY || y >= spriteY+spriteSize {
-			continue
-		}
-
-		// Extract priority (bits [7:6] of attributes)
-		priority := (attributes >> 6) & 0x3
-
-		// Add to sprite list
-		sprites = append(sprites, spriteInfo{
-			index:      spriteIndex,
-			priority:   priority,
-			x:          spriteX,
-			y:          spriteY,
-			size:       spriteSize,
-			tileIndex:  tileIndex,
-			attributes: attributes,
-			control:    control,
-		})
-	}
-
-	// Sort sprites by priority (lower priority value = render first, so higher priority sprites render on top)
-	// Within same priority, lower sprite index = render first (so lower index renders on top)
-	for i := 0; i < len(sprites); i++ {
-		for j := i + 1; j < len(sprites); j++ {
-			if sprites[i].priority > sprites[j].priority ||
-				(sprites[i].priority == sprites[j].priority && sprites[i].index > sprites[j].index) {
-				sprites[i], sprites[j] = sprites[j], sprites[i]
-			}
-		}
-	}
-
-	// Render sprites in sorted order (lowest priority first, so they get covered by higher priority sprites)
-	for _, sprite := range sprites {
-		// Calculate tile coordinates
-		px := x - sprite.x
-		py := y - sprite.y
-
-		// Apply flip
-		flipX := (sprite.attributes & 0x10) != 0
-		flipY := (sprite.attributes & 0x20) != 0
-		tileX := px
-		tileY := py
-		if flipX {
-			tileX = sprite.size - 1 - tileX
-		}
-		if flipY {
-			tileY = sprite.size - 1 - tileY
-		}
-
-		// Read tile data
-		tileDataOffset := uint16(sprite.tileIndex) * uint16(sprite.size*sprite.size/2)
-		pixelOffsetInTile := tileY*sprite.size + tileX
-		byteOffsetInTile := pixelOffsetInTile / 2
-		pixelInByte := pixelOffsetInTile % 2
-
-		if uint32(tileDataOffset)+uint32(byteOffsetInTile) >= 65536 {
-			continue
-		}
-		tileDataAddr := tileDataOffset + uint16(byteOffsetInTile)
-
-		// Read pixel color index
-		tileByte := p.VRAM[tileDataAddr]
-		var colorIndex uint8
-		if pixelInByte == 0 {
-			colorIndex = (tileByte >> 4) & 0x0F
-		} else {
-			colorIndex = tileByte & 0x0F
-		}
-
-		// Color index 0 is transparent for sprites
-		if colorIndex == 0 {
-			continue
-		}
-
-		// Look up color and render
-		paletteIndex := sprite.attributes & 0x0F
-		color := p.getColorFromCGRAM(paletteIndex, colorIndex)
-		p.OutputBuffer[y*320+x] = color
-		// Don't break - continue to render higher priority sprites on top
-	}
 }
 
 // updateHDMA applies per-scanline raster commands.

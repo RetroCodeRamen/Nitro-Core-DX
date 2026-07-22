@@ -1,7 +1,7 @@
 # Nitro-Core-DX V1 Charter
 
 Status: Active (V1 source of truth)  
-Last Updated: March 20, 2026
+Last Updated: July 22, 2026
 
 This charter is the canonical scope contract for Nitro-Core-DX V1.0 (the
 **product**: emulator + SDK + tools release).  
@@ -9,6 +9,20 @@ The CoreLX **language** has its own v1 charter — the syntax/semantics freeze i
 `docs/specifications/CORELX_SYNTAX_V1.md` — which is a dependency of, but
 distinct from, this product charter.  
 Other planning files may contain ideas/history; this document defines what can block V1 release.
+
+## Current Alignment Snapshot (2026-07-22)
+
+- Hardware/emulator foundations are software-ready.
+- YM2608 runtime plumbing, MMIO, burst streaming, and `.ncdxmusic` playback are
+  implemented; conformance polish and broader reference coverage remain
+  release-blocking.
+- Sprite Lab is implemented and test-backed.
+- Tilemap Lab is usable and test-backed, but still needs production workflow
+  hardening before it is considered complete.
+- Sound Studio has not started beyond the placeholder tab. The runtime is ready
+  enough for an import/preview/export MVP.
+- CoreLX documentation/status is being handled in a separate language-focused
+  deep dive; this product charter tracks only release gates and tool milestones.
 
 ## 1. Product Goal
 
@@ -36,8 +50,8 @@ Ship Nitro-Core-DX as a product-complete desktop SDK (Linux + Windows first-clas
 
 ### V1-EDITOR: IDE-grade CoreLX editing
 - V1-EDITOR-1 Native single-ownership editor engine stabilization
-- V1-EDITOR-2 CoreLX syntax highlighting
-- V1-EDITOR-3 Diagnostics squiggles + panel sync + jump-to-location
+- V1-EDITOR-2 CoreLX syntax highlighting 🚧
+- V1-EDITOR-3 Diagnostics squiggles + panel sync + jump-to-location 🚧
 - V1-EDITOR-4 Editor essentials: find/replace, go-to-line, basic symbol navigation
 - V1-EDITOR-5 Autosave and crash recovery journal ✅
 
@@ -49,9 +63,9 @@ Ship Nitro-Core-DX as a product-complete desktop SDK (Linux + Windows first-clas
 
 ### V1-TOOLS: Tool suite MVP
 - V1-TOOLS-1 Sprite Editor round-trip asset flow + live preview ✅
-- V1-TOOLS-2 Tilemap Designer round-trip asset flow + live preview
+- V1-TOOLS-2 Tilemap Designer round-trip asset flow + live preview 🚧
 - V1-TOOLS-3 Sound Studio MVP with playback preview and export
-- V1-TOOLS-4 Tool outputs consumed by build pipeline without manual edits ✅ (Sprite Lab)
+- V1-TOOLS-4 Tool outputs consumed by build pipeline without manual edits 🚧 (Sprite Lab done; Tilemap partial; Sound pending)
 
 ### V1-CORELX: Compiler/toolchain stabilization
 - V1-CORELX-1 Stable compile/service API
@@ -61,21 +75,23 @@ Ship Nitro-Core-DX as a product-complete desktop SDK (Linux + Windows first-clas
 - V1-CORELX-5 Project templates for V1 workflows ✅
 
 ### V1-AUDIO: YM2608 acceptance gate
-- V1-AUDIO-1 YM2608 compatibility profile document (behavioral parity)
-- V1-AUDIO-2 YM2608 MMIO/timer/status/IRQ behavior verified against profile
+- V1-AUDIO-1 YM2608 compatibility profile document (behavioral parity) 🚧
+- V1-AUDIO-2 YM2608 MMIO/timer/status/IRQ behavior verified against profile 🚧
 - V1-AUDIO-3 Curated YM2608 audio acceptance references pass thresholds
-- V1-AUDIO-4 YM2608 no longer documented as experimental for V1 scope
-- V1-AUDIO-5 YM2151/OPM-lite target removed from V1 release scope
+- V1-AUDIO-4 YM2608 no longer documented as experimental for V1 scope 🚧
+- V1-AUDIO-5 YM2151/OPM-lite target removed from V1 release scope ✅
 
 ## 2.1 Execution Order Constraints (Release-Blocking)
 
-The following sequence is mandatory for V1 execution:
+The following sequence is mandatory for V1 execution. Steps 1-4 have enough
+runtime/tooling foundation for Sound Studio MVP work to begin, but they are not
+all release-complete.
 
-1. Finish visual tooling stabilization first: Sprite Lab polish/stability + Dev Kit workflow hardening.
-2. Complete Tilemap flow needed for production asset workflow.
-3. Bring YM2608 chip behavior online and passing conformance-first tests (MMIO/timer/status/IRQ + baseline playback path).
-4. Update CoreLX/APU integration to consume the YM2608 runtime path cleanly in build/run workflows.
-5. Start Sound Studio implementation only after steps 1-4 are complete.
+1. Finish visual tooling stabilization first: Sprite Lab polish/stability + Dev Kit workflow hardening. 🚧
+2. Complete Tilemap flow needed for production asset workflow. 🚧
+3. Bring YM2608 chip behavior online with MMIO/timer/status/IRQ + baseline playback path. 🚧 runtime baseline exists; conformance references remain.
+4. Keep CoreLX/APU integration consuming the YM2608 runtime path cleanly in Build/Run workflows. 🚧 playback path exists; demo/tooling integration remains.
+5. Build Sound Studio MVP now that the runtime baseline exists: import VGM/VGZ, export `.ncdxmusic`, preview through the emulator/audio path, and insert/package assets.
 
 This is a schedule constraint, not optional guidance. Scope may not bypass this order without an approved scope-change record.
 

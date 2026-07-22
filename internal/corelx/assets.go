@@ -93,6 +93,32 @@ func normalizeLegacyTilePayload(assetType string, data []byte) []byte {
 		if len(data) == 256 {
 			return packExpanded4bppPixels(data)
 		}
+	case "tileset", "sprite":
+		// Unlike tiles8/tiles16 (always exactly one tile, so raw-vs-packed can
+		// be told apart by a fixed length), a tileset/sprite asset can hold any
+		// number of tiles, so length alone is ambiguous -- 512 bytes is valid
+		// both as 16 already-packed tiles and as 8 raw one-byte-per-pixel
+		// tiles. Instead, detect raw "one byte per pixel index" authoring by
+		// value range: every nibble-packed byte with a nonzero high nibble
+		// (i.e. >0x0F) can only occur in already-packed data, since a raw
+		// index-per-byte tile (this project's convention for every other hand
+		// -authored tile asset, e.g. TreeA/Creature/PlayerTop/PlayerBottom)
+		// never uses palette indices above 15 as a bare byte. If every byte
+		// is <=0x0F, treat it as raw and pack it; otherwise assume it's
+		// already in packed 4bpp form (e.g. Games/SpriteProbe's FourTiles,
+		// authored directly as packed bytes like 0x11/0x22/0x33/0x44).
+		if len(data) > 0 && len(data)%2 == 0 {
+			allLowNibble := true
+			for _, b := range data {
+				if b > 0x0F {
+					allLowNibble = false
+					break
+				}
+			}
+			if allLowNibble {
+				return packExpanded4bppPixels(data)
+			}
+		}
 	}
 	return data
 }

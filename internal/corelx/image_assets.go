@@ -12,11 +12,6 @@ import (
 	"nitro-core-dx/internal/ymstream"
 )
 
-// imageDataStartBank is the first ROM bank used for image bitmap data. Code
-// occupies bank 1 (and must stay under this bank); images live above it so
-// their bank+offset is known before codegen.
-const imageDataStartBank = 2
-
 // ImageAsset is a parsed external .cxasset bitmap image, placed in ROM.
 type ImageAsset struct {
 	Name        string
@@ -29,14 +24,16 @@ type ImageAsset struct {
 }
 
 // loadImageAssets reads and parses every `image` asset's external .cxasset
-// file, lays the bitmaps out in the ROM data region starting at bank 2, and
-// returns the assets (with bank/offset filled in) plus the concatenated data
-// region bytes for ROMBuilder.SetDataRegion.
-func loadImageAssets(program *Program, sourcePath string) (map[string]*ImageAsset, []byte, error) {
+// file, lays the bitmaps out in the ROM data region starting at startBank
+// (the first bank above the compiled code, known only once codegen's bank
+// count is final -- see the compiler's pass 1/2/3 driver), and returns the
+// assets (with bank/offset filled in) plus the concatenated data region
+// bytes for ROMBuilder.SetDataRegion.
+func loadImageAssets(program *Program, sourcePath string, startBank uint8) (map[string]*ImageAsset, []byte, error) {
 	srcDir := filepath.Dir(sourcePath)
 	assets := make(map[string]*ImageAsset)
 	var region []byte
-	cursor := 0 // byte offset within the data region (bank 2, 0x8000 = cursor 0)
+	cursor := 0 // byte offset within the data region (startBank, 0x8000 = cursor 0)
 
 	for _, a := range program.Assets {
 		if a.Type != "image" {
@@ -62,7 +59,7 @@ func loadImageAssets(program *Program, sourcePath string) (map[string]*ImageAsse
 		}
 
 		// Place the bitmap in the ROM data region.
-		img.Bank = uint8(imageDataStartBank + cursor/rom.ROMBankSizeBytes)
+		img.Bank = uint8(int(startBank) + cursor/rom.ROMBankSizeBytes)
 		img.Offset = uint16(rom.ROMBankOffsetBase + (cursor % rom.ROMBankSizeBytes))
 		region = append(region, img.Bitmap...)
 		cursor += len(img.Bitmap)
@@ -170,19 +167,19 @@ type MusicAsset struct {
 }
 
 // dataAddr maps a flat byte cursor in the shared ROM data region (cursor 0 =
-// bank imageDataStartBank, offset 0x8000) to its (bank, 0x8000-based offset).
-func dataAddr(cursor int) (uint8, uint16) {
-	return uint8(imageDataStartBank + cursor/rom.ROMBankSizeBytes),
+// bank startBank, offset 0x8000) to its (bank, 0x8000-based offset).
+func dataAddr(startBank uint8, cursor int) (uint8, uint16) {
+	return uint8(int(startBank) + cursor/rom.ROMBankSizeBytes),
 		uint16(rom.ROMBankOffsetBase + (cursor % rom.ROMBankSizeBytes))
 }
 
 // loadMusicAssets reads and validates every `music` asset's external
 // .ncdxmusic file, decodes it, and lays out the playback tables (counts, write
-// stream, pointers) in the shared ROM data region, continuing from baseCursor
-// (the byte length already used by image assets) so music and image data never
-// overlap. Returns the assets (with table bank/offset filled in) and the bytes
-// to append to the data region.
-func loadMusicAssets(program *Program, sourcePath string, baseCursor int) (map[string]*MusicAsset, []byte, error) {
+// stream, pointers) in the shared ROM data region starting at startBank,
+// continuing from baseCursor (the byte length already used by image assets)
+// so music and image data never overlap. Returns the assets (with table
+// bank/offset filled in) and the bytes to append to the data region.
+func loadMusicAssets(program *Program, sourcePath string, startBank uint8, baseCursor int) (map[string]*MusicAsset, []byte, error) {
 	srcDir := filepath.Dir(sourcePath)
 	assets := make(map[string]*MusicAsset)
 	var region []byte
@@ -210,7 +207,7 @@ func loadMusicAssets(program *Program, sourcePath string, baseCursor int) (map[s
 		// The minimal player indexes the counts/pointer tables with the DBR
 		// pinned to a single bank, so each table must stay within its starting
 		// bank. (A long song still fits: ~16K frames for the counts table.)
-		countsBank, countsOff := dataAddr(cursor)
+		countsBank, countsOff := dataAddr(startBank, cursor)
 		if int(countsOff)+nf*2 > 0x10000 {
 			return nil, nil, fmt.Errorf("music asset %s: too large for the minimal player (counts table crosses a ROM bank)", a.Name)
 		}
@@ -228,7 +225,7 @@ func loadMusicAssets(program *Program, sourcePath string, baseCursor int) (map[s
 		ptrs := make([]byte, nf*4)
 		byteOffset := 0
 		for i, fr := range song.Frames {
-			b, o := dataAddr(writesStart + byteOffset)
+			b, o := dataAddr(startBank, writesStart+byteOffset)
 			ptrs[i*4] = b
 			binary.LittleEndian.PutUint16(ptrs[i*4+1:i*4+3], o)
 			ptrs[i*4+3] = 0
@@ -238,7 +235,7 @@ func loadMusicAssets(program *Program, sourcePath string, baseCursor int) (map[s
 			byteOffset += len(fr) * 3
 		}
 		ptrStart := writesStart + len(writes)
-		ptrBank, ptrOff := dataAddr(ptrStart)
+		ptrBank, ptrOff := dataAddr(startBank, ptrStart)
 		if int(ptrOff)+nf*4 > 0x10000 {
 			return nil, nil, fmt.Errorf("music asset %s: too large for the minimal player (pointer table crosses a ROM bank)", a.Name)
 		}
