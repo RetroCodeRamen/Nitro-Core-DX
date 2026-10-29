@@ -24,14 +24,7 @@ func TestSpriteSize32x32EndToEnd(t *testing.T) {
 function Start()
     gfx.set_palette_color(1, 0x7C00)
     tile := gfx.load_tiles(ASSET_TileA, 0)
-    -- ctrl must be precomputed into a local, not passed as an inline
-    -- SPR_ENABLE()|SPR_SIZE_32X32() expression -- a computed expression as
-    -- a call argument beyond the first corrupts earlier-evaluated argument
-    -- registers in this compiler (see corelx-nested-expr-register-bug);
-    -- this is the same established safe pattern the demo's own
-    -- draw_object_sprite_lod already uses for its ctrl argument.
-    ctrl := SPR_ENABLE() | SPR_SIZE_32X32()
-    oam.write_sprite_data(0, 60, 60, tile, SPR_PAL(0), ctrl)
+    oam.write_sprite_data(0, 60, 60, tile, SPR_PAL(0), SPR_ENABLE() | SPR_SIZE_32X32())
     ppu.enable_display()
     while true
         wait_vblank()

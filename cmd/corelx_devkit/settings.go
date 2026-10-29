@@ -26,6 +26,7 @@ type devKitSettings struct {
 	CaptureGameInput bool     `json:"capture_game_input"`
 	RecentFiles      []string `json:"recent_files"`
 	UIDensity        string   `json:"ui_density"`
+	Theme            string   `json:"theme,omitempty"`
 }
 
 func defaultDevKitSettings() devKitSettings {
@@ -38,6 +39,7 @@ func defaultDevKitSettings() devKitSettings {
 		CaptureGameInput: true,
 		RecentFiles:      []string{},
 		UIDensity:        "compact",
+		Theme:            themeIndustrial,
 	}
 }
 
@@ -86,6 +88,7 @@ func loadDevKitSettings(path string) (devKitSettings, error) {
 	if settings.UIDensity == "" {
 		settings.UIDensity = "compact"
 	}
+	settings.Theme = normalizeThemeName(settings.Theme)
 	settings.RecentFiles = normalizeRecentFiles(settings.RecentFiles)
 	return settings, nil
 }
@@ -110,6 +113,7 @@ func saveDevKitSettings(path string, settings devKitSettings) error {
 	if settings.LeftSplitOffset <= 0 || settings.LeftSplitOffset >= 1 {
 		settings.LeftSplitOffset = defaultLeftSplitOffset
 	}
+	settings.Theme = normalizeThemeName(settings.Theme)
 
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return err

@@ -1,5 +1,17 @@
 # CoreLX v1 Syntax Charter
 
+> **SUPERSEDED — this is a pre-implementation design charter, not current
+> reality.** Written 2026-06-12 before the language was built; several
+> decisions recorded here (`if/else if/else` chaining, the declarative
+> `sprite`/`anim`/`background`/`music`/`instrument`/`sample` top-level
+> keywords, the `dma_buffer at 0x0500` WRAM placement) were never implemented
+> as written, or were implemented differently, or are actively broken in
+> production. **For accurate, current CoreLX syntax and semantics, see
+> `PROGRAMMING_MANUAL.md` (Part 1) and, for a from-scratch reimplementation,
+> `docs/specifications/CORELX_COMPILER_SPECIFICATION.md`.** Kept here only as
+> a historical record of the original design intent — audited 2026-07-22,
+> found to contradict production in the ways noted above.
+
 Status: **decided 2026-06-12** (project owner directive: optimize for
 learnability; taste anchors are Lua, BASIC, and Go — simple is better).
 This charter governs the M8 rebuild and freezes at v1 under the stability

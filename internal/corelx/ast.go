@@ -37,17 +37,19 @@ type ConstDecl struct {
 }
 
 // GlobalVarDecl represents a top-level WRAM global:
-//   var name: type [= expr]
-//   var name at 0xNNNN: type [= expr]
+//
+//	var name: type [= expr]
+//	var name at 0xNNNN: type [= expr]
 type GlobalVarDecl struct {
-	Position Position
-	Name     string
-	TypeName string
-	ArrayLen int // 0 = scalar; N>0 = fixed-size array type[N]
-	HasPin   bool
-	PinAddr  uint16
-	Init     Expr   // scalar initializer
-	InitList []Expr // array initializer: var a: int[N] = [v0, v1, ...]
+	Position     Position
+	Name         string
+	TypeName     string
+	ArrayLen     int    // 0 = scalar; N>0 = fixed-size array type[N]
+	ArrayLenName string // const name used as the length, resolved before allocation
+	HasPin       bool
+	PinAddr      uint16
+	Init         Expr   // scalar initializer
+	InitList     []Expr // array initializer: var a: int[N] = [v0, v1, ...]
 }
 
 // AssetDecl represents an asset declaration
@@ -102,21 +104,25 @@ type NamedType struct {
 
 func (*NamedType) isTypeExpr() {}
 
-// PointerType represents a pointer type
-type PointerType struct {
+// ArrayType is a fixed-length array. LenName is a const used as the length
+// when the source wrote a name instead of a number; Len is filled in once
+// that const is known.
+type ArrayType struct {
 	Position Position
-	Base     TypeExpr
+	Elem     TypeExpr
+	Len      int
+	LenName  string
 }
 
-func (*PointerType) isTypeExpr() {}
+func (*ArrayType) isTypeExpr() {}
 
 // FunctionDecl represents a function declaration
 type FunctionDecl struct {
-	Position Position
-	Name     string
-	Params   []*ParamDecl
+	Position   Position
+	Name       string
+	Params     []*ParamDecl
 	ReturnType TypeExpr // nil if void
-	Body     []Stmt
+	Body       []Stmt
 }
 
 // ParamDecl represents a function parameter
@@ -153,7 +159,7 @@ func (*AssignStmt) isStmt() {}
 
 // IfStmt represents an if statement
 type IfStmt struct {
-	Position Position
+	Position  Position
 	Condition Expr
 	Then      []Stmt
 	ElseIf    []*ElseIfClause
@@ -164,14 +170,14 @@ func (*IfStmt) isStmt() {}
 
 // ElseIfClause represents an elseif clause
 type ElseIfClause struct {
-	Position Position
+	Position  Position
 	Condition Expr
 	Body      []Stmt
 }
 
 // WhileStmt represents a while statement
 type WhileStmt struct {
-	Position Position
+	Position  Position
 	Condition Expr
 	Body      []Stmt
 }
@@ -309,33 +315,33 @@ type IndexExpr struct {
 func (*IndexExpr) isExpr() {}
 
 // Helper functions for Position
-func (p *Program) Pos() Position { return p.Position }
-func (c *ConstDecl) Pos() Position { return c.Position }
+func (p *Program) Pos() Position       { return p.Position }
+func (c *ConstDecl) Pos() Position     { return c.Position }
 func (g *GlobalVarDecl) Pos() Position { return g.Position }
-func (a *AssetDecl) Pos() Position { return a.Position }
-func (t *TypeDecl) Pos() Position { return t.Position }
-func (s *StructType) Pos() Position { return s.Position }
-func (f *FieldDecl) Pos() Position { return f.Position }
-func (n *NamedType) Pos() Position { return n.Position }
-func (p *PointerType) Pos() Position { return p.Position }
-func (f *FunctionDecl) Pos() Position { return f.Position }
-func (p *ParamDecl) Pos() Position { return p.Position }
-func (v *VarDeclStmt) Pos() Position { return v.Position }
-func (a *AssignStmt) Pos() Position { return a.Position }
-func (i *IfStmt) Pos() Position { return i.Position }
-func (e *ElseIfClause) Pos() Position { return e.Position }
-func (w *WhileStmt) Pos() Position { return w.Position }
-func (f *ForStmt) Pos() Position { return f.Position }
-func (b *BreakStmt) Pos() Position { return b.Position }
-func (c *ContinueStmt) Pos() Position { return c.Position }
-func (r *ReturnStmt) Pos() Position { return r.Position }
-func (e *ExprStmt) Pos() Position { return e.Position }
-func (b *BinaryExpr) Pos() Position { return b.Position }
-func (u *UnaryExpr) Pos() Position { return u.Position }
-func (c *CallExpr) Pos() Position { return c.Position }
-func (i *IdentExpr) Pos() Position { return i.Position }
-func (n *NumberExpr) Pos() Position { return n.Position }
-func (s *StringExpr) Pos() Position { return s.Position }
-func (b *BoolExpr) Pos() Position { return b.Position }
-func (m *MemberExpr) Pos() Position { return m.Position }
-func (i *IndexExpr) Pos() Position { return i.Position }
+func (a *AssetDecl) Pos() Position     { return a.Position }
+func (t *TypeDecl) Pos() Position      { return t.Position }
+func (s *StructType) Pos() Position    { return s.Position }
+func (f *FieldDecl) Pos() Position     { return f.Position }
+func (n *NamedType) Pos() Position     { return n.Position }
+func (a *ArrayType) Pos() Position     { return a.Position }
+func (f *FunctionDecl) Pos() Position  { return f.Position }
+func (p *ParamDecl) Pos() Position     { return p.Position }
+func (v *VarDeclStmt) Pos() Position   { return v.Position }
+func (a *AssignStmt) Pos() Position    { return a.Position }
+func (i *IfStmt) Pos() Position        { return i.Position }
+func (e *ElseIfClause) Pos() Position  { return e.Position }
+func (w *WhileStmt) Pos() Position     { return w.Position }
+func (f *ForStmt) Pos() Position       { return f.Position }
+func (b *BreakStmt) Pos() Position     { return b.Position }
+func (c *ContinueStmt) Pos() Position  { return c.Position }
+func (r *ReturnStmt) Pos() Position    { return r.Position }
+func (e *ExprStmt) Pos() Position      { return e.Position }
+func (b *BinaryExpr) Pos() Position    { return b.Position }
+func (u *UnaryExpr) Pos() Position     { return u.Position }
+func (c *CallExpr) Pos() Position      { return c.Position }
+func (i *IdentExpr) Pos() Position     { return i.Position }
+func (n *NumberExpr) Pos() Position    { return n.Position }
+func (s *StringExpr) Pos() Position    { return s.Position }
+func (b *BoolExpr) Pos() Position      { return b.Position }
+func (m *MemberExpr) Pos() Position    { return m.Position }
+func (i *IndexExpr) Pos() Position     { return i.Position }

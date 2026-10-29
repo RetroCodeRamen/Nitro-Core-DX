@@ -23,16 +23,8 @@ func main() {
 	startCycle := flag.Uint64("cyclestart", 0, "Start logging after this many cycles (default: 0 = start immediately)")
 	flag.Parse()
 
-	if *romPath == "" {
-		fmt.Println("Usage: nitro-core-dx -rom <path-to-rom>")
-		fmt.Println("  -rom <path>      Path to ROM file (.rom)")
-		fmt.Println("  -unlimited       Run at unlimited speed")
-		fmt.Println("  -scale <1-6>     Display scale (default: 3)")
-		fmt.Println("  -audio-backend   Audio backend override: ymfm (default: ymfm)")
-		fmt.Println("  -log             Enable logging (disabled by default)")
-		fmt.Println("  -cyclelog <file> Enable cycle-by-cycle logging to file")
-		fmt.Println("  -maxcycles <N>   Maximum cycles to log (default: 100000, 0 = unlimited)")
-		fmt.Println("  -cyclestart <N>  Start logging after N cycles (default: 0 = start immediately)")
+	if *romPath == "" && flag.NArg() > 0 {
+		fmt.Fprintf(os.Stderr, "Unexpected argument %q. Open a cartridge from File → Open ROM…, or pass -rom <file>.\n", flag.Arg(0))
 		os.Exit(1)
 	}
 
@@ -46,11 +38,14 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Read ROM file
-	romData, err := os.ReadFile(*romPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading ROM file: %v\n", err)
-		os.Exit(1)
+	var romData []byte
+	if *romPath != "" {
+		var err error
+		romData, err = os.ReadFile(*romPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading ROM file: %v\n", err)
+			os.Exit(1)
+		}
 	}
 
 	// Create emulator with optional logging
@@ -79,10 +74,11 @@ func main() {
 		emu = emulator.NewEmulator()
 	}
 
-	// Load ROM
-	if err := emu.LoadROM(romData); err != nil {
-		fmt.Fprintf(os.Stderr, "Error loading ROM: %v\n", err)
-		os.Exit(1)
+	if len(romData) > 0 {
+		if err := emu.LoadROM(romData); err != nil {
+			fmt.Fprintf(os.Stderr, "Error loading ROM: %v\n", err)
+			os.Exit(1)
+		}
 	}
 
 	// Set frame limit
@@ -105,20 +101,11 @@ func main() {
 	}
 
 	fmt.Println("Nitro-Core-DX Emulator")
-	fmt.Println("====================")
-	fmt.Printf("ROM loaded: %s\n", *romPath)
-	fmt.Printf("Frame limit: %v\n", !*unlimited)
-	fmt.Printf("Display scale: %dx\n", *scale)
-	fmt.Printf("Audio backend mode: %s\n", effectiveAudioBackendMode())
-	fmt.Println("\nStarting emulation...")
-	fmt.Println("\nControls:")
-	fmt.Println("  Arrow Keys / WASD - Move block")
-	fmt.Println("  Z / W - A button (change block color)")
-	fmt.Println("  X - B button (change background color)")
-	fmt.Println("  Space - Pause/Resume")
-	fmt.Println("  Ctrl+R - Reset")
-	fmt.Println("  Alt+F - Toggle fullscreen")
-	fmt.Println("  ESC - Quit")
+	if *romPath != "" {
+		fmt.Printf("Cartridge: %s\n", *romPath)
+	} else {
+		fmt.Println("File → Open ROM… to load a .rom or .cart")
+	}
 
 	// Create Fyne UI (with SDL2 for emulator rendering)
 	uiInstance, err := ui.NewFyneUI(emu, *scale)

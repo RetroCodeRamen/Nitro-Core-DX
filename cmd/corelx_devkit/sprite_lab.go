@@ -229,13 +229,13 @@ func (s *devKitState) buildSpriteLabPane() fyne.CanvasObject {
 		suppressSizeSelect = false
 	}
 
+	editorCell := spriteLabCellPx(spriteW, spriteH, spriteLabEditorMaxPx)
 	updateCanvasSizes := func() {
-		cellPx := spriteLabCellPx(spriteW, spriteH, spriteLabEditorMaxPx)
-		editorImage.SetMinSize(spriteLabEditorDisplaySize(spriteW, spriteH))
+		editorCell = spriteLabCellPx(spriteW, spriteH, spriteLabEditorMaxPx)
 		previewImage.SetMinSize(spriteLabPreviewDisplaySize(spriteW, spriteH))
 		sizeLabel.SetText("Size: " + formatSpriteSizeLabel(spriteW, spriteH))
 		if canvasOverlay != nil {
-			canvasOverlay.SetGrid(spriteW, spriteH, cellPx)
+			canvasOverlay.SetGrid(spriteW, spriteH, editorCell)
 		}
 	}
 
@@ -324,11 +324,10 @@ func (s *devKitState) buildSpriteLabPane() fyne.CanvasObject {
 				transparentZero && i == spriteLabTransparentIx,
 			)
 			chip.Refresh()
+			btn.Importance = widget.MediumImportance
 			if i == selectedColor {
-				btn.Importance = widget.HighImportance
-				btn.SetText(fmt.Sprintf("%X*", i))
+				btn.SetText(fmt.Sprintf("[%X]", i))
 			} else {
-				btn.Importance = widget.MediumImportance
 				btn.SetText(fmt.Sprintf("%X", i))
 			}
 			btn.Refresh()
@@ -350,7 +349,10 @@ func (s *devKitState) buildSpriteLabPane() fyne.CanvasObject {
 	}
 
 	refreshEditorOnly := func() {
-		cellPx := spriteLabCellPx(spriteW, spriteH, spriteLabEditorMaxPx)
+		cellPx := editorCell
+		if cellPx < 1 {
+			cellPx = 1
+		}
 		editorImage.Image = renderSpriteLabImage(
 			pixels, palettes, selectedBank, spriteW, spriteH, cellPx, hoverX, hoverY, showGrid, transparentZero,
 		)
@@ -370,7 +372,7 @@ func (s *devKitState) buildSpriteLabPane() fyne.CanvasObject {
 		hexColorMap.Refresh()
 		selectedLabel.SetText(fmt.Sprintf("Color: %X (Bank %d)", selectedColor, selectedBank))
 		modeSummaryLabel.SetText(fmt.Sprintf(
-			"Tool: %s | Size: %dx%d | Bank: %d | Color: %X | MirrorX: %t | Index0 Transparent: %t",
+			"%s  %dx%d  bank %d  color %X  mirror %t  index0 %t",
 			currentTool, spriteW, spriteH, selectedBank, selectedColor, mirrorX, transparentZero,
 		))
 		statsLabel.SetText(fmt.Sprintf("Active pixels: %d/%d", nonZeroPixels(), spriteW*spriteH))
@@ -799,7 +801,7 @@ func (s *devKitState) buildSpriteLabPane() fyne.CanvasObject {
 		s.appendBuildOutput("Sprite Lab inserted asset: " + name)
 		statusLabel.SetText("Inserted CoreLX asset snippet")
 	})
-	insertButton.Importance = widget.HighImportance
+	insertButton.Importance = widget.MediumImportance
 
 	applyProjectButton := widget.NewButton("Apply Source Asset", func() {
 		name := sanitizeSpriteLabName(nameEntry.Text)
@@ -829,7 +831,7 @@ func (s *devKitState) buildSpriteLabPane() fyne.CanvasObject {
 		s.appendBuildOutput(summary)
 		statusLabel.SetText(summary)
 	})
-	applyProjectButton.Importance = widget.HighImportance
+	applyProjectButton.Importance = widget.MediumImportance
 
 	applyManifestButton := widget.NewButton("Apply Manifest Asset", func() {
 		name := sanitizeSpriteLabName(nameEntry.Text)
@@ -928,31 +930,42 @@ func (s *devKitState) buildSpriteLabPane() fyne.CanvasObject {
 		}
 	}
 
+	modeSummaryLabel.Wrapping = fyne.TextWrapWord
+	canvasHost := newSpriteCanvasHost(editorImage, canvasOverlay, func() (int, int) {
+		return spriteW, spriteH
+	}, func(cell int) {
+		if cell < 1 {
+			cell = 1
+		}
+		if cell == editorCell {
+			return
+		}
+		editorCell = cell
+		if canvasOverlay != nil {
+			canvasOverlay.SetGrid(spriteW, spriteH, cell)
+		}
+		refreshEditorOnly()
+	})
 	canvasPanel := container.NewBorder(
 		container.NewVBox(
-			widget.NewLabel("Sprite Canvas"),
-			container.NewHBox(widget.NewLabel("Canvas Size"), resizeSelect, sizeLabel),
-			toolGroup,
+			container.NewHBox(widget.NewLabel("Canvas"), resizeSelect, sizeLabel, toolGroup),
 			container.NewHBox(mirrorCheck, gridCheck, transparencyCheck),
 			modeSummaryLabel,
 		),
 		container.NewHBox(coordLabel, widget.NewSeparator(), selectedLabel),
 		nil,
 		nil,
-		container.NewCenter(container.NewStack(editorImage, canvasOverlay)),
+		canvasHost,
 	)
 
+	colorField := func(label string, entry *widget.Entry) fyne.CanvasObject {
+		return container.NewBorder(nil, nil, widget.NewLabel(label), nil, entry)
+	}
 	colorEditorPanel := container.NewVBox(
-		widget.NewLabel("Selected Color Editor (0-31 channels)"),
-		container.NewHBox(
-			widget.NewLabel("R"),
-			rEntry,
-			widget.NewLabel("G"),
-			gEntry,
-			widget.NewLabel("B"),
-			bEntry,
-		),
-		container.NewBorder(nil, nil, widget.NewLabel("Hex"), applyHexButton, hexColorEntry),
+		widget.NewLabel("Selected color  0–31"),
+		container.NewGridWithColumns(3, colorField("R", rEntry), colorField("G", gEntry), colorField("B", bEntry)),
+		colorField("Hex", hexColorEntry),
+		applyHexButton,
 		paletteSliderLabel,
 		paletteValueSlider,
 		container.NewHBox(applyRGBButton, selectedColorChip),
@@ -1015,13 +1028,16 @@ func (s *devKitState) buildSpriteLabPane() fyne.CanvasObject {
 	)
 	rightTabs.SetTabLocation(container.TabLocationTop)
 
-	split := container.NewHSplit(canvasPanel, rightTabs)
-	split.Offset = 0.58
+	split := container.NewHSplit(
+		newReportedMin(canvasPanel, fyne.NewSize(220, 160)),
+		newReportedMin(rightTabs, fyne.NewSize(300, 160)),
+	)
+	split.Offset = 0.62
 
 	commitHistory()
 	refreshVisuals()
 
-	return container.NewBorder(nil, statusLabel, nil, nil, split)
+	return container.NewBorder(panelHeader("SPRITE LAB"), statusLabel, nil, nil, split)
 }
 
 func newSpriteLabPaintOverlay(
@@ -1901,3 +1917,110 @@ func clampInt(v, lo, hi int) int {
 	}
 	return v
 }
+
+// reportedMin lets a split honor a usable minimum without adopting a child's
+// oversized minimum, which was crushing the Sprite Lab inspector.
+type reportedMin struct {
+	widget.BaseWidget
+	child fyne.CanvasObject
+	min   fyne.Size
+}
+
+func newReportedMin(child fyne.CanvasObject, min fyne.Size) *reportedMin {
+	r := &reportedMin{child: child, min: min}
+	r.ExtendBaseWidget(r)
+	return r
+}
+
+func (r *reportedMin) CreateRenderer() fyne.WidgetRenderer {
+	return &reportedMinRenderer{child: r.child, min: r.min}
+}
+
+type reportedMinRenderer struct {
+	child fyne.CanvasObject
+	min   fyne.Size
+}
+
+func (r *reportedMinRenderer) Layout(size fyne.Size) {
+	r.child.Resize(size)
+	r.child.Move(fyne.NewPos(0, 0))
+}
+func (r *reportedMinRenderer) MinSize() fyne.Size { return r.min }
+func (r *reportedMinRenderer) Refresh()           {}
+func (r *reportedMinRenderer) Objects() []fyne.CanvasObject {
+	return []fyne.CanvasObject{r.child}
+}
+func (r *reportedMinRenderer) Destroy() {}
+
+// spriteCanvasHost scales the sprite to the largest integer cell that fits
+// the pane. The bitmap and the hit target stay the same size, so pixel
+// mapping does not go fractional.
+type spriteCanvasHost struct {
+	widget.BaseWidget
+	image   *canvas.Image
+	overlay *spriteLabPaintOverlay
+	grid    func() (int, int)
+	onCell  func(int)
+	cell    int
+}
+
+func newSpriteCanvasHost(image *canvas.Image, overlay *spriteLabPaintOverlay, grid func() (int, int), onCell func(int)) *spriteCanvasHost {
+	h := &spriteCanvasHost{image: image, overlay: overlay, grid: grid, onCell: onCell}
+	h.ExtendBaseWidget(h)
+	return h
+}
+
+func (h *spriteCanvasHost) CreateRenderer() fyne.WidgetRenderer {
+	return &spriteCanvasHostRenderer{host: h, objs: []fyne.CanvasObject{h.image, h.overlay}}
+}
+
+type spriteCanvasHostRenderer struct {
+	host *spriteCanvasHost
+	objs []fyne.CanvasObject
+}
+
+func (r *spriteCanvasHostRenderer) Layout(size fyne.Size) {
+	w, h := r.host.grid()
+	if w < 1 {
+		w = 1
+	}
+	if h < 1 {
+		h = 1
+	}
+	cell := int(size.Width) / w
+	if ch := int(size.Height) / h; ch < cell {
+		cell = ch
+	}
+	if cell < 1 {
+		cell = 1
+	}
+	if cell > 48 {
+		cell = 48
+	}
+	if cell != r.host.cell {
+		r.host.cell = cell
+		if r.host.onCell != nil {
+			r.host.onCell(cell)
+		}
+	}
+	pw := float32(w * cell)
+	ph := float32(h * cell)
+	if pw > size.Width {
+		pw = size.Width
+	}
+	if ph > size.Height {
+		ph = size.Height
+	}
+	pos := fyne.NewPos((size.Width-pw)/2, (size.Height-ph)/2)
+	r.host.image.Resize(fyne.NewSize(pw, ph))
+	r.host.image.Move(pos)
+	r.host.overlay.Resize(fyne.NewSize(pw, ph))
+	r.host.overlay.Move(pos)
+}
+
+func (r *spriteCanvasHostRenderer) MinSize() fyne.Size { return fyne.NewSize(8, 8) }
+func (r *spriteCanvasHostRenderer) Refresh()           {}
+func (r *spriteCanvasHostRenderer) Objects() []fyne.CanvasObject {
+	return r.objs
+}
+func (r *spriteCanvasHostRenderer) Destroy() {}

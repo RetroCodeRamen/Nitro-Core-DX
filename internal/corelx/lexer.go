@@ -48,26 +48,25 @@ const (
 	TOKEN_STEP
 
 	// Operators
-	TOKEN_ASSIGN      // :=
-	TOKEN_EQUAL       // =
-	TOKEN_PLUS        // +
-	TOKEN_MINUS       // -
-	TOKEN_STAR        // *
-	TOKEN_SLASH       // /
-	TOKEN_PERCENT     // %
-	TOKEN_EQUAL_EQUAL // ==
-	TOKEN_BANG_EQUAL  // !=
-	TOKEN_LESS        // <
-	TOKEN_LESS_EQUAL  // <=
-	TOKEN_GREATER     // >
+	TOKEN_ASSIGN        // :=
+	TOKEN_EQUAL         // =
+	TOKEN_PLUS          // +
+	TOKEN_MINUS         // -
+	TOKEN_STAR          // *
+	TOKEN_SLASH         // /
+	TOKEN_PERCENT       // %
+	TOKEN_EQUAL_EQUAL   // ==
+	TOKEN_BANG_EQUAL    // !=
+	TOKEN_LESS          // <
+	TOKEN_LESS_EQUAL    // <=
+	TOKEN_GREATER       // >
 	TOKEN_GREATER_EQUAL // >=
-	TOKEN_AMPERSAND   // &
-	TOKEN_PIPE        // |
-	TOKEN_CARET       // ^
-	TOKEN_TILDE       // ~
-	TOKEN_LSHIFT      // <<
-	TOKEN_RSHIFT      // >>
-	TOKEN_ADDR_OF     // &
+	TOKEN_AMPERSAND     // &
+	TOKEN_PIPE          // |
+	TOKEN_CARET         // ^
+	TOKEN_TILDE         // ~
+	TOKEN_LSHIFT        // <<
+	TOKEN_RSHIFT        // >>
 
 	// Delimiters
 	TOKEN_LPAREN   // (
@@ -90,10 +89,10 @@ const (
 
 // Token represents a lexical token
 type Token struct {
-	Type     TokenType
-	Literal  string
-	Line     int
-	Column   int
+	Type        TokenType
+	Literal     string
+	Line        int
+	Column      int
 	IndentLevel int // For INDENT/DEDENT tokens
 }
 
@@ -105,6 +104,7 @@ type Lexer struct {
 	column        int
 	indentStack   []int // Stack of indentation levels
 	indentPending bool  // Whether we need to emit INDENT/DEDENT
+	groupDepth    int   // Open ( and [ ; newlines inside them are not statement breaks
 	tokens        []Token
 }
 
@@ -140,9 +140,9 @@ func (l *Lexer) Tokenize() ([]Token, error) {
 	for len(l.indentStack) > 1 {
 		l.indentStack = l.indentStack[:len(l.indentStack)-1]
 		l.tokens = append(l.tokens, Token{
-			Type:       TOKEN_DEDENT,
-			Line:       l.line,
-			Column:     l.column,
+			Type:        TOKEN_DEDENT,
+			Line:        l.line,
+			Column:      l.column,
 			IndentLevel: l.indentStack[len(l.indentStack)-1],
 		})
 	}
@@ -167,6 +167,11 @@ func (l *Lexer) scanToken() error {
 	case '\n':
 		l.line++
 		l.column = 1
+		// A newline inside () or [] continues the same statement. Indentation
+		// on the following line is ordinary whitespace, not a new block.
+		if l.groupDepth > 0 {
+			return nil
+		}
 		l.indentPending = true
 		l.tokens = append(l.tokens, Token{
 			Type:   TOKEN_NEWLINE,
@@ -176,15 +181,23 @@ func (l *Lexer) scanToken() error {
 		return nil
 
 	case '(':
+		l.groupDepth++
 		l.emitToken(TOKEN_LPAREN, "(", line, column)
 		return nil
 	case ')':
+		if l.groupDepth > 0 {
+			l.groupDepth--
+		}
 		l.emitToken(TOKEN_RPAREN, ")", line, column)
 		return nil
 	case '[':
+		l.groupDepth++
 		l.emitToken(TOKEN_LBRACKET, "[", line, column)
 		return nil
 	case ']':
+		if l.groupDepth > 0 {
+			l.groupDepth--
+		}
 		l.emitToken(TOKEN_RBRACKET, "]", line, column)
 		return nil
 	case ',':
@@ -330,10 +343,19 @@ func (l *Lexer) scanString(line, column int) error {
 func (l *Lexer) scanNumber(line, column int) error {
 	start := l.position
 
-	// Check for hex prefix
-	if l.match('0') && l.match('x') {
-		for unicode.IsDigit(l.peek()) || (l.peek() >= 'a' && l.peek() <= 'f') || (l.peek() >= 'A' && l.peek() <= 'F') {
-			l.advance()
+	// 0x hex and 0b binary. A leading zero is otherwise decimal: 010 is ten.
+	if l.peek() == '0' && (l.peekNext() == 'x' || l.peekNext() == 'X' || l.peekNext() == 'b' || l.peekNext() == 'B') {
+		bin := l.peekNext() == 'b' || l.peekNext() == 'B'
+		l.advance()
+		l.advance()
+		if bin {
+			for l.peek() == '0' || l.peek() == '1' {
+				l.advance()
+			}
+		} else {
+			for unicode.IsDigit(l.peek()) || (l.peek() >= 'a' && l.peek() <= 'f') || (l.peek() >= 'A' && l.peek() <= 'F') {
+				l.advance()
+			}
 		}
 	} else {
 		// Decimal number, optionally with a fractional part (fixed-point
@@ -366,32 +388,33 @@ func (l *Lexer) scanIdentifier(line, column int) error {
 	return nil
 }
 
+var corelxKeywords = map[string]TokenType{
+	"function": TOKEN_FUNCTION,
+	"if":       TOKEN_IF,
+	"elseif":   TOKEN_ELSEIF,
+	"else":     TOKEN_ELSE,
+	"while":    TOKEN_WHILE,
+	"for":      TOKEN_FOR,
+	"break":    TOKEN_BREAK,
+	"continue": TOKEN_CONTINUE,
+	"return":   TOKEN_RETURN,
+	"type":     TOKEN_TYPE,
+	"struct":   TOKEN_STRUCT,
+	"asset":    TOKEN_ASSET,
+	"true":     TOKEN_TRUE,
+	"false":    TOKEN_FALSE,
+	"and":      TOKEN_AND,
+	"or":       TOKEN_OR,
+	"not":      TOKEN_NOT,
+	"const":    TOKEN_CONST,
+	"var":      TOKEN_VAR,
+	"at":       TOKEN_AT,
+	"to":       TOKEN_TO,
+	"step":     TOKEN_STEP,
+}
+
 func (l *Lexer) identifierType(literal string) TokenType {
-	keywords := map[string]TokenType{
-		"function": TOKEN_FUNCTION,
-		"if":       TOKEN_IF,
-		"elseif":   TOKEN_ELSEIF,
-		"else":     TOKEN_ELSE,
-		"while":    TOKEN_WHILE,
-		"for":      TOKEN_FOR,
-		"break":    TOKEN_BREAK,
-		"continue": TOKEN_CONTINUE,
-		"return":   TOKEN_RETURN,
-		"type":     TOKEN_TYPE,
-		"struct":   TOKEN_STRUCT,
-		"asset":    TOKEN_ASSET,
-		"true":     TOKEN_TRUE,
-		"false":    TOKEN_FALSE,
-		"and":      TOKEN_AND,
-		"or":       TOKEN_OR,
-		"not":      TOKEN_NOT,
-		"const":    TOKEN_CONST,
-		"var":      TOKEN_VAR,
-		"at":       TOKEN_AT,
-		"to":       TOKEN_TO,
-		"step":     TOKEN_STEP,
-	}
-	if tokenType, ok := keywords[literal]; ok {
+	if tokenType, ok := corelxKeywords[literal]; ok {
 		return tokenType
 	}
 	return TOKEN_IDENTIFIER
@@ -418,9 +441,24 @@ func (l *Lexer) handleIndentation() {
 		} else if r == '\n' {
 			// Empty line, reset and continue
 			indent = 0
+			hasTabs = false
+			hasSpaces = false
 			l.advance()
 			l.line++
 			l.column = 1
+			continue
+		} else if r == '\r' {
+			l.advance()
+			continue
+		} else if r == '-' && l.position+1 < len(l.source) && l.source[l.position] == '-' && l.source[l.position+1] == '-' && (l.position+2 >= len(l.source) || l.source[l.position+2] != '!') {
+			// A comment-only line does not change the indent. `--!` is a
+			// directive and stays a real token.
+			for !l.isAtEnd() && l.peek() != '\n' {
+				l.advance()
+			}
+			indent = 0
+			hasTabs = false
+			hasSpaces = false
 			continue
 		} else {
 			break
@@ -430,10 +468,10 @@ func (l *Lexer) handleIndentation() {
 	// Check for mixed tabs and spaces
 	if hasTabs && hasSpaces {
 		l.tokens = append(l.tokens, Token{
-			Type:   TOKEN_ERROR,
+			Type:    TOKEN_ERROR,
 			Literal: fmt.Sprintf("Mixed tabs and spaces at line %d", l.line),
-			Line:   l.line,
-			Column: 1,
+			Line:    l.line,
+			Column:  1,
 		})
 		return
 	}
@@ -444,9 +482,9 @@ func (l *Lexer) handleIndentation() {
 		// Indent increased
 		l.indentStack = append(l.indentStack, indent)
 		l.tokens = append(l.tokens, Token{
-			Type:       TOKEN_INDENT,
-			Line:       l.line,
-			Column:     1,
+			Type:        TOKEN_INDENT,
+			Line:        l.line,
+			Column:      1,
 			IndentLevel: indent,
 		})
 	} else if indent < currentIndent {
@@ -454,19 +492,19 @@ func (l *Lexer) handleIndentation() {
 		for len(l.indentStack) > 1 && indent < l.indentStack[len(l.indentStack)-1] {
 			l.indentStack = l.indentStack[:len(l.indentStack)-1]
 			l.tokens = append(l.tokens, Token{
-				Type:       TOKEN_DEDENT,
-				Line:       l.line,
-				Column:     1,
+				Type:        TOKEN_DEDENT,
+				Line:        l.line,
+				Column:      1,
 				IndentLevel: l.indentStack[len(l.indentStack)-1],
 			})
 		}
 		// Check if indent matches exactly
 		if indent != l.indentStack[len(l.indentStack)-1] {
 			l.tokens = append(l.tokens, Token{
-				Type:   TOKEN_ERROR,
+				Type:    TOKEN_ERROR,
 				Literal: fmt.Sprintf("Indentation mismatch at line %d: expected %d, got %d", l.line, l.indentStack[len(l.indentStack)-1], indent),
-				Line:   l.line,
-				Column: 1,
+				Line:    l.line,
+				Column:  1,
 			})
 		}
 	}

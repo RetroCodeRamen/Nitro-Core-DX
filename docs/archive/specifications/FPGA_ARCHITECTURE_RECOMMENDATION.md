@@ -419,7 +419,7 @@ For cost-effective production, use **one medium-sized FPGA** (similar to MiSTer'
 
 ## References
 
-- **Hardware Specification**: `HARDWARE_SPECIFICATION.md`
+- **Hardware Specification**: `COMPLETE_HARDWARE_SPECIFICATION_V2.1.md`
 - **Cartridge Pin Spec**: `CARTRIDGE_PIN_SPECIFICATION.md`
 - **Controller Pin Spec**: `CONTROLLER_PIN_SPECIFICATION.md`
 - **MiSTer Project**: https://github.com/MiSTer-devel/Main_MiSTer/wiki

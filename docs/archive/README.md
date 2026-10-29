@@ -1,26 +1,29 @@
 # Documentation Archive
 
-This directory contains older/superseded documentation retained for reference.
+Historical design notes, FPGA drafts, old language charters, planning
+docs, and superseded manuals. Not the current user-facing
+documentation.
 
-## Archived Files
+Current books, at the repository root:
 
-- **ARCHITECTURE_ANALYSIS.md**: Original architecture analysis (now in SYSTEM_MANUAL.md)
-- **FPGA_COMPATIBILITY.md**: FPGA implementation notes (now in SYSTEM_MANUAL.md)
-- **SYNCHRONIZATION_IMPLEMENTATION.md**: Synchronization details (now in SYSTEM_MANUAL.md)
-- **PROJECT_STATUS.md**: Project status tracking (now in SYSTEM_MANUAL.md)
-- **MIGRATION_NOTES.md**: Python to Go migration notes (now in SYSTEM_MANUAL.md)
-- **NITRO_CORE_DX_DESIGN_DOCUMENT.md**: Original design document (now in SYSTEM_MANUAL.md)
-- **TEST_ROM.md**: Test ROM documentation (see test/README.md)
+- [`../../NITRO_CORE_DX_MANUAL.md`](../../NITRO_CORE_DX_MANUAL.md) —
+  the console, the hardware, the Dev Kit
+- [`../../CORELX_PROGRAMMING_MANUAL.md`](../../CORELX_PROGRAMMING_MANUAL.md)
+  — CoreLX, the language and the asset pipeline
+- [`../../README.md`](../../README.md) — project overview
+- [`../README.md`](../README.md) — this `docs/` folder
 
-These files are kept for reference but are no longer actively maintained. Please refer to the main documentation:
+What landed here in the 2026-10 documentation cleanup:
 
-- [README.md](../README.md) - Project overview
-- [docs/README.md](../README.md) - Documentation map (current vs historical)
-- [SYSTEM_MANUAL.md](../SYSTEM_MANUAL.md) - Architecture and design manual (under revision)
-- [PROGRAMMING_MANUAL.md](../PROGRAMMING_MANUAL.md) - Programming manual (under revision)
+- `SYSTEM_MANUAL.md`, `NITRO_CORE_DX_OWNERS_MANUAL.md`,
+  `BOOT_SEQUENCE_NOTES.md`, `WEEKLY_UPDATE_LOG.md`
+- `CORELX.md`, `CORELX_V1_IMPLEMENTATION_STATUS.md`,
+  `CORELX_MANUAL_STYLE_GUIDE.md`
+- `specifications/` (including `COMPLETE_HARDWARE_SPECIFICATION_V2.1.md`
+  and `CORELX_COMPILER_SPECIFICATION.md`)
+- `guides/`, `planning/`, `testing/`
+- debugging, hardware-status, and development-notes files
 
-## Archive Subfolders
-
-- `plans/` - superseded planning docs
-- `reviews/` - archived code/architecture reviews
-- `test_results/` - historical test plans, results, and test-ROM diagnostics
+Treat every path in this folder as history. If a number here and a
+number in the two manuals disagree, the manuals (and the emulator
+code) win.

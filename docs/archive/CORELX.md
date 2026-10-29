@@ -1,24 +1,30 @@
 # CoreLX Language Documentation
 
-**For Nitro Core DX — documents the current shipping compiler**
+**For Nitro Core DX — older reference, stale; see the scope note**
 
-> **⚠️ Scope note (updated 2026-06-14):** This document predates the M8
-> language work and is **partially stale** — it does **not** list the features
-> and builtins added during M8 (`fixed`, arrays, `for i = 0 to N`,
-> `input.poll/held/pressed`, `text.draw`/`text.draw_int`, `mem.read16/write16`,
-> the matrix-plane projection/camera/surface builtins, `load_bitmap`, the
-> `.cxasset`/`.ncdx`/`.cart` pipeline), and some of what it describes has
-> changed (the `&` operator and C-style `for` were removed; the `ASSET_`
-> prefix is gone).
+> **⚠️ Scope note (updated 2026-10-29):** This document predates the M8
+> language work and is **stale**. It does **not** list the features and
+> builtins added since (`fixed`, arrays, struct globals and struct arrays,
+> `for i = 0 to N`, `else if`, block scoping, `input.poll/held/pressed`,
+> `text.draw`/`text.draw_int`, `mem.read16/write16`, the matrix-plane
+> projection/camera/surface builtins, `load_bitmap`, the
+> `.cxasset`/`.ncdx`/`.cart` pipeline), and several things it describes were
+> never shipped or have been removed: there are no `i8`/`i32`/`u32`,
+> `fx8_8`/`fx16_16` or pointer (`*T`) types, no `&` operator, no C-style
+> `for`, and no `ASSET_` prefix. The real types are `int` (also spelled
+> `u16`/`i16`), `u8`, `fixed` (8.8), `bool`, arrays, and structs.
 >
-> **For the current implemented surface, read
-> [CORELX_V1_IMPLEMENTATION_STATUS.md](CORELX_V1_IMPLEMENTATION_STATUS.md)
-> first.** The authoritative live builtin list is the registration block in
-> `internal/corelx/semantic.go`. The v1 language design is frozen in
-> [specifications/CORELX_SYNTAX_V1.md](specifications/CORELX_SYNTAX_V1.md).
-> This file is retained for the still-accurate explanations of the older
-> builtins (bg/matrix/oam/sprite/gfx/raster/apu) and will be folded into the
-> Programming Guide once v1 is complete.
+> **For the current language, read
+> [`../PROGRAMMING_MANUAL.md`](../PROGRAMMING_MANUAL.md) Part 1 (tutorial)
+> and
+> [`specifications/CORELX_COMPILER_SPECIFICATION.md`](specifications/CORELX_COMPILER_SPECIFICATION.md)
+> (the short contract).** The authoritative live builtin list is the
+> registration block in `internal/corelx/semantic.go`.
+> [specifications/CORELX_SYNTAX_V1.md](specifications/CORELX_SYNTAX_V1.md) is
+> the original design charter and is marked superseded. This file is retained
+> only for the still-accurate explanations of the older builtins
+> (bg/matrix/oam/sprite/gfx/raster/apu) until they are folded into the
+> Programming Guide.
 
 > **CoreLX** (pronounced *core elix*) is the native compiled programming language for the **Nitro Core DX** console.  
 > CoreLX is a **compiled-only**, **hardware-first** language with **no interpreter**, **no virtual machine**, and **no runtime scripting layer**.  
@@ -137,6 +143,13 @@ x := 10  -- Inline comment
 ## Types
 
 ### Built-in Types
+
+> **Stale — the shipping compiler's types are:** `int` (16-bit signed; `u16`
+> and `i16` are alternate spellings of the same type), `u8` (one byte),
+> `fixed` (8.8 fixed point), `bool`, fixed-length arrays (`int[8]`,
+> `u8[4]`, `fixed[2]`), and user structs. There are no 32-bit integers, no
+> `fx*` types, and no pointers. The list below is the original design and is
+> kept only as history.
 
 - **Integers**: `i8`, `u8`, `i16`, `u16`, `i32`, `u32`
 - **Boolean**: `bool`

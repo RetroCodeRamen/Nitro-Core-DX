@@ -11,6 +11,14 @@ const (
 	typeUnknown = "unknown"
 )
 
+func typeExprName(t TypeExpr) string {
+	named, ok := t.(*NamedType)
+	if !ok || named == nil {
+		return ""
+	}
+	return named.Name
+}
+
 // arithTypeForName maps a declared storage type to its arithmetic type.
 func arithTypeForName(name string) string {
 	switch name {

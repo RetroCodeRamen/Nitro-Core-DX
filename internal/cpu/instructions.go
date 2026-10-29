@@ -175,7 +175,7 @@ func (c *CPU) executeMOV(mode, reg1, reg2 uint8) error {
 		return nil
 
 	// MOV mode 13/14 are optional byte variants for the indexed [R+imm] addressing.
-	// Implemented per `docs/specifications/CPU_AMPED_EXTENSION_DESIGN.md`.
+	// Implemented per `docs/archive/specifications/CPU_AMPED_EXTENSION_DESIGN.md`.
 	case 13: // MOV R1, [R2+imm] - Load 8-bit from indexed memory, zero-extended
 		disp := int16(c.FetchImmediate())
 		base := int32(c.GetRegister(reg2))
@@ -214,7 +214,7 @@ func (c *CPU) executeMOV(mode, reg1, reg2 uint8) error {
 		return nil
 
 	default:
-		return fmt.Errorf("unknown MOV mode: %d (valid: 0-12; reserved: 13-15)", mode)
+		return fmt.Errorf("unknown MOV mode: %d (valid: 0-14; reserved: 15)", mode)
 	}
 }
 

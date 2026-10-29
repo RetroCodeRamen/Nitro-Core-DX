@@ -54,8 +54,6 @@ func tokenFallbackLiteral(tt corelx.TokenType) string {
 		return "<<"
 	case corelx.TOKEN_RSHIFT:
 		return ">>"
-	case corelx.TOKEN_ADDR_OF:
-		return "&"
 	case corelx.TOKEN_LPAREN:
 		return "("
 	case corelx.TOKEN_RPAREN:

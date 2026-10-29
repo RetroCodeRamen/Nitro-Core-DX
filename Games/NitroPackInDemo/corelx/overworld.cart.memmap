@@ -56,12 +56,12 @@ tree_x                   0x2556    16  global
 tree_y                   0x2566    16  global
 tree_tile                0x2576    16  global
 tree32_base              0x2586     2  global
-tree_tiny_base           0x2588     2  global
+tree64_base              0x2588     2  global
 creature_x               0x258A     4  global
 creature_y               0x258E     4  global
 creature_tile            0x2592     4  global
 creature32_base          0x2596     2  global
-creature_tiny_base       0x2598     2  global
+creature64_base          0x2598     2  global
 player_hp                0x259A     2  global
 player_invuln            0x259C     2  global
 bump_dx                  0x259E     2  global

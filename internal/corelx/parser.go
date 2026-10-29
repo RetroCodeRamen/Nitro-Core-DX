@@ -11,6 +11,19 @@ import (
 type Parser struct {
 	tokens  []Token
 	current int
+	errors  []error
+}
+
+// ParseErrors is every syntax error found in one compile.
+type ParseErrors struct {
+	Errs []error
+}
+
+func (e *ParseErrors) Error() string {
+	if e == nil || len(e.Errs) == 0 {
+		return "parse error"
+	}
+	return e.Errs[0].Error()
 }
 
 // NewParser creates a new parser
@@ -21,15 +34,19 @@ func NewParser(tokens []Token) *Parser {
 	}
 }
 
-// Parse parses the tokens into an AST
+// Parse parses the tokens into an AST. A syntax error no longer discards
+// the rest of the file: later errors are collected too.
 func (p *Parser) Parse() (prog *Program, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			if e, ok := r.(error); ok {
-				err = e
-				return
+				p.errors = append(p.errors, e)
+			} else {
+				p.errors = append(p.errors, fmt.Errorf("parser panic: %v", r))
 			}
-			err = fmt.Errorf("parser panic: %v", r)
+		}
+		if len(p.errors) > 0 {
+			err = &ParseErrors{Errs: append([]error{}, p.errors...)}
 		}
 	}()
 	prog = &Program{
@@ -199,12 +216,19 @@ func (p *Parser) parseGlobalVarDecl() (*GlobalVarDecl, error) {
 
 	if p.check(TOKEN_LBRACKET) {
 		p.advance()
-		lenTok := p.consume(TOKEN_NUMBER, "Expected array length")
-		n, err := parseNumberLiteral(lenTok.Literal)
-		if err != nil || n <= 0 || n > 0x4000 {
-			return nil, p.error(lenTok, "Array length must be between 1 and 16384")
+		switch {
+		case p.check(TOKEN_NUMBER):
+			lenTok := p.advance()
+			n, err := parseNumberLiteral(lenTok.Literal)
+			if err != nil || n <= 0 || n > 0x4000 {
+				return nil, p.error(lenTok, "Array length must be between 1 and 16384")
+			}
+			decl.ArrayLen = int(n)
+		case p.check(TOKEN_IDENTIFIER):
+			decl.ArrayLenName = p.advance().Literal
+		default:
+			return nil, p.error(p.peek(), "Expected array length")
 		}
-		decl.ArrayLen = int(n)
 		p.consume(TOKEN_RBRACKET, "Expected ']' after array length")
 	}
 
@@ -467,22 +491,7 @@ func (p *Parser) parseFunction() (*FunctionDecl, error) {
 		p.advance()
 		if p.check(TOKEN_INDENT) {
 			p.advance()
-			for !p.check(TOKEN_DEDENT) && !p.isAtEnd() {
-				if p.check(TOKEN_NEWLINE) {
-					p.advance()
-					continue
-				}
-				stmt, err := p.parseStmt()
-				if err != nil {
-					return nil, err
-				}
-				if stmt != nil {
-					body = append(body, stmt)
-				}
-			}
-			if p.check(TOKEN_DEDENT) {
-				p.advance()
-			}
+			body = append(body, p.parseBlockBody()...)
 		}
 	}
 
@@ -509,22 +518,34 @@ func (p *Parser) parseParam() (*ParamDecl, error) {
 
 func (p *Parser) parseTypeExpr() TypeExpr {
 	pos := p.position()
-	if p.check(TOKEN_STAR) {
-		p.advance()
-		base := p.parseTypeExpr()
-		return &PointerType{
-			Position: pos,
-			Base:     base,
-		}
-	}
 	if !p.check(TOKEN_IDENTIFIER) {
 		panic(p.error(p.peek(), "Expected type name"))
 	}
 	name := p.advance().Literal
-	return &NamedType{
+	named := &NamedType{
 		Position: pos,
 		Name:     name,
 	}
+	if !p.check(TOKEN_LBRACKET) {
+		return named
+	}
+	p.advance()
+	arr := &ArrayType{Position: pos, Elem: named}
+	switch {
+	case p.check(TOKEN_NUMBER):
+		lenTok := p.advance()
+		n, err := parseNumberLiteral(lenTok.Literal)
+		if err != nil || n <= 0 || n > 0x4000 {
+			panic(p.error(lenTok, "Array length must be between 1 and 16384"))
+		}
+		arr.Len = int(n)
+	case p.check(TOKEN_IDENTIFIER):
+		arr.LenName = p.advance().Literal
+	default:
+		panic(p.error(p.peek(), "Expected array length"))
+	}
+	p.consume(TOKEN_RBRACKET, "Expected ']' after array length")
+	return arr
 }
 
 func (p *Parser) parseStmt() (Stmt, error) {
@@ -567,14 +588,20 @@ func (p *Parser) parseStmt() (Stmt, error) {
 			return nil, p.error(p.peek(), "Unexpected '=' after ':' - did you mean ':='?")
 		}
 		// Typed variable declaration: x: u8 = value
+		// An array may omit the initializer; it starts at zero.
 		typeExpr := p.parseTypeExpr()
 		if typeExpr == nil {
 			return nil, p.error(p.peek(), "Expected type name")
 		}
-		p.consume(TOKEN_EQUAL, "Expected '='")
-		value := p.parseExpr()
-		if value == nil {
-			return nil, p.error(p.peek(), "Expected expression")
+		var value Expr
+		if p.check(TOKEN_EQUAL) {
+			p.advance()
+			value = p.parseExpr()
+			if value == nil {
+				return nil, p.error(p.peek(), "Expected expression")
+			}
+		} else if _, isArray := typeExpr.(*ArrayType); !isArray {
+			return nil, p.error(p.peek(), "Expected '='")
 		}
 		return &VarDeclStmt{
 			Position: pos,
@@ -644,85 +671,43 @@ func (p *Parser) parseIfStmt() (*IfStmt, error) {
 	pos := p.position()
 	p.consume(TOKEN_IF, "Expected 'if'")
 	condition := p.parseExpr()
-
-	// Parse then block
-	then := make([]Stmt, 0)
-	if p.check(TOKEN_NEWLINE) {
-		p.advance()
-		if p.check(TOKEN_INDENT) {
-			p.advance()
-			for !p.check(TOKEN_DEDENT) && !p.isAtEnd() {
-				if p.check(TOKEN_NEWLINE) {
-					p.advance()
-					continue
-				}
-				stmt, err := p.parseStmt()
-				if err != nil {
-					return nil, err
-				}
-				if stmt != nil {
-					then = append(then, stmt)
-				}
-			}
-			if p.check(TOKEN_DEDENT) {
-				p.advance()
-			}
-		}
+	if condition == nil {
+		return nil, p.error(p.peek(), "Expected condition expression")
 	}
 
-	// Parse elseif/else clauses
-	elseIf := make([]*ElseIfClause, 0)
-	var elseBlock []Stmt
+	then, err := p.parseIndentedBlock()
+	if err != nil {
+		return nil, err
+	}
 
-	for p.check(TOKEN_ELSEIF) {
-		p.advance()
+	// `elseif` and `else if` (the two words on one line) are the same chain.
+	// `else` followed by a newline is a real else, and an `if` nested inside
+	// that body stays a nested if.
+	elseIf := make([]*ElseIfClause, 0)
+	for p.atElseIf() {
+		clausePos := p.position()
+		p.consumeElseIf()
 		cond := p.parseExpr()
-		body := make([]Stmt, 0)
-		if p.check(TOKEN_NEWLINE) {
-			p.advance()
-			if p.check(TOKEN_INDENT) {
-				p.advance()
-				for !p.check(TOKEN_DEDENT) && !p.isAtEnd() {
-					stmt, err := p.parseStmt()
-					if err != nil {
-						return nil, err
-					}
-					body = append(body, stmt)
-				}
-				p.consume(TOKEN_DEDENT, "Expected dedent after elseif body")
-			}
+		if cond == nil {
+			return nil, p.error(p.peek(), "Expected condition expression")
+		}
+		body, err := p.parseIndentedBlock()
+		if err != nil {
+			return nil, err
 		}
 		elseIf = append(elseIf, &ElseIfClause{
-			Position:  p.position(),
+			Position:  clausePos,
 			Condition: cond,
 			Body:      body,
 		})
 	}
 
+	var elseBlock []Stmt
 	if p.check(TOKEN_ELSE) {
 		p.advance()
-		elseBlock = make([]Stmt, 0)
-		if p.check(TOKEN_NEWLINE) {
-			p.advance()
-			if p.check(TOKEN_INDENT) {
-				p.advance()
-				for !p.check(TOKEN_DEDENT) && !p.isAtEnd() {
-					if p.check(TOKEN_NEWLINE) {
-						p.advance()
-						continue
-					}
-					stmt, err := p.parseStmt()
-					if err != nil {
-						return nil, err
-					}
-					if stmt != nil {
-						elseBlock = append(elseBlock, stmt)
-					}
-				}
-				if p.check(TOKEN_DEDENT) {
-					p.advance()
-				}
-			}
+		elseBlock, err = p.parseIndentedBlock()
+		if err != nil {
+			return nil, err
 		}
 	}
 
@@ -735,6 +720,40 @@ func (p *Parser) parseIfStmt() (*IfStmt, error) {
 	}, nil
 }
 
+// atElseIf reports a chain clause: the one-word `elseif`, or `else if`
+// with nothing between the two words. `else` plus a newline is not a chain.
+func (p *Parser) atElseIf() bool {
+	if p.check(TOKEN_ELSEIF) {
+		return true
+	}
+	return p.check(TOKEN_ELSE) && p.checkNext(TOKEN_IF)
+}
+
+func (p *Parser) consumeElseIf() {
+	if p.check(TOKEN_ELSEIF) {
+		p.advance()
+		return
+	}
+	p.advance() // else
+	p.advance() // if
+}
+
+// parseIndentedBlock reads the newline-plus-indent body used by if/else.
+// Newlines are skipped here, before parseStmt, so the dedent that closes
+// the block is not mistaken for a statement.
+func (p *Parser) parseIndentedBlock() ([]Stmt, error) {
+	body := make([]Stmt, 0)
+	if !p.check(TOKEN_NEWLINE) {
+		return body, nil
+	}
+	p.advance()
+	if !p.check(TOKEN_INDENT) {
+		return body, nil
+	}
+	p.advance()
+	return p.parseBlockBody(), nil
+}
+
 func (p *Parser) parseWhileStmt() (*WhileStmt, error) {
 	pos := p.position()
 	p.consume(TOKEN_WHILE, "Expected 'while'")
@@ -743,25 +762,12 @@ func (p *Parser) parseWhileStmt() (*WhileStmt, error) {
 		return nil, p.error(p.peek(), "Expected condition expression")
 	}
 
-	body := make([]Stmt, 0)
+	var body []Stmt
 	if p.check(TOKEN_NEWLINE) {
 		p.advance()
 		if p.check(TOKEN_INDENT) {
 			p.advance()
-			for !p.check(TOKEN_DEDENT) && !p.isAtEnd() {
-				if p.check(TOKEN_NEWLINE) {
-					p.advance()
-					continue
-				}
-				stmt, err := p.parseStmt()
-				if err != nil {
-					return nil, err
-				}
-				body = append(body, stmt)
-			}
-			if p.check(TOKEN_DEDENT) {
-				p.advance()
-			}
+			body = p.parseBlockBody()
 		}
 	}
 
@@ -788,25 +794,12 @@ func (p *Parser) parseForStmt() (*ForStmt, error) {
 		stepExpr = p.parseExpr()
 	}
 
-	body := make([]Stmt, 0)
+	var body []Stmt
 	if p.check(TOKEN_NEWLINE) {
 		p.advance()
 		if p.check(TOKEN_INDENT) {
 			p.advance()
-			for !p.check(TOKEN_DEDENT) && !p.isAtEnd() {
-				if p.check(TOKEN_NEWLINE) {
-					p.advance()
-					continue
-				}
-				stmt, err := p.parseStmt()
-				if err != nil {
-					return nil, err
-				}
-				body = append(body, stmt)
-			}
-			if p.check(TOKEN_DEDENT) {
-				p.advance()
-			}
+			body = p.parseBlockBody()
 		}
 	}
 
@@ -821,12 +814,8 @@ func (p *Parser) parseForStmt() (*ForStmt, error) {
 }
 
 func (p *Parser) parseExpr() Expr {
-	return p.parseAssignment()
-}
-
-func (p *Parser) parseAssignment() Expr {
-	// Assignment is handled in parseStmt, not in expression parsing
-	// This function just parses expressions (no assignment)
+	// Assignment is a statement, parsed in parseStmt. An expression
+	// starts at or/and.
 	return p.parseOr()
 }
 
@@ -1001,13 +990,9 @@ func (p *Parser) parseCall() Expr {
 				}
 			}
 			if !p.check(TOKEN_RPAREN) {
-				// Missing closing paren - try to recover
-				if p.check(TOKEN_NEWLINE) || p.check(TOKEN_DEDENT) {
-					return nil
-				}
-			} else {
-				p.advance()
+				panic(p.error(p.peek(), "expected ')'"))
 			}
+			p.advance()
 			expr = &CallExpr{
 				Position: pos,
 				Func:     expr,
@@ -1061,23 +1046,26 @@ func (p *Parser) parsePrimary() Expr {
 				panic(p.error(tok, "Invalid decimal literal"))
 			}
 			bits := int64(math.Round(f * 256.0))
+			if bits < -32768 || bits > 32767 {
+				panic(p.error(tok, fmt.Sprintf("fixed literal %s does not fit in 8.8", tok.Literal)))
+			}
 			return &NumberExpr{
 				Position: pos,
 				Value:    uint64(uint16(bits)),
 				IsFixed:  true,
 			}
 		}
-		value, err := strconv.ParseUint(tok.Literal, 0, 64)
+		value, err := parseIntLiteral(tok.Literal)
 		if err != nil {
-			// Try hex
-			if strings.HasPrefix(tok.Literal, "0x") {
-				value, _ = strconv.ParseUint(tok.Literal[2:], 16, 64)
-			}
+			panic(p.error(tok, fmt.Sprintf("invalid number %s", tok.Literal)))
+		}
+		if value > 0xFFFF {
+			panic(p.error(tok, fmt.Sprintf("integer literal %s does not fit in 16 bits", tok.Literal)))
 		}
 		return &NumberExpr{
 			Position: pos,
 			Value:    value,
-			IsHex:    strings.HasPrefix(tok.Literal, "0x"),
+			IsHex:    strings.HasPrefix(tok.Literal, "0x") || strings.HasPrefix(tok.Literal, "0X"),
 		}
 	case p.check(TOKEN_STRING):
 		tok := p.advance()
@@ -1095,7 +1083,71 @@ func (p *Parser) parsePrimary() Expr {
 		name := p.advance().Literal
 		return &IdentExpr{Position: pos, Name: name}
 	default:
-		return nil // Return nil instead of panic - caller will handle error
+		panic(p.error(p.peek(), fmt.Sprintf("expected expression, found %s", tokenLabel(p.peek()))))
+	}
+}
+
+func (p *Parser) parseBlockBody() []Stmt {
+	body := make([]Stmt, 0)
+	for !p.check(TOKEN_DEDENT) && !p.isAtEnd() {
+		if p.check(TOKEN_NEWLINE) {
+			p.advance()
+			continue
+		}
+		stmt, err := p.captureStmt()
+		if err != nil {
+			p.errors = append(p.errors, err)
+			p.syncStmt()
+			continue
+		}
+		if stmt != nil {
+			body = append(body, stmt)
+		}
+	}
+	if p.check(TOKEN_DEDENT) {
+		p.advance()
+	}
+	return body
+}
+
+func (p *Parser) captureStmt() (stmt Stmt, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			if e, ok := r.(error); ok {
+				err = e
+				return
+			}
+			panic(r)
+		}
+	}()
+	return p.parseStmt()
+}
+
+func (p *Parser) syncStmt() {
+	for !p.isAtEnd() && !p.check(TOKEN_DEDENT) {
+		if p.check(TOKEN_NEWLINE) {
+			p.advance()
+			return
+		}
+		p.advance()
+	}
+}
+
+func tokenLabel(tok Token) string {
+	if tok.Literal != "" {
+		return tok.Literal
+	}
+	switch tok.Type {
+	case TOKEN_NEWLINE:
+		return "newline"
+	case TOKEN_DEDENT:
+		return "end of block"
+	case TOKEN_INDENT:
+		return "indent"
+	case TOKEN_EOF:
+		return "end of file"
+	default:
+		return "token"
 	}
 }
 
@@ -1151,10 +1203,10 @@ func (p *Parser) isAtEnd() bool {
 }
 
 func (p *Parser) position() Position {
-	if p.current == 0 {
+	tok := p.peek()
+	if tok.Line == 0 {
 		return Position{Line: 1, Column: 1}
 	}
-	tok := p.previous()
 	return Position{Line: tok.Line, Column: tok.Column}
 }
 
@@ -1164,8 +1216,19 @@ func (p *Parser) error(token Token, message string) error {
 
 // parseNumberLiteral converts a numeric token literal (decimal or 0x hex)
 // to its integer value.
+func parseIntLiteral(lit string) (uint64, error) {
+	switch {
+	case len(lit) > 2 && lit[0] == '0' && (lit[1] == 'x' || lit[1] == 'X'):
+		return strconv.ParseUint(lit[2:], 16, 64)
+	case len(lit) > 2 && lit[0] == '0' && (lit[1] == 'b' || lit[1] == 'B'):
+		return strconv.ParseUint(lit[2:], 2, 64)
+	default:
+		return strconv.ParseUint(lit, 10, 64)
+	}
+}
+
 func parseNumberLiteral(lit string) (int64, error) {
-	v, err := strconv.ParseUint(lit, 0, 64)
+	v, err := parseIntLiteral(lit)
 	if err != nil {
 		return 0, err
 	}

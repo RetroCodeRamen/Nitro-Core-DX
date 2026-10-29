@@ -30,6 +30,13 @@ type CompileOptions struct {
 	EmitManifestJSON    bool
 	EmitDiagnosticsJSON bool
 	EmitBundleJSON      bool
+	// NoROMBytes, NoManifestJSON, NoDiagnosticsJSON, and NoBundleJSON turn
+	// those outputs off. A zero Emit* field does not: a partial options
+	// struct such as &CompileOptions{OutputPath: path} keeps the defaults.
+	NoROMBytes        bool
+	NoManifestJSON    bool
+	NoDiagnosticsJSON bool
+	NoBundleJSON      bool
 	// ForceBootSplash disables the under-`go test` __Boot() auto-bypass (see
 	// injectTestBootBypass) so a test can observe the real default boot
 	// sequence. Has no effect outside `go test` -- production compiles
@@ -219,7 +226,14 @@ func CompileSource(source, sourcePath string, opts *CompileOptions) (result *Com
 	currentStage = StageParser
 	program, err := parser.Parse()
 	if err != nil {
-		result.Diagnostics = append(result.Diagnostics, parseDiagnostic(err, sourcePath))
+		var pe *ParseErrors
+		if errors.As(err, &pe) {
+			for _, e := range pe.Errs {
+				result.Diagnostics = append(result.Diagnostics, parseDiagnostic(e, sourcePath))
+			}
+		} else {
+			result.Diagnostics = append(result.Diagnostics, parseDiagnostic(err, sourcePath))
+		}
 		return result, &DiagnosticsError{Diagnostics: result.Diagnostics}
 	}
 	result.Program = program
@@ -316,14 +330,7 @@ func CompileSource(source, sourcePath string, opts *CompileOptions) (result *Com
 	genErr := generator.Generate()
 	needsMultiBank := errors.Is(genErr, errCodeOverflowsBank)
 	if genErr != nil && !needsMultiBank {
-		result.Diagnostics = append(result.Diagnostics, Diagnostic{
-			Category: CategoryBackendCodegenError,
-			Code:     "E_CODEGEN_GENERATE",
-			Message:  genErr.Error(),
-			File:     sourcePath,
-			Severity: SeverityError,
-			Stage:    StageCodegen,
-		})
+		result.Diagnostics = append(result.Diagnostics, diagnosticFromError(genErr, sourcePath, "E_CODEGEN_GENERATE", CategoryBackendCodegenError, StageCodegen))
 		return result, &DiagnosticsError{Diagnostics: result.Diagnostics}
 	}
 
@@ -357,14 +364,7 @@ func CompileSource(source, sourcePath string, opts *CompileOptions) (result *Com
 	if needsMultiBank {
 		mgen, mRomBytes, mCodeBytes, mErr := compileMultiBank(program, sourcePath, assets, cfg)
 		if mErr != nil {
-			result.Diagnostics = append(result.Diagnostics, Diagnostic{
-				Category: CategoryLayoutError,
-				Code:     "E_PACK_MULTIBANK",
-				Message:  mErr.Error(),
-				File:     sourcePath,
-				Severity: SeverityError,
-				Stage:    StagePack,
-			})
+			result.Diagnostics = append(result.Diagnostics, diagnosticFromError(mErr, sourcePath, "E_PACK_MULTIBANK", CategoryLayoutError, StagePack))
 			return result, &DiagnosticsError{Diagnostics: result.Diagnostics}
 		}
 		generator = mgen
@@ -484,7 +484,10 @@ func compileMultiBank(program *Program, sourcePath string, assets []AssetIR, cfg
 		return nil, nil, 0, fmt.Errorf("bank measurement pass: %w", err)
 	}
 
-	schedule, codeBankCount := packFunctionBanks(measureGen)
+	schedule, bankEnds, codeBankCount, packErr := packFunctionBanks(measureGen)
+	if packErr != nil {
+		return nil, nil, 0, packErr
+	}
 
 	// Finalize: image/music data starts immediately above the code banks
 	// pass 2 determined are needed.
@@ -509,6 +512,7 @@ func compileMultiBank(program *Program, sourcePath string, assets []AssetIR, cfg
 	finalGen.SetMusicAssets(finalMusicAssets)
 	finalGen.EnableWideCallMode()
 	finalGen.SetBankedBuilder(banked, schedule)
+	finalGen.SetFunctionBankEnds(bankEnds)
 	if err := finalGen.Generate(); err != nil {
 		return nil, nil, 0, fmt.Errorf("final multi-bank emission: %w", err)
 	}
@@ -536,11 +540,18 @@ func compileMultiBank(program *Program, sourcePath string, assets []AssetIR, cfg
 // emission order into ROMBankSizeWords-sized banks, starting a new bank
 // whenever the next function wouldn't fit whole -- the entry function is
 // always first in emission order, so it always lands in bank 1.
-func packFunctionBanks(measureGen *CodeGenerator) (map[string]uint8, int) {
+//
+// A function whose measured body is itself larger than one bank is given a
+// contiguous run of banks. Pass 3 continues that function across the run
+// (see CodeGenerator.maybeSpill). The returned end map is the inclusive
+// last bank reserved for each function; codeBankCount is the highest bank
+// the schedule uses.
+func packFunctionBanks(measureGen *CodeGenerator) (map[string]uint8, map[string]uint8, int, error) {
 	order := measureGen.emitOrder
 	schedule := make(map[string]uint8, len(order))
+	ends := make(map[string]uint8, len(order))
 	if len(order) == 0 {
-		return schedule, 1
+		return schedule, ends, 1, nil
 	}
 	totalWords := measureGen.builder.GetCodeLength()
 	sizes := make([]int, len(order))
@@ -555,15 +566,66 @@ func packFunctionBanks(measureGen *CodeGenerator) (map[string]uint8, int) {
 
 	bank := uint8(1)
 	used := 0
+	maxBank := uint8(1)
 	for i, name := range order {
+		if sizes[i] > rom.ROMBankSizeWords {
+			if used > 0 {
+				if bank == rom.ROMMaxProgramBank {
+					return nil, nil, 0, fmt.Errorf("function %s does not fit in the remaining ROM banks", name)
+				}
+				bank++
+				used = 0
+			}
+			span := banksForOversizedFunction(sizes[i])
+			endBank := int(bank) + span - 1
+			if endBank > int(rom.ROMMaxProgramBank) {
+				return nil, nil, 0, fmt.Errorf("function %s needs %d ROM banks starting at bank %d, past bank %d", name, span, bank, rom.ROMMaxProgramBank)
+			}
+			schedule[name] = bank
+			ends[name] = uint8(endBank)
+			if ends[name] > maxBank {
+				maxBank = ends[name]
+			}
+			if i+1 < len(order) && endBank >= int(rom.ROMMaxProgramBank) {
+				return nil, nil, 0, fmt.Errorf("function %s uses the last ROM bank; %s has nowhere to go", name, order[i+1])
+			}
+			if endBank < int(rom.ROMMaxProgramBank) {
+				bank = uint8(endBank + 1)
+			}
+			used = 0
+			continue
+		}
 		if used > 0 && used+sizes[i] > rom.ROMBankSizeWords {
+			if bank == rom.ROMMaxProgramBank {
+				return nil, nil, 0, fmt.Errorf("function %s does not fit in the remaining ROM banks", name)
+			}
 			bank++
 			used = 0
 		}
 		schedule[name] = bank
+		ends[name] = bank
 		used += sizes[i]
+		if bank > maxBank {
+			maxBank = bank
+		}
 	}
-	return schedule, int(bank)
+	return schedule, ends, int(maxBank), nil
+}
+
+// banksForOversizedFunction is how many ROM banks pass 3 should reserve for
+// a measured body that does not fit in one bank. The payload matches
+// maybeSpill's slack so the reserved run covers the continuation jumps, and
+// one spare bank absorbs a spill that lands on the final RET.
+func banksForOversizedFunction(sizeWords int) int {
+	payload := rom.ROMBankSizeWords - bankSpillSlackWords - farJumpWords
+	if payload < 1 {
+		payload = 1
+	}
+	n := (sizeWords + payload - 1) / payload
+	if n < 2 {
+		n = 2
+	}
+	return n + 1
 }
 
 func mergeCompileOptions(dst *CompileOptions, src CompileOptions) {
@@ -597,8 +659,9 @@ func mergeCompileOptions(dst *CompileOptions, src CompileOptions) {
 	if src.SectionBudgets != nil {
 		dst.SectionBudgets = src.SectionBudgets
 	}
-	// Booleans intentionally only override when true in this phase to preserve defaults for partial options.
-	// If explicit disabling becomes necessary, switch to pointer-based options or a builder config.
+	// A zero Emit* bool keeps the default. Callers that want an output off
+	// set the matching No* field. ForceBootSplash defaults off, so setting
+	// it true is the only override it needs.
 	if src.EmitROMBytes {
 		dst.EmitROMBytes = true
 	}
@@ -610,6 +673,18 @@ func mergeCompileOptions(dst *CompileOptions, src CompileOptions) {
 	}
 	if src.EmitBundleJSON {
 		dst.EmitBundleJSON = true
+	}
+	if src.NoROMBytes {
+		dst.EmitROMBytes = false
+	}
+	if src.NoManifestJSON {
+		dst.EmitManifestJSON = false
+	}
+	if src.NoDiagnosticsJSON {
+		dst.EmitDiagnosticsJSON = false
+	}
+	if src.NoBundleJSON {
+		dst.EmitBundleJSON = false
 	}
 	if src.ForceBootSplash {
 		dst.ForceBootSplash = true
@@ -680,6 +755,24 @@ func stampDiagnosticsFile(diags []Diagnostic, file string) {
 			}
 		}
 	}
+}
+
+func diagnosticFromError(err error, file, code string, category DiagnosticCategory, stage DiagnosticStage) Diagnostic {
+	d := Diagnostic{
+		Category: category,
+		Code:     code,
+		Message:  err.Error(),
+		File:     file,
+		Severity: SeverityError,
+		Stage:    stage,
+	}
+	var ce *codeError
+	if errors.As(err, &ce) && ce.pos.Line > 0 {
+		d.Line = ce.pos.Line
+		d.Column = ce.pos.Column
+		d.Message = ce.err.Error()
+	}
+	return d
 }
 
 var parseErrRe = regexp.MustCompile(`parse error at line ([0-9]+), column ([0-9]+): (.*)$`)

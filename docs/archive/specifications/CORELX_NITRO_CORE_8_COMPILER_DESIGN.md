@@ -1,5 +1,13 @@
 # Prompt To Build The Nitro Core 8 CoreLX Compiler
 
+> **PROPOSED, NOT IMPLEMENTED.** This is a forward-looking design proposal for
+> a hypothetical second hardware target ("Nitro Core 8") — no `nc8` target,
+> hardware profile abstraction, or multi-target backend exists anywhere in
+> the current codebase (audited 2026-07-22). If you're looking for how the
+> CoreLX compiler actually works today, or a spec for reimplementing it, see
+> `PROGRAMMING_MANUAL.md` and `docs/specifications/CORELX_COMPILER_SPECIFICATION.md`
+> instead — this document describes a future extension, not current reality.
+
 Use this design document to implement a **Nitro Core 8 CoreLX compiler** that is intentionally compatible with the existing CoreLX language used by Nitro Core DX.
 
 Constraints and goals:

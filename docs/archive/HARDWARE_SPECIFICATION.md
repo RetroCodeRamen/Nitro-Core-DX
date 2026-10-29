@@ -1,5 +1,9 @@
 # Nitro-Core-DX Hardware Specification
 
+> **ARCHIVED — superseded by
+> `docs/specifications/COMPLETE_HARDWARE_SPECIFICATION_V2.1.md`.** Moved here
+> 2026-07-22; contains stale APU/FM details. Kept for historical context only.
+
 **Version 1.0**  
 **Last Updated: January 30, 2026**  
 **Purpose: Complete hardware specification for FPGA implementation**

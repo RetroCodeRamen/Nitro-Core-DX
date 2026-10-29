@@ -165,27 +165,49 @@ func (s *devKitState) showTemplateDialog() {
 	}
 
 	var d dialog.Dialog
+	descLabel := widget.NewLabel("Select a template to see its description.")
+	descLabel.Wrapping = fyne.TextWrapWord
 	preview := widget.NewMultiLineEntry()
 	preview.Disable()
 	preview.Wrapping = fyne.TextWrapOff
-	preview.SetText("Select a project template card to preview source.")
+	preview.SetMinRowsVisible(12)
+	preview.SetText("Source preview appears here.")
 
 	selectedTemplate := ""
 	selectTemplate := func(tpl projectTemplate) {
 		selectedTemplate = tpl.Name
+		descLabel.SetText(tpl.Description)
 		preview.Enable()
 		preview.SetText(tpl.Content)
 		preview.Disable()
 	}
 
-	templateCards := make([]fyne.CanvasObject, 0, len(devKitTemplates))
-	for _, tpl := range devKitTemplates {
-		t := tpl
-		card := widget.NewButton(t.Name+"\n"+t.Description, func() {
-			selectTemplate(t)
-		})
-		card.Importance = widget.MediumImportance
-		templateCards = append(templateCards, card)
+	templateList := widget.NewList(
+		func() int { return len(devKitTemplates) },
+		func() fyne.CanvasObject {
+			name := widget.NewLabelWithStyle("Template", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+			desc := widget.NewLabel("Short description stays on two lines\nso the row does not clip it.")
+			desc.Wrapping = fyne.TextWrapWord
+			return container.NewVBox(name, desc)
+		},
+		func(id widget.ListItemID, obj fyne.CanvasObject) {
+			box := obj.(*fyne.Container)
+			name := box.Objects[0].(*widget.Label)
+			desc := box.Objects[1].(*widget.Label)
+			if id < 0 || id >= len(devKitTemplates) {
+				name.SetText("")
+				desc.SetText("")
+				return
+			}
+			name.SetText(devKitTemplates[id].Name)
+			desc.SetText(devKitTemplates[id].Description)
+		},
+	)
+	templateList.OnSelected = func(id widget.ListItemID) {
+		if id < 0 || id >= len(devKitTemplates) {
+			return
+		}
+		selectTemplate(devKitTemplates[id])
 	}
 
 	createProject := func() {
@@ -222,20 +244,27 @@ func (s *devKitState) showTemplateDialog() {
 	createBtn := widget.NewButton("Create Project", createProject)
 	createBtn.Importance = widget.HighImportance
 
+	previewPane := container.NewBorder(
+		container.NewVBox(widget.NewLabelWithStyle("PREVIEW", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}), descLabel),
+		nil, nil, nil,
+		preview,
+	)
+	listPane := container.NewBorder(
+		widget.NewLabelWithStyle("TEMPLATES", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		nil, nil, nil,
+		templateList,
+	)
 	content := container.NewBorder(
-		container.NewVBox(
-			widget.NewLabel("Choose a project template"),
-			widget.NewSeparator(),
-		),
+		nil,
 		createBtn,
 		nil, nil,
-		container.NewHSplit(
-			container.NewScroll(container.NewGridWithColumns(2, templateCards...)),
-			container.NewScroll(preview),
-		),
+		container.NewHSplit(listPane, previewPane),
 	)
 	d = dialog.NewCustom("New Project", "Close", content, s.window)
-	d.Resize(fyne.NewSize(980, 640))
+	d.Resize(fyne.NewSize(820, 480))
+	if len(devKitTemplates) > 0 {
+		templateList.Select(0)
+	}
 	d.Show()
 }
 

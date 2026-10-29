@@ -1,17 +1,17 @@
-# The Nitro-Core-DX Programming Guide
+# The CoreLX Programming Manual
 
-### Making games with CoreLX and the DevKit
+### Making games for Nitro-Core-DX
 
 **A Retro Code Ramen publication for Nitro-Core-DX.**
 Written by AJ / Retro Code Ramen. Your guide through the machine is Fletcher,
 who is not the author, does not want the paperwork that comes with being the
 author, and would like that noted up front.
 
-> **This is the programmer's book.** If you just want to play games on your
-> Nitro-Core-DX, you want the Console Owner's Manual
-> (`docs/NITRO_CORE_DX_OWNERS_MANUAL.md`) instead. This guide is for building
-> them: the CoreLX language, the DevKit, and how to make the machine do what
-> you want.
+> **This is the programming book.** It is CoreLX: the language, the builtins,
+> the cartridges, and how Sprite Lab, Tilemap Lab, and Sound Studio land
+> their work in your source. How to run the console, how the hardware is
+> laid out, and how to use the Dev Kit itself live in the
+> [Nitro-Core-DX Manual](NITRO_CORE_DX_MANUAL.md).
 
 > **Status: living manual.** Sections appear here only after the feature they
 > describe is implemented and verified running on the Nitro-Core-DX core — so
@@ -27,38 +27,37 @@ author, and would like that noted up front.
 
 **Getting Started**
 1. [Two Ways to Program Nitro-Core-DX](#two-ways-to-program-nitro-core-dx)
-2. [The Nitro-Core-DX App](#the-nitro-core-dx-app)
-3. [CoreLX Quick Start](#corelx-quick-start)
+2. [CoreLX Quick Start](#corelx-quick-start)
 
 **Part 1 — The CoreLX Language**
-4. [Two Kinds of Numbers, and Why One of Them Lies to You](#chapter-1--two-kinds-of-numbers-and-why-one-of-them-lies-to-you)
-5. [Constants: Naming Things So You Stop Lying to Yourself](#chapter-2--constants-naming-things-so-you-stop-lying-to-yourself)
-6. [Globals, and the Map of Where Everything Lives](#chapter-3--globals-and-the-map-of-where-everything-lives)
-7. [Arrays: When You Need a Row of the Same Thing](#chapter-4--arrays-when-you-need-a-row-of-the-same-thing)
-8. [Loops That Count: `for i = 0 to N`](#chapter-5--loops-that-count-for-i--0-to-n)
-9. [Conditions, and Why There's No `else if` Yet](#chapter-6--conditions-and-why-theres-no-else-if-yet)
-10. [Structs: Beyond `Sprite()`](#chapter-7--structs-beyond-sprite)
-11. [Putting Words on the Screen](#chapter-8--putting-words-on-the-screen)
-12. [Reading the Controller](#chapter-9--reading-the-controller)
-13. [The Game Loop: Frames, VBlank, and `wait_vblank()`](#chapter-10--the-game-loop-frames-vblank-and-wait_vblank)
-14. [Modules: Sharing Code With `--!`](#chapter-11--modules-sharing-code-with---)
-15. [Sprites and OAM](#chapter-12--sprites-and-oam)
-16. [Matrix Planes: Floors and Billboards](#chapter-13--matrix-planes-floors-and-billboards)
-17. [Audio: Music and Sound Effects](#chapter-14--audio-music-and-sound-effects)
-18. [Assets and the `.ncdx` Project Format](#chapter-15--assets-and-the-ncdx-project-format)
+3. [Two Kinds of Numbers, and Why One of Them Lies to You](#chapter-1--two-kinds-of-numbers-and-why-one-of-them-lies-to-you)
+4. [Constants: Naming Things So You Stop Lying to Yourself](#chapter-2--constants-naming-things-so-you-stop-lying-to-yourself)
+5. [Globals, and the Map of Where Everything Lives](#chapter-3--globals-and-the-map-of-where-everything-lives)
+6. [Arrays: When You Need a Row of the Same Thing](#chapter-4--arrays-when-you-need-a-row-of-the-same-thing)
+7. [Loops That Count: `for i = 0 to N`](#chapter-5--loops-that-count-for-i--0-to-n)
+8. [Conditions](#chapter-6--conditions)
+9. [Structs: Beyond `Sprite()`](#chapter-7--structs-beyond-sprite) (includes [Functions That Return Values](#functions-that-return-values))
+10. [Putting Words on the Screen](#chapter-8--putting-words-on-the-screen)
+11. [Reading the Controller](#chapter-9--reading-the-controller)
+12. [The Game Loop: Frames, VBlank, and `wait_vblank()`](#chapter-10--the-game-loop-frames-vblank-and-wait_vblank)
+13. [Modules: Sharing Code With `--!`](#chapter-11--modules-sharing-code-with---)
+14. [Sprites and OAM](#chapter-12--sprites-and-oam)
+15. [Matrix Planes: Floors and Billboards](#chapter-13--matrix-planes-floors-and-billboards)
+16. [Audio: Music and Sound Effects](#chapter-14--audio-music-and-sound-effects)
+17. [Assets, Studios, and the `.ncdx` Project Format](#chapter-15--assets-studios-and-the-ncdx-project-format)
 
 **Part 2 — Building a Game**
-19. [The Demo Programs](#the-demo-programs)
-20. [What's Next](#whats-next)
+18. [The Demo Programs](#the-demo-programs)
+19. [What's Next](#whats-next)
 
 **Part 3 — Tools and Reference**
-21. [Build and Run Workflows](#build-and-run-workflows)
-22. [Assembly (Advanced Users)](#assembly-advanced-users)
-23. [CoreLX vs. Assembly: When to Use Which](#corelx-vs-assembly-when-to-use-which)
-24. [Troubleshooting Guide](#troubleshooting-guide)
-25. [What Is Planned](#what-is-planned)
-26. [Reference Links](#reference-links)
-27. [Final Advice](#final-advice)
+20. [Build and Run Workflows](#build-and-run-workflows)
+21. [Assembly (Advanced Users)](#assembly-advanced-users)
+22. [CoreLX vs. Assembly: When to Use Which](#corelx-vs-assembly-when-to-use-which)
+23. [Troubleshooting Guide](#troubleshooting-guide)
+24. [What Is Planned](#what-is-planned)
+25. [Reference Links](#reference-links)
+26. [Final Advice](#final-advice)
 
 ---
 
@@ -96,93 +95,9 @@ learn the CPU and machine model directly.
 > **Important:** CoreLX and Assembly are currently **separate build paths**.
 > Inline mixed-mode `asm { ... }` inside CoreLX is not implemented yet.
 
----
-
-## The Nitro-Core-DX App
-
-Nitro-Core-DX (the integrated app / DevKit) is a professional IDE for
-day-to-day development.
-
-### Run It
-
-```bash
-go run ./cmd/corelx_devkit
-```
-
-### IDE Structure
-
-The app uses a traditional IDE layout with a menu bar and domain-grouped
-toolbar:
-
-**Menu Bar:** File, Edit, View, Build, Debug, Tools, Help
-
-**Toolbar Groups (left to right):**
-- **Project:** New, Open, Save, Load ROM
-- **Build:** Build, Build + Run (primary action)
-- **Run/Debug:** Run, Pause, Stop, Step Frame, Step CPU
-- **View:** Split View, Emulator Focus, Code Only
-
-### View Modes
-
-- **Split View** — Editor + emulator side by side (default)
-- **Emulator Focus** — Emulator fills the workspace for play/test workflows
-- **Code Only** — Editor fills the workspace, emulator hidden for focused coding
-
-### DevKit Features
-
-- **Project Templates:** Blank Game, Minimal Loop, Sprite Demo, Tilemap Demo,
-  Shmup Starter, Matrix Mode Demo
-- **CoreLX Editor:** inline syntax highlighting, line numbers, active-line
-  emphasis, diagnostics jump
-- **Sprite Lab:** pixel-art sprite editor (see below)
-- **Tilemap Lab:** tilemap paint/edit tool (see below)
-- **Diagnostics Panel:** compiler errors/warnings with severity filtering
-- **Build State:** `Draft`, `Validating...`, `Validated`, `Error`
-- **Build Output / Manifest / Debug Panels**
-- **Autosave** and **Settings Persistence** across sessions
-- **Load ROM:** test prebuilt `.rom` files directly without recompilation
-
-### Sprite Lab
-
-- Canvas sizes 8x8 to 64x64 (step of 8)
-- 16 palette banks, 16 colors each (RGB555)
-- Pencil/Erase, optional Mirror X painting
-- Wrapped sprite shifting (Shift Up/Down/Left/Right)
-- Grid overlay, hover highlighting
-- Undo/Redo (up to 128 states)
-- Import/Export `.clxsprite`
-- **Apply To Manifest** / **Insert CoreLX Asset** / **Apply To Project**
-- Preview pane with packed 4bpp hex output, transparent index-0 checkerboard
-
-### Tilemap Lab
-
-- Map sizes 8x8 to 64x64 (step of 8)
-- Tile-entry editing as packed `(tile, attr)` values
-- Brush/fill/erase, undo/redo
-- Palette/flip attribute editing (`pal`, `flipX`, `flipY`)
-- Parses tile assets from the current source (`tiles8`, `tileset`, `sprite`)
-  into a selectable tile atlas
-- Import/Export `.clxtilemap`
-
-### Typical Workflow
-
-1. **New** from a template, or **Open** an existing `.corelx` file
-2. Edit code in the CoreLX editor
-3. **Build + Run** to compile and run in the embedded emulator
-4. Use **Sprite Lab** / **Tilemap Lab** to create assets, apply them to source
-5. **Load ROM** to test prebuilt ROMs without recompiling
-6. Confirm the build status returns to **Validated** after edits/builds
-
-### Project Asset Manifest (`corelx.assets.json`)
-
-The compiler service path (used by DevKit Build/Build+Run) automatically
-checks for `corelx.assets.json` next to your `.corelx` file. If present,
-manifest assets are loaded and merged with in-source `asset` declarations.
-Editor tools (Sprite Lab, Tilemap Lab) are proposal/edit helpers — compiler
-output remains the source of truth for what actually ships in the ROM.
-
-> **Quick Note:** If game input seems unresponsive, make sure **Capture Game
-> Input** is enabled and click the emulator pane once.
+The Dev Kit (menus, labs, Build + Run, the debugger pane) is covered in
+the [Nitro-Core-DX Manual](NITRO_CORE_DX_MANUAL.md). This book starts at
+the language.
 
 ---
 
@@ -202,6 +117,8 @@ a brief slide-in-and-hold splash — unless your program defines its own
 `__Boot()` function to take over the entry point (see Chapter 10 for when and
 why you'd do that; most programs never need to).
 
+![The boot logo the player sees before Start runs](docs/manual/images/boot.png)
+
 ### Smallest Useful Program
 
 ```corelx
@@ -214,24 +131,34 @@ function Start()
 
 This turns on display output and waits forever.
 
-### Compile from the CLI
+### Run it
+
+Open the Dev Kit. That is the program: **File → Open Project…** the
+`.corelx`, then **Build + Run**. The game screen in that window plays
+the boot logo, then your program. You are not typing a launch command
+for each run.
+
+A cartridge you have already built opens in the player the same way.
+Start the emulator and use **File → Open ROM…** on the `.cart` or
+`.rom`. Passing `-rom` is optional, for when a script is launching it.
+
+### From a terminal
+
+Compiling a cartridge file, when you want the file itself:
 
 ```bash
-go run ./cmd/corelx hello.corelx hello.rom
+go run ./cmd/corelx hello.corelx hello.cart
+go run ./cmd/emulator
 ```
 
-### Run in Emulator
+The second command opens the player. **File → Open ROM…** and choose
+`hello.cart`.
 
-```bash
-go run ./cmd/emulator -rom hello.rom
-```
-
-> **Fletcher:** One thing you'll never have to think about: how big your game
-> gets. Early on, the compiler could only fit your code into a single 32KB
-> ROM bank — write enough functions and you'd hit a wall. That's gone now;
-> the compiler spans your code across as many banks as it needs, completely
-> automatically. See "How Big Can My Game Get? ROM Banking" at the end of
-> Chapter 15 for how it actually works under the hood.
+> **Fletcher:** You don't pick banks yourself. Early on, the compiler could
+> only fit your code into a single 32KB ROM bank — write enough functions and
+> you'd hit a wall. That's gone now; the compiler spans your code across as
+> many banks as the cartridge has. The cartridge still has a size. See "How
+> Big Can My Game Get? ROM Banking" at the end of Chapter 15.
 
 ---
 
@@ -297,8 +224,11 @@ out = speed * count          -- this does NOT compile
 The compiler stops you cold:
 
 ```
-cannot mix fixed and int in '*' — convert explicitly with int(x) or fixed(x)
+cannot mix fixed and int operands in '*' — convert explicitly with int(x) or fixed(x)
 ```
+
+The compiler reports every one of these it finds in a file, not just the
+first, so fix them all in one pass.
 
 > **Fletcher:** Good. That error is the machine doing you a favor, even though
 > it doesn't feel like one. `fixed` and `int` store their bits completely
@@ -317,9 +247,10 @@ out = speed * fixed(count)   -- 1.5 * 3.0 = 4.5  (count promoted to fixed)
 whole = int(speed) * count   -- 1 * 3 = 3        (speed chopped down to int)
 ```
 
-`fixed(i)` turns an int into a fixed: `3` becomes `3.0`. `int(f)` throws away
-the fraction and keeps the whole part: `4.5` becomes `4`. That's the entire
-conversion story. Two functions, both say exactly what they do.
+`fixed(i)` turns an int into a fixed: `3` becomes `3.0`. `int(f)` rounds
+toward more negative, so `4.5` becomes `4` and `-4.5` becomes `-5`. That is
+not the same rule as `/`, which rounds toward zero. Two functions, both say
+exactly which way the bits move.
 
 > **Field Notes:** The DX has no floating-point unit. None. It was never going
 > to. Floating-point hardware is expensive in gates and this is a console that
@@ -328,25 +259,27 @@ conversion story. Two functions, both say exactly what they do.
 > agree, as a civilization, where the decimal point lives. Every racing game's
 > sense of speed on hardware like this was built on exactly this idea.
 
-> **Raccoon Engineering:** Need to divide a `fixed` by two? You *can't* divide
-> `fixed` by `fixed` at all right now — the compiler rejects it outright
-> (`fixed division is not implemented yet; multiply by a reciprocal constant
-> instead`) rather than silently doing something wrong. Multiply by `0.5`
-> instead. Want a third? Multiply by `0.333`. Reciprocals are your friend,
-> they're faster anyway, and the multiply path is fully supported and keeps
-> full precision.
+> **Raccoon Engineering:** `fixed / fixed` divides in 8.8 and rounds toward
+> zero, same rule as `int / int`. `-1.5 / 0.5` is `-3.0`. The result is 16
+> bits, so a quotient that does not fit wraps, the same way multiplication
+> does. Dividing by a constant zero is a compile error. A divisor that is
+> zero at runtime yields `0xFFFF`, which is what the hardware DIV instruction
+> does.
 
-> **Fletcher's Warning Label:** Two real limits, both of which the compiler
-> will tell you about so you don't have to memorize them: (1) `fixed / fixed`
-> doesn't exist yet — use the reciprocal trick above, every time, no
-> exceptions. (2) Integer division (`int / int`) is **unsigned** in v1 — it's
-> a raw hardware DIV instruction with no sign correction. If you're dividing
-> negative `int`s and getting numbers from the upside-down, that's why. Same
-> goes for `>>` (right-shift): it's always a logical shift, never arithmetic,
-> so shifting a negative `int` right does not sign-extend the way you'd expect
-> from most languages. Work in positives for both `/` and `>>`, or precompute
-> the values you need at compile time (Chapter 2 shows you how) so the
-> division/shift never has to happen on a negative number at runtime at all.
+> **Fletcher's Warning Label:** `/` and `%` are signed and round toward zero,
+> on both `int` and `u16`. `u16` is a second name for a 16-bit `int`:
+> comparisons, `>>`, and `/` are signed, so a value above 32767 does not
+> behave like an unsigned quantity. A literal from 32768 through 65535 is
+> still accepted: `var big: int = 40000` stores those bits, which compare as
+> `-25536`, so `big > 0` is false. `70000` does not fit in 16 bits and is a
+> compile error. `u8` is different — it really is one
+> byte, and the next global starts at the next address. `-7 / 2` is `-3`,
+> and `-7 % 2` is `-1` (the
+> remainder keeps the dividend's sign). `>>` is an arithmetic shift: `-8 >> 1`
+> is `-4`, not a giant unsigned number. `<<` stays a logical left shift.
+> `%` is only defined for `int`. Constant expressions and runtime expressions
+> use the same 16-bit results, so a `const` and a variable doing the same
+> division agree.
 
 ### Try This Before You Panic
 
@@ -380,7 +313,7 @@ value gets baked straight into the program.
 ```corelx
 const BASE = 100
 const DOUBLE = BASE * 2          -- constants can build on earlier ones
-const FLAGS = 0x10 | 0x02        -- full integer math and bitwise ops
+const FLAGS = 0x10 | 0x02        -- hex; 0b1010 is binary. 010 is ten, not octal
 const HALF_SPEED = SPEED / 2.0   -- fixed constants work too: + - * /
 ```
 
@@ -409,15 +342,12 @@ cannot assign to constant LIMIT
 > console — by the time your cartridge boots, `DOUBLE` is just `200`, sitting
 > there, already done. Free arithmetic. Use it shamelessly.
 
-> **Field Notes:** Remember Chapter 1 — `HALF_SPEED = SPEED / 2.0` works even
-> though you can't divide `fixed` by `fixed` at *runtime*. That's because a
-> constant divide happens in the compiler, on the workbench, not on the
-> machine. The compiler is allowed tools the console isn't. It computes the
-> answer once and hands the console a finished number. The same trick bails you
-> out of the `>>`/`/` sign problem from Chapter 1: if you need `heading / 4`
-> for 64 different possible headings, don't divide at runtime — compute all 64
-> answers as a `const` array at compile time and look them up. Half of the
-> pseudo-3D math in this guide's own demo game is built on exactly that trick.
+> **Field Notes:** `HALF_SPEED = SPEED / 2.0` is the same division the console
+> does at runtime. A constant is just that division done once, on the
+> workbench, and the console receives the finished number. The two agree,
+> including the sign. Baking a table of headings is still worth it when you
+> would otherwise repeat the same division every frame. Half of the pseudo-3D
+> math in this guide's own demo game is built on exactly that trick.
 
 ### Try This Before You Panic
 
@@ -526,7 +456,7 @@ order, reachable by number. That's an **array**.
 
 ```corelx
 const N = 8
-var table: int[8]
+var table: int[N]
 var palette_rows: u8[4]
 
 function Start()
@@ -537,7 +467,7 @@ function Start()
     total := table[3] + table[7] -- read them back by number
 ```
 
-Arrays start zeroed — every slot is `0` until you put something there.
+A `const` may be the length: with `N` equal to 8, `int[N]` is an eight-slot array. Arrays start zeroed — every slot is `0` until you put something there.
 `int[n]` and `fixed[n]` use two bytes per slot; `u8[n]` uses one. They live in
 WRAM right alongside your other globals, and they show up in the memory map.
 
@@ -586,10 +516,9 @@ index 4 out of bounds for table[4]
 > sized array at startup (or bake the literal in directly, as above) and just
 > *look them up* after that. The DX reads memory faster than it grinds
 > arithmetic. Trade a little WRAM for a lot of frame time. That's the whole
-> trick behind half the smooth-looking effects on hardware like this — and the
-> only real workaround for the `>>`/`/`-on-negative-numbers gotcha from
-> Chapter 1, since the table itself can hold pre-computed negative values
-> just fine even though computing them via a shift/divide at runtime can't.
+> trick behind half the smooth-looking effects on hardware like this. The
+> table can hold negative values, and so can a runtime `/` or `>>` — the
+> lookup is about speed, not about the sign.
 
 ### Try This Before You Panic
 
@@ -611,10 +540,15 @@ speed := 2.5    -- fixed (dot)
 x = x + 1       -- plain = changes something that already exists
 ```
 
+The local takes the type of that expression. `x := speed` is `fixed` when
+`speed` is `fixed`, and so is `x := -1.5`, `x := speed * 2.0`, `x := fixed(3)`,
+a call that returns `fixed`, or a slot of a `fixed` array. A later `x + 0.5`
+is then fixed plus fixed.
+
 Three ways to make a name, and each one tells you that name's whole life at a
-glance: `:=` is local to its function, `var` is a global in WRAM, `const` is a
-compile-time fact with no storage at all. You'll never have to wonder how long
-a name lives — you can see it in how it was born.
+glance: `:=` is local to the block it is written in, `var` is a global in
+WRAM, `const` is a compile-time fact with no storage at all. You'll never have
+to wonder how long a name lives — you can see it in how it was born.
 
 ---
 
@@ -681,7 +615,7 @@ for loop 'step' must be a constant
 
 ---
 
-## Chapter 6 — Conditions, and Why There's No `else if` Yet
+## Chapter 6 — Conditions
 
 You've already seen `if` used bare. It also takes an `else`:
 
@@ -692,60 +626,59 @@ else
     x = 0
 ```
 
-That's the whole shape for a two-way branch. Real games need more than two
-ways, though — a scene variable that's title, or playing, or game-over. Most
-languages let you write `else if` to chain those. **CoreLX cannot do that yet,
-and it will not tell you it failed.**
-
-### Breaking it on purpose (the dangerous one)
+Real games need more than two ways — a scene variable that's title, or
+playing, or game-over. Chain them with `else if`. The first true condition
+runs, and the rest of the chain is skipped:
 
 ```corelx
 if scene == SCENE_TITLE
     x = 1
-else if scene == SCENE_PLAYING     -- looks completely normal
+else if scene == SCENE_PLAYING
     x = 2
+else if scene == SCENE_GAMEOVER
+    x = 3
+else
+    x = 0
 ```
 
-This **compiles with no error or warning**. But the `if scene == SCENE_PLAYING`
-does not become part of the `else` branch the way it would in almost any other
-language. It's parsed as an unconditional statement that runs every single
-pass, regardless of what the outer `if`/`else` decided. If `x = 2` is supposed
-to only happen when you're NOT on the title screen, you've just written a bug
-that silently fires all the time.
+`elseif` is the same clause written as one word. `else` on its own line, with
+a nested `if` indented under it, is still a normal else body. That nested `if`
+is not a chain: it runs only when the outer condition was false, then follows
+ordinary `if` rules from there.
 
-> **Fletcher:** This is the one that'll get you, because everything about it
-> *looks* fine. It reads fine, it compiles clean, and the bug it produces
-> doesn't look like a syntax problem — it looks like your scene logic itself is
-> broken, so that's where you'll go looking. You'll spend an hour staring at
-> your state machine before you think to suspect the `else if` itself. I'm
-> telling you now so you skip that hour.
-
-The one-word `elseif` keyword doesn't save you either — it currently fails to
-compile outright (`Expected statement`). Annoying, but at least it's honest
-about failing.
-
-### The only form that works today
-
-Write `else` alone, on its own line, with the next `if` fully nested one
-indent level deeper:
+Conditions overlap more often than they look. `n > 10` is also `n > 0`. Put
+the narrower test first, or the later branch never gets a turn:
 
 ```corelx
-if scene == SCENE_TITLE
-    x = 1
+if n > 30
+    got = 3
+else if n > 20
+    got = 2
+else if n > 10
+    got = 1
 else
-    if scene == SCENE_PLAYING
-        x = 2
-    else
-        if scene == SCENE_GAMEOVER
-            x = 3
+    got = 0
 ```
 
-It's more indentation than you're probably used to for a multi-way branch, but
-it's the reliable form — verified directly against the compiler, not assumed.
-This is a known compiler limitation, not a style preference; expect `else if`
-to start working the way you'd expect once a future compiler pass fixes it.
-Until then, every multi-way branch in this guide (and in the demo game) uses
-the nested form above.
+A second `if` at the same indent is not part of the chain. It runs on its own,
+even when an earlier branch already did.
+
+Each `if` branch, `else`, `while` body, and `for` loop is its own block. A
+name made there does not exist after the block, so both branches may use
+`tmp`:
+
+```corelx
+if ready
+    tmp := 1
+else
+    tmp := 2
+```
+
+Those are two different variables. Declaring `tmp` twice in the *same* block
+is still an error. A `for` variable exists for that loop and not after it.
+
+`and` and `or` always evaluate both sides. `if ready and reload()` calls
+`reload` even when `ready` is false. There is no short-circuit.
 
 ### `break` and `continue`
 
@@ -778,6 +711,39 @@ should have).
 ---
 
 ## Chapter 7 — Structs: Beyond `Sprite()`
+
+### Functions That Return Values
+
+Every function you've written so far has been void — it does things, but it
+doesn't hand anything back. CoreLX functions can return a value too, with a
+`-> type` after the parameter list and a `return` statement in the body:
+
+```corelx
+function double(n: int) -> int
+    return n * 2
+
+function Start()
+    x := double(21)
+    -- x is 42
+```
+
+`return` on its own (no expression) works too, as an early exit from a void
+function — useful for "bail out of the rest of this function" guard clauses:
+
+```corelx
+function heal(p: Player, amount: int)
+    if p.lives <= 0
+        return          -- already dead, nothing to heal
+    p.lives = p.lives + amount
+```
+
+`return`'s value travels back in the same single slot every numeric value
+travels in, so it works for `int`, `fixed`, and `bool` — anything that fits in
+one 16-bit register. It does *not* work for handing back a whole struct by
+value; a struct is a reference (see below), so a function that needs to give
+you struct data back either mutates a struct you passed in (like `damage()`
+below) or writes into a global you read afterward, the same pattern the demo
+programs use for HUD values.
 
 You've seen `Sprite()` already if you've looked ahead at any sprite code — it's
 a built-in struct CoreLX gives you for OAM sprite records. But you aren't
@@ -822,6 +788,45 @@ function Start()
 Function parameters need an explicit type — `function damage(p: Player)`, not
 `function damage(p)` — the same way `var`/`asset` declarations do.
 
+A struct can also live in WRAM as a global, and you can have a row of them.
+A field can itself be a struct. The global starts at zero; assign the fields:
+
+```corelx
+type Vec = struct
+    x: int
+    y: int
+
+type Body = struct
+    pos: Vec
+    hp: int
+
+var hero: Player
+var enemies: Player[8]
+var body: Body
+
+function Start()
+    hero.x = 100
+    enemies[0].lives = 3
+    body.pos.x = 4
+```
+
+A local array is a block of slots that starts at zero. Pass the name to a
+function and the function sees the same slots:
+
+```corelx
+function bump(xs: int[4])
+    xs[1] = xs[1] + 1
+
+function Start()
+    xs: int[4]
+    xs[1] = 3
+    bump(xs)
+```
+
+The length is part of the type. `int[4]` and `int[8]` are not the same
+argument. A local array has no `= [...]` initializer — that form is for
+globals (Chapter 4); fill a local array in code.
+
 > **Fletcher's Warning Label:** A function can take at most **six**
 > parameters. That's not an arbitrary nicety — two of the machine's eight
 > registers (R6/R7) are permanently reserved as scratch space for the
@@ -862,7 +867,9 @@ text.draw(40, 80, 255, 255, 255, "HELLO NITRO")
 Six arguments: X, Y, then **three separate color numbers** — red, green, blue,
 each 0 to 255 — and finally the string. So `255, 255, 255` is white, `255, 0, 0`
 is red, and so on. The text appears at pixel (40, 80) and marches to the right,
-eight pixels per character.
+eight pixels per character. A call may break across lines inside the
+parentheses; indentation there is ignored. A newline *outside* the
+parentheses still ends the statement.
 
 > **Fletcher:** I know what you're about to ask. "Why three color numbers?
 > Every other system lets me pass one color." Because the DX's text port has
@@ -878,6 +885,11 @@ eight pixels per character.
 > single hardware register one at a time, and the port quietly advances the
 > cursor eight pixels after each one. That's why your text flows left to right
 > without you tracking position — the *port* is keeping the cursor, not you.
+
+`docs/manual_examples/hello.corelx` draws `HELLO NITRO` in cyan this way,
+every frame:
+
+![HELLO NITRO in cyan, centered on the screen](docs/manual/images/hello.png)
 
 ### Breaking it on purpose
 
@@ -920,6 +932,11 @@ the three color channels — but the last argument is a **number**, not a string
 It prints it as digits: `1230` shows up as `1230`. Negatives get a minus sign,
 and leading zeros are dropped, so `42` prints as `42`, not `00042`.
 
+`counter.corelx` is that on a real screen. One press of A, and the yellow
+digit is 1. Holding A does not keep counting.
+
+![PRESS A TO COUNT, a green COUNT label, and a yellow 1](docs/manual/images/counter.png)
+
 > **Tape Jam:** Text not showing up? Two usual culprits. One: you drew it once,
 > at startup, but the screen clears every frame and your text only lived for
 > that first frame — draw it *every* frame, inside your loop, if you want it to
@@ -956,6 +973,16 @@ function Start()
   back up.
 
 The buttons have names you just use: `UP DOWN LEFT RIGHT A B X Y L R START Z`.
+Those twelve names are reserved. `const A`, `var X`, and `Z := 1` are errors,
+and the message says the name is a controller button. Pick another identifier.
+
+> **Low-Level Escape Hatch:** `input.read() -> int` bypasses all of the above
+> and reads the raw 16-bit controller-1 button bitmask straight from the
+> hardware port, with no `held`/`pressed`/`released` edge-tracking at all —
+> you get whatever's currently down, as a bitmask, full stop. You won't need
+> this for ordinary gameplay code (`input.poll()` + `held`/`pressed`/
+> `released` covers everything above), but it's there if you're writing a
+> button-mapping screen or want to inspect the raw hardware state directly.
 
 > **Fletcher:** The difference between `held` and `pressed` is the thing that
 > separates a game that feels right from one that feels broken, so let me make
@@ -1218,8 +1245,17 @@ oam.flush()
 - `.attr` packs palette, priority, and flip bits — build it from the helper
   functions below, combined with `|`.
 - `.ctrl` packs enable and size bits, same idea.
-- `oam.write(index, sprite)` copies the struct's fields into OAM slot `index`.
-- `oam.flush()` finalizes the write so it actually reaches the PPU.
+- `oam.write(index, sprite)` copies the struct's fields into OAM slot `index`
+  and writes straight through to the PPU — there's no separate commit step.
+- `oam.flush()` exists but currently does nothing (a no-op reserved for a
+  future write-buffering scheme). It's harmless to call and harmless to skip
+  — the example above keeps it only because it costs nothing and won't hurt
+  if a future version gives it real behavior.
+
+`sprite.corelx` is one 8×8 sprite. The line at the top is `text.draw`.
+The box in the middle is the sprite.
+
+![An 8×8 sprite under the line DPAD TO MOVE THE BOX](docs/manual/images/sprite.png)
 
 Just like every other struct (Chapter 7), pass `box` itself — never `&box`.
 CoreLX has no address-of operator, and `Sprite()` is no exception to that.
@@ -1253,15 +1289,6 @@ against, say) works fine too.
 > dedicated call that writes the size where it actually needs to go. For
 > `oam.write_sprite_data`, the `ctrl` argument handles this correctly on its
 > own; no separate call needed there.
->
-> **And a second one, while you're combining flags for either of those:**
-> always land the combined value in a local first —
-> `s := SPR_ENABLE() | SPR_SIZE_32X32()` — then pass `s`, rather than writing
-> the `|` expression directly inline as the call's argument. A computed
-> expression used directly as a call argument beyond the first can corrupt
-> an earlier argument already loaded into a register in this compiler; every
-> example in this manual and demo that combines flags already follows this
-> pattern for exactly that reason.
 
 ```corelx
 big := Sprite()
@@ -1312,8 +1339,10 @@ off the edge.
   "Bigger Sprites" above) on a `Sprite()` variable — needed because that
   size information doesn't fit in `.ctrl`.
 - `oam.clear_sprite(id)` disables a sprite by zeroing its control byte.
-- `oam.flush()` is the write-finalization call every one of the above needs
-  before the change actually reaches the PPU.
+- `oam.flush()` is currently a no-op — every `oam.*` write above already
+  reaches the PPU immediately, with nothing further to commit. Calling it is
+  optional today; it's kept as a real builtin in case a future version adds
+  write-buffering that needs an explicit commit point.
 
 ---
 
@@ -1324,6 +1353,11 @@ separate from ordinary BG tilemap usage. This is the machinery behind the
 pseudo-3D floor in `floor.corelx` (Part 2) and behind vertical "billboard"
 objects — buildings, NPCs, anything that should stand upright on that floor
 and scale correctly as you approach it.
+
+This is `floor.corelx`, standing still at the opening camera. The
+checkerboard is the matrix plane. The two lines of text are the HUD.
+
+![A perspective checkerboard floor, WALK THE FLOOR at the top and DPAD TO MOVE at the bottom](docs/manual/images/floor.png)
 
 ### Why This Exists
 
@@ -1614,7 +1648,14 @@ synth and exist only so old code keeps compiling. New programs should use
 
 ---
 
-## Chapter 15 — Assets and the `.ncdx` Project Format
+## Chapter 15 — Assets, Studios, and the `.ncdx` Project Format
+
+The Dev Kit's Sprite Lab, Tilemap Lab, and Sound Studio are the usual way
+to make the art and music that this chapter talks about. How to *operate*
+those tabs (menus, tools, hotkeys) is in the
+[Nitro-Core-DX Manual](NITRO_CORE_DX_MANUAL.md). This chapter is the
+contract: what they write into your source, what the compiler will accept,
+and how a game is a `.ncdx` on disk.
 
 ### Why your art isn't *in* your code
 
@@ -1631,7 +1672,8 @@ importer, which converts your PNG into the DX's format once:
 corelx_import  park.png  ParkFloor  32  1  park_floor.cxasset
 ```
 
-Then in code you just *name* it and use it:
+Then in code you just *name* it and use it (the same line Sprite Lab and
+Sound Studio write for you):
 
 ```corelx
 asset ParkFloor: image "park_floor.cxasset"
@@ -1648,27 +1690,141 @@ function Start()
 > wire this up, or you forgot to delete it" error. No mystery files, no dead
 > weight.
 
+### What Sprite Lab Writes
+
+Sprite Lab lives on the **Sprite Lab** tab of the Dev Kit. When you are
+happy with a drawing, three buttons put it into the project. They all
+produce the same *kind* of CoreLX, they just land it in different places:
+
+- **Insert Source Snippet** appends an `asset Name: tiles8` / `tiles16` /
+  `tileset hex` block at the end of the file, plus optional
+  `gfx.set_palette(...)` calls for the bank you were painting in.
+- **Apply Source Asset** finds an existing `asset` of that name and
+  rewrites it in place, or appends one if it isn't there yet. Palette
+  writes are marked `-- Sprite Lab palette bank N` so a later apply
+  can replace them without eating your other palette code.
+- **Apply Manifest Asset** writes or updates `corelx.assets.json` next
+  to the saved `.corelx` file, with `encoding: "hex"` and a type of
+  `tiles8`, `tiles16`, or `tileset` based on the canvas size. The
+  compiler merges that file with in-source `asset` declarations on
+  every Build. A name that appears in both is `E_ASSET_DUPLICATE`.
+
+The type rule is mechanical: an 8×8 canvas is `tiles8`, 16×16 is
+`tiles16`, anything else (24×24 default, 32, 40, …, 64) is a `tileset`.
+The hex is packed 4bpp, the same form as a hand-written `tileset` in
+this chapter. **Export .clxsprite** / **Import .clxsprite** round-trip
+the pixels and palettes as JSON (`clxsprite-v1`) so you can keep a
+drawing without putting it in the ROM yet.
+
+### What Tilemap Lab Writes
+
+Tilemap Lab is the **Tilemap** tab. Maps are 8×8 to 32×32, step of 8
+(default 32). Each cell is a packed `(tile, attr)` word: tile index in
+the low byte, palette in the high nibble of the high byte, Flip X at
+`0x10`, Flip Y at `0x20`. **Refresh Tiles From Code** parses
+`tiles8` / `tileset` / `sprite` hex assets already in the file so you
+can paint from them.
+
+- **Insert CoreLX Asset** appends `asset Name: tilemap hex`.
+- **Apply To Project** upserts that named block in the source.
+- **Apply To Manifest** writes `type: "tilemap"` into
+  `corelx.assets.json`.
+
+**Export .clxtilemap** / **Import .clxtilemap** are the JSON
+round-trip (`clxtilemap-v1`).
+
+### What Sound Studio Writes
+
+Sound Studio is the **Sound** tab. **Import VGM** takes a `.vgm` or
+`.vgz` and converts it in memory to a `.ncdxmusic` stream. **Open
+.ncdxmusic** loads one you already have. **Add to project** (the
+source file must already be saved) writes `<Name>.ncdxmusic` next to
+the `.corelx` and upserts:
+
+```corelx
+asset Name: music "Name.ncdxmusic"
+```
+
+**Preview** compiles a tiny ROM around that stream and loads it in the
+embedded emulator so you can hear it. The INSERT snippets on the tab
+are the `music.play` / `music.play_loop` / `music.play_jingle` /
+`music.stop` / `music.set_volume` / `music.fade_to` calls from
+Chapter 14, dropped at the cursor.
+
+There is no separate "export music file" button: **Add to project**
+*is* the export. Manifest apply is not wired for music yet; the
+`asset … music "…"` line in source is the contract.
+
 ### Tile Assets (Inline)
 
-Small assets can be written directly inline as hex, right in your source:
+Small assets can be written directly inline as hex, right in your source. Each
+hex byte is **one pixel** — a palette index from 0 to 15 (0 is always
+transparent for sprites) — not a packed byte. `tiles8` is one 8x8 tile (64
+pixel values, 8 per line, 8 lines); `tiles16` is one 16x16 tile (256 values,
+16 per line, 16 lines):
 
 ```corelx
 asset BoxTile: tiles16
     hex
-        11 11 11 11 11 11 11 11
+        00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+        00 00 02 02 02 02 02 02 02 02 02 02 02 02 00 00
+        00 02 02 02 02 02 02 02 02 02 02 02 02 02 02 00
         ...
 ```
+
+The compiler packs this "one byte per pixel" form into the hardware's real
+4bpp format for you (two adjacent pixels combined into one byte, high nibble
+first) — you never write packed bytes by hand. `tiles8`/`tiles16` recognize
+raw data by its length (exactly 64 or 256 values means "unpacked, needs
+packing"); a `tileset`/`sprite` asset (used for native sprite sizes above
+16x16 — see Chapter 12's "Bigger Sprites") can hold any number of tiles, so
+length alone can't tell raw from packed, and the compiler instead checks
+whether every byte is ≤15 (real packed data routinely has a byte >15, since a
+packed byte's high nibble holds a whole second pixel's index).
+
+> **Fletcher's Warning Label:** A `tileset`/`sprite` asset holding more than
+> one 8x8 tile is **not** laid out as one flat image raster (row 0 of the
+> whole picture, then row 1, and so on) — it's laid out **tile by tile**: all
+> 64 pixels of the first 8x8 tile (its own 8 rows of 8), then all 64 pixels of
+> the second tile, in left-to-right/top-to-bottom tile order. If you're
+> converting art by hand instead of using the devkit's importer, slice your
+> image into 8x8 blocks first, then write each block's own 8 rows in order —
+> writing the image's own raw rows straight across a multi-tile asset scrambles
+> it into an unrecognizable mess of interleaved tiles.
 
 Supported encodings today: `hex` (most common, used throughout this guide and
 its tests), `b64`, and `text`. Assets are referenced in code via a generated
 constant: `ASSET_BoxTile`.
 
+### Setting Colors: Palettes
+
+Tile pixel values are palette *indices*, not colors — something has to say
+what color index 2 actually looks like. `gfx.init_default_palettes()` fills
+in a reasonable built-in set (used throughout this guide's examples) so you
+can get moving without thinking about color hardware at all. When you want a
+specific color:
+
+- `gfx.set_palette(palette, color_index, color)` sets one color slot: palette
+  bank 0-15, color index 0-15 within that bank, and a 16-bit RGB555 color
+  value (5 bits each for red/green/blue, packed `0bRRRRRGGGGGBBBBB`).
+- `gfx.set_palette_color(cgram_index, color)` does the same write, but
+  addresses the color hardware's flat 0-255 index directly (`palette*16 +
+  color_index`) instead of the two separate components — useful when you're
+  computing an index rather than picking a literal palette/color pair.
+
+Both write straight to the color hardware (CGRAM); there's no separate
+"apply" step.
+
 ### What a Game Actually Is on Disk
 
-A whole game is a single file: **`MyGame.ncdx`**. Open one in the Studio and
-you see a project. Look at it in your file browser and you see one icon, one
-file. That's deliberate — a game should be one thing you can hand to a friend,
-not a folder of loose pieces to lose track of.
+A whole game is a single file: **`MyGame.ncdx`**. Look at it in your file
+browser and you see one icon, one file. That's deliberate — a game should
+be one thing you can hand to a friend, not a folder of loose pieces to
+lose track of. The compiler CLI (`go run ./cmd/corelx MyGame.ncdx
+out.cart`) accepts a `.ncdx`, a project folder, or a loose
+`main.corelx`. The Dev Kit's Open dialog currently takes a `.corelx`
+source file (see the Nitro-Core-DX Manual); the `.ncdx` is still the
+thing you ship.
 
 > **Fletcher:** Here's the honest truth under the hood, because you'll want to
 > know it the first time something goes weird: a `.ncdx` is a **zip file**
@@ -1679,8 +1835,9 @@ not a folder of loose pieces to lose track of.
 
 ### Editing the Guts Like an Admin Boss
 
-Ninety-nine times out of a hundred, you let the Studio handle the `.ncdx` and
-you never touch the zip. But sometimes you need to get in there:
+Ninety-nine times out of a hundred you never touch the zip. The compiler
+and the Dev Kit pack and unpack it for you. But sometimes you need to get
+in there:
 
 1. Make a copy (always work on a copy when going in by hand).
 2. Rename `MyGame.ncdx` → `MyGame.zip`.
@@ -1737,6 +1894,19 @@ the machinery once.
    image and music assets are placed immediately above wherever your code
    banks end.
 
+**What fits on the cartridge.** Banks 1 through 125 are the whole cartridge.
+Each of those banks has a 64KB address window, and only the upper 32KB
+(`0x8000`–`0xFFFF`) is connected to ROM. The lower half is unmapped. Banks
+126 and 127 are extra working memory, not ROM. The amount you can ship is
+therefore 125 × 32KB = **4,096,000 bytes**. The `.rom` file is that payload
+plus a 32-byte header, so a full cartridge file is 4,096,032 bytes.
+
+Compiled code, images, and music all come out of that same 4,096,000 bytes.
+Assets are written into the banks immediately after the code. The compiler
+refuses bank 126 and beyond because the CPU will not read ROM there. CoreLX
+does not impose a smaller cap. A figure of 7.8MB counts the full 64KB window
+of each bank, including the half that is not on the cartridge.
+
 **What this means for you, practically:**
 - **You don't write anything differently.** No bank keyword, no `--!`
   directive, no pragma. A ten-line program and a ten-thousand-line program
@@ -1751,13 +1921,18 @@ the machinery once.
   something you'll ever notice in ordinary game logic — it would only matter
   in an extremely tight, latency-critical inner loop, which isn't a thing
   CoreLX games typically need.
-- **The real ceiling is now 125 banks (≈3.9MB of code)** — not a number any
-  hobby-scale CoreLX game is likely to approach. Practically speaking, you
-  can just keep writing functions.
+- **Locals are a separate budget, and they are not cartridge space.** Every
+  function owns a fixed slice of WRAM for its variables, packed to the bytes
+  it actually uses, between `0x0100` and the call stack. The compiler rejects
+  a function that calls itself, or two functions that call each other, because
+  that slice is one slot, not a stack frame that grows per call. You can keep
+  writing functions until those locals, added
+  together, fill that region. Filling it does not shrink the 4,096,000-byte
+  ROM.
 - **How to tell if your build spilled into a second bank**: there's no
   dedicated report for it yet, but the crude signal works fine — a
-  single-bank `.cart`/`.rom` is at most 32KB plus a small header; once your
-  compiled output is noticeably larger than that, you're multi-bank.
+  single-bank `.cart`/`.rom` is 32KB plus the 32-byte header; once your
+  compiled output is larger than that, you're multi-bank.
 
 > **Fletcher:** I mention the measure-then-pack mechanics not because you'll
 > ever touch them, but because the day you *do* care — chasing down a weird
@@ -1784,8 +1959,11 @@ build. If a demo here ever stopped working, the build would break.
 
 ### `hello.corelx` — words on the glass
 
-The smallest complete program that shows you something. Run it: cyan
-`HELLO NITRO` near the middle of the screen.
+The smallest complete program that shows you something. Build + Run,
+and after the boot logo you get cyan `HELLO NITRO` near the middle of
+the screen.
+
+![HELLO NITRO in cyan](docs/manual/images/hello.png)
 
 ```corelx
 function Start()
@@ -1802,7 +1980,10 @@ flashes for a single frame and vanishes, because the screen clears every frame
 
 Press A, the number goes up by one. Hold A, it *still* only goes up by one,
 because `input.pressed` fires on the press, not every frame (Chapter 9). This
-is the machine-gun-glitch lesson turned into a thing you can hold.
+is the machine-gun-glitch lesson turned into a thing you can hold. The
+picture is one press later.
+
+![The counter after one press of A](docs/manual/images/counter.png)
 
 ```corelx
 var count: int = 0
@@ -1822,6 +2003,8 @@ function Start()
 
 The Sprite()/OAM workflow from Chapter 12, made concrete: an 8x8 box you drive
 with the D-pad, clamped to the screen.
+
+![The sprite demo](docs/manual/images/sprite.png)
 
 ```corelx
 const SPEED = 2
@@ -1869,6 +2052,8 @@ The big one: a pseudo-3D floor that rushes toward you as you drive the D-pad.
 It pulls together a tile asset, matrix-plane setup, the projection and camera
 builtins, global state, `input.held` movement, signed clamping to keep you
 inside the world, and a HUD.
+
+![The floor demo at its opening camera](docs/manual/images/floor.png)
 
 ```corelx
 asset Floor: tiles8 hex
@@ -1924,8 +2109,11 @@ function Start()
 This part grows as the real demo game grows. The current build (see
 `Games/NitroPackInDemo/`) already goes well beyond these small teaching
 demos — a full overworld with a walkable pseudo-3D floor, a building you can
-enter, an interior scene, an NPC with dialogue, and a credits screen — and
-each new system that lands there (enemies, combat, a health bar, an
+enter, an interior scene, an NPC with dialogue, and a credits screen.
+
+![The overworld, just after it finishes starting up](docs/manual/images/overworld.png)
+
+Each new system that lands there (enemies, combat, a health bar, an
 inventory, background music and sound effects) gets its own chapter here once
 it's built and verified, the same way every chapter above did.
 
@@ -1935,23 +2123,32 @@ it's built and verified, the same way every chapter above did.
 
 ## Build and Run Workflows
 
-### Workflow A: Nitro-Core-DX App (Recommended)
+### Workflow A: Dev Kit (Recommended)
 
-1. Open Nitro-Core-DX
-2. Open a `.corelx` file
-3. Click `Build + Run`
-4. The ROM is compiled and loaded into the embedded emulator
-
-Use `Load ROM` to test ROMs built by the CoreLX CLI, the assembler CLI, or Go
-test ROM generators — useful for validating emulator behavior separately from
-compiler behavior.
+Covered in full in the [Nitro-Core-DX Manual](NITRO_CORE_DX_MANUAL.md).
+The short version: File → New Project or Open Project…, then **Build +
+Run**. Open takes a `.corelx` (also `.clx` / `.txt`); **Load ROM** takes
+a `.rom`. The compiler CLI below is what you use for a `.ncdx` or a
+project folder.
 
 ### Workflow B: CoreLX CLI
 
 ```bash
-go run ./cmd/corelx mygame.corelx mygame.rom
-go run ./cmd/emulator -rom mygame.rom
+go run ./cmd/corelx mygame.corelx mygame.cart
 ```
+
+Open the player and choose that file with **File → Open ROM…**, or
+hand it straight to the window:
+
+```bash
+go run ./cmd/emulator -rom mygame.cart
+```
+
+The first argument may also be a `.ncdx` project file or a project folder.
+The output is written under whatever name you give it; the tool's usage line
+says `.cart` and the shipped demos use `.cart`, while this manual says `.rom`.
+They are the same file, and the memory map lands beside it with `.memmap`
+appended (`mygame.rom.memmap`, `overworld.cart.memmap`).
 
 ### Workflow C: Assembly CLI
 
@@ -1959,7 +2156,8 @@ go run ./cmd/emulator -rom mygame.rom
 go run ./cmd/asm mygame.asm mygame.rom
 ```
 
-Then use Nitro-Core-DX `Load ROM` (recommended) or the standalone emulator CLI.
+Then open it with the Dev Kit's **Load ROM**, or with the player's
+**File → Open ROM…**.
 
 ---
 
@@ -2029,10 +2227,10 @@ loop:
 `SHR` `CMP`
 **Control Flow:** `BEQ` `BNE` `BGT` `BLT` `BGE` `BLE` `JMP` `CALL` `RET`
 
-> **Watch Out:** `DIV` is unsigned with no sign correction, and `SHR` is
-> always logical, never arithmetic — the exact same two pitfalls as CoreLX's
-> `/` and `>>` from Chapter 1, because CoreLX's `/`/`>>` compile straight down
-> to these same instructions.
+> **Watch Out:** Assembly `DIV` is unsigned, and assembly `SHR` is a logical
+> shift. CoreLX `/` and `>>` are not those instructions directly: `/` is
+> signed (toward zero) and `>>` is an arithmetic shift. If you drop to
+> assembly, you take on the raw hardware behavior yourself.
 
 ### Example: Tiny Assembly ROM
 
@@ -2084,8 +2282,9 @@ Check these first:
 - Did you load tile data (`gfx.load_tiles`) before using the tile index?
 - Did you set visible palette colors (`gfx.init_default_palettes()` or
   `gfx.set_palette_color(...)`)?
-- If using sprites: did you write to OAM (`oam.write`) and call
-  `oam.flush()`?
+- If using sprites: did you actually write to OAM (`oam.write` or
+  `oam.write_sprite_data`) with `SPR_ENABLE()` set in `.ctrl`? (`oam.flush()`
+  is a no-op today — it isn't the cause if a sprite isn't showing up.)
 - If using a matrix plane: did you `matrix.enable(channel)` *and*
   `matrix_plane.enable(channel, size)` *and* `bg.bind_transform(layer,
   channel)`? All three are required — missing any one leaves the plane
@@ -2099,7 +2298,8 @@ frames. Add the `frame_counter()` debounce shown there.
 
 ### "Input does nothing in Nitro-Core-DX"
 
-- Make sure **Capture Game Input** is enabled and click the emulator pane once.
+- Make sure **Capture Input** is checked on the emulator pane (see the
+  [Nitro-Core-DX Manual](NITRO_CORE_DX_MANUAL.md)).
 - Confirm input works with a known-good ROM via `Load ROM` — this separates
   emulator issues from compiler issues.
 - If a button seems to fire constantly, check whether you meant
@@ -2118,10 +2318,11 @@ frames. Add the `frame_counter()` debounce shown there.
 See Chapter 13's camera-eye pitfall — check that every `matrix_plane` in the
 scene is fed the identical computed eye position each frame.
 
-### "`else if` doesn't seem to work / a branch always runs"
+### "A branch always runs"
 
-See Chapter 6 — `else if` on one line silently misparses. Use `else` alone on
-its own line with a fully nested `if`.
+A new `if` at the same indent is its own statement, not part of the chain
+above it. Use `else if` (or `elseif`) when only one of those branches should
+run. See Chapter 6.
 
 ### "Assembly ROM runs strangely"
 
@@ -2136,13 +2337,9 @@ its own line with a fully nested `if`.
 
 These are active directions, not promises of exact syntax:
 
-- `else if`/`elseif` chaining fixed to actually chain (Chapter 6)
-- `fixed / fixed` division
-- Signed `/` and arithmetic `>>` (or an explicit signed-shift alternative)
 - Richer asset model (tilemaps, palettes, gamedata, packaging integration)
-- Better diagnostics and editor integration (squiggles, find/replace)
+- Diagnostics that squiggle in the editor (Find and Replace are already in the Dev Kit)
 - Eventual mixed CoreLX + assembly support
-- Sound Studio (in-app audio authoring)
 - Debug overlays / memory viewers
 - Continued FM accuracy and performance improvements for the YM2608 backend
 
@@ -2152,17 +2349,11 @@ These are active directions, not promises of exact syntax:
 
 Use these for deeper details after you finish this manual:
 
-- `docs/README.md` — docs map / source-of-truth guide
-- `docs/CORELX.md` — language reference (partially stale, scheduled for a
-  rewrite; the authoritative live builtin list is the registration block in
-  `internal/corelx/semantic.go`)
-- `docs/specifications/CORELX_CARTRIDGE_FORMAT.md` — CoreLX cartridge/asset
-  format (v1 draft)
-- `docs/DEVKIT_ARCHITECTURE.md` — backend/frontend split for Nitro-Core-DX
-- `docs/specifications/COMPLETE_HARDWARE_SPECIFICATION_V2.1.md` — current
-  hardware spec reference
-- `docs/specifications/APU_FM_OPM_EXTENSION_SPEC.md` — YM2608 audio subsystem
-  runtime architecture/status
+- [Nitro-Core-DX Manual](NITRO_CORE_DX_MANUAL.md) — the console, the
+  hardware, the owner's guide, and the Dev Kit
+- `docs/archive/specifications/CORELX_COMPILER_SPECIFICATION.md` — the short language
+  contract (types, scope, data layout, ROM limits) that a reimplementation
+  must match; this manual is the tutorial, that file is the rulebook
 - `Games/NitroPackInDemo/` — the running demo game this manual's Part 2
   follows
 

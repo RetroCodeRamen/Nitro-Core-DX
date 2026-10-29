@@ -9,7 +9,11 @@ Authoritative references (do not duplicate them here — this doc points to them
 
 - **Design decisions:** `Games/NitroPackInDemo/CORELX_EXTRACTION.md` §13 (the
   decision record) and the per-session memory.
-- **Syntax (frozen at v1):** `docs/specifications/CORELX_SYNTAX_V1.md`.
+- **Language contract (current):**
+  `docs/specifications/CORELX_COMPILER_SPECIFICATION.md`, with
+  `PROGRAMMING_MANUAL.md` Part 1 as the tutorial. The original charter,
+  `docs/specifications/CORELX_SYNTAX_V1.md`, is marked superseded and is
+  kept as history only.
 - **Cartridge/project format:** `docs/specifications/CORELX_CARTRIDGE_FORMAT.md`.
 - **Build order:** `CORELX_EXTRACTION.md` §12 (now status-annotated).
 

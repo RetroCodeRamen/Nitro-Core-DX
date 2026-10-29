@@ -10,6 +10,18 @@ type SemanticAnalyzer struct {
 	symbols     map[string]*Symbol
 	diagnostics []Diagnostic
 	currentFunc *FunctionDecl
+	calls       []callEdge
+	constVals   map[string]int64
+	scopes      []scopeLayer
+}
+
+type savedBinding struct {
+	prev *Symbol
+	had  bool
+}
+
+type scopeLayer struct {
+	names map[string]savedBinding
 }
 
 // Symbol represents a symbol in the symbol table
@@ -45,7 +57,7 @@ func AnalyzeWithDiagnostics(program *Program) []Diagnostic {
 	analyzer.registerBuiltinFunctions()
 
 	// Predefined button-name constants for the input builtins.
-	for _, b := range []string{"UP", "DOWN", "LEFT", "RIGHT", "A", "B", "X", "Y", "L", "R", "START", "Z"} {
+	for _, b := range buttonNames() {
 		analyzer.symbols[b] = &Symbol{Name: b}
 	}
 
@@ -64,7 +76,7 @@ func AnalyzeWithDiagnostics(program *Program) []Diagnostic {
 	constVals := make(map[string]int64)
 	for _, c := range program.Consts {
 		if _, dup := analyzer.symbols[c.Name]; dup {
-			analyzer.addDiagnostic(c.Position, CategorySymbolError, "E_CONST_DUPLICATE", fmt.Sprintf("duplicate declaration of %s", c.Name), "")
+			analyzer.addDiagnostic(c.Position, CategorySymbolError, "E_CONST_DUPLICATE", duplicateNameMessage(c.Name), "")
 			continue
 		}
 		if _, err := evalConstExpr(c.Value, constVals); err != nil {
@@ -75,15 +87,35 @@ func AnalyzeWithDiagnostics(program *Program) []Diagnostic {
 		}
 		analyzer.symbols[c.Name] = &Symbol{Name: c.Name, Position: c.Position}
 	}
+	analyzer.constVals = constVals
 	for _, g := range program.Globals {
 		if _, dup := analyzer.symbols[g.Name]; dup {
-			analyzer.addDiagnostic(g.Position, CategorySymbolError, "E_GLOBAL_DUPLICATE", fmt.Sprintf("duplicate declaration of %s", g.Name), "")
+			analyzer.addDiagnostic(g.Position, CategorySymbolError, "E_GLOBAL_DUPLICATE", duplicateNameMessage(g.Name), "")
 			continue
 		}
-		if _, err := globalTypeSize(g.TypeName); err != nil {
+		if g.ArrayLenName != "" {
+			v, ok := constVals[g.ArrayLenName]
+			if !ok || v <= 0 || v > 0x4000 {
+				analyzer.addDiagnostic(g.Position, CategoryTypeError, "E_ARRAY_LEN", fmt.Sprintf("array length %s must be a constant between 1 and 16384", g.ArrayLenName), "")
+			} else {
+				g.ArrayLen = int(v)
+			}
+		}
+		if analyzer.isDeclaredStruct(g.TypeName) {
+			if g.Init != nil || len(g.InitList) > 0 {
+				analyzer.addDiagnostic(g.Position, CategoryTypeError, "E_GLOBAL_TYPE", fmt.Sprintf("struct global %s starts at zero; assign its fields", g.Name), "")
+			}
+		} else if g.Init != nil {
+			analyzer.checkInitType(g.Position, g.TypeName, g.Init, "global "+g.Name)
+		}
+		if err := analyzer.acceptGlobalType(g.TypeName); err != nil {
 			analyzer.addDiagnostic(g.Position, CategoryTypeError, "E_GLOBAL_TYPE", fmt.Sprintf("global %s: %v", g.Name, err), "")
 		}
-		analyzer.symbols[g.Name] = &Symbol{Name: g.Name, Position: g.Position}
+		var gType TypeExpr = &NamedType{Name: g.TypeName}
+		if g.ArrayLen > 0 {
+			gType = &ArrayType{Elem: &NamedType{Name: g.TypeName}, Len: g.ArrayLen}
+		}
+		analyzer.symbols[g.Name] = &Symbol{Name: g.Name, Type: gType, Position: g.Position}
 	}
 
 	// Register/analyze function declarations (name collisions first)
@@ -93,6 +125,7 @@ func AnalyzeWithDiagnostics(program *Program) []Diagnostic {
 	for _, fn := range program.Functions {
 		analyzer.analyzeFunction(fn)
 	}
+	analyzer.reportRecursion()
 
 	// Check for entry point function (Start or __Boot)
 	hasEntry := false
@@ -147,6 +180,7 @@ func (a *SemanticAnalyzer) registerBuiltinFunctions() {
 		"ppu.enable_display", "gfx.load_tiles", "gfx.set_palette", "gfx.set_palette_color", "gfx.init_default_palettes",
 		"boot.show_default",
 		"input.read", "input.poll", "input.held", "input.pressed", "input.released",
+		// Sprite attribute helpers. Implemented in codegen_builtin_sprite.go.
 		"SPR_PAL", "SPR_HFLIP", "SPR_VFLIP", "SPR_PRI",
 		"SPR_ENABLE", "SPR_SIZE_8", "SPR_SIZE_16",
 		"SPR_SIZE_32X16", "SPR_SIZE_32X32", "SPR_SIZE_64X32", "SPR_SIZE_64X64", "SPR_SIZE_128X64", "SPR_SIZE_128X128",
@@ -257,71 +291,67 @@ func (a *SemanticAnalyzer) analyzeFunction(fn *FunctionDecl) {
 		a.symbols = savedSymbols
 	}()
 
-	// Register parameters as local variables.
+	// Parameters and the function body share one scope. Blocks inside the
+	// body push their own, so a name in an if does not escape that if.
+	a.pushScope()
+	defer a.popScope()
 	for _, param := range fn.Params {
-		a.symbols[param.Name] = &Symbol{
+		a.resolveArrayLen(param.Type)
+		a.declareLocal(param.Position, param.Name, &Symbol{
 			Name:     param.Name,
 			Type:     param.Type,
 			Position: param.Position,
-		}
+		})
 	}
 
 	for _, stmt := range fn.Body {
 		a.analyzeStmt(stmt)
+	}
+	if fn.ReturnType != nil && !listReturns(fn.Body) {
+		a.addDiagnostic(fn.Position, CategoryTypeError, "E_RETURN_MISSING", fmt.Sprintf("function %s must return %s on every path", fn.Name, typeExprName(fn.ReturnType)), "")
 	}
 }
 
 func (a *SemanticAnalyzer) analyzeStmt(stmt Stmt) {
 	switch s := stmt.(type) {
 	case *VarDeclStmt:
-		// Variable declaration
-		if _, exists := a.symbols[s.Name]; exists {
-			existing := a.symbols[s.Name]
-			a.addDuplicateDiagnostic(s.Position, CategorySymbolError, "E_VAR_DUPLICATE", fmt.Sprintf("variable %s already defined", s.Name), "", existing.Position, "previous declaration")
-		} else {
-			var varType TypeExpr
-			if s.Type != nil {
-				varType = s.Type
-			} else {
-				// Infer type from value
-				varType = a.inferType(s.Value)
-			}
-			a.symbols[s.Name] = &Symbol{
-				Name:     s.Name,
-				Type:     varType,
-				Position: s.Position,
-			}
+		a.resolveArrayLen(s.Type)
+		a.declareLocal(s.Position, s.Name, &Symbol{
+			Name:     s.Name,
+			Type:     a.declType(s),
+			Position: s.Position,
+		})
+		if s.Type != nil {
+			a.checkInitType(s.Position, typeExprName(s.Type), s.Value, "variable "+s.Name)
 		}
 		a.analyzeExpr(s.Value)
 
 	case *AssignStmt:
 		a.analyzeExpr(s.Target)
 		a.analyzeExpr(s.Value)
+		a.checkAssign(s)
 
 	case *IfStmt:
 		a.analyzeExpr(s.Condition)
-		for _, stmt := range s.Then {
-			a.analyzeStmt(stmt)
-		}
+		a.withScope(s.Then)
 		for _, clause := range s.ElseIf {
 			a.analyzeExpr(clause.Condition)
-			for _, stmt := range clause.Body {
-				a.analyzeStmt(stmt)
-			}
+			a.withScope(clause.Body)
 		}
-		for _, stmt := range s.Else {
-			a.analyzeStmt(stmt)
-		}
+		a.withScope(s.Else)
 
 	case *WhileStmt:
 		a.analyzeExpr(s.Condition)
-		for _, stmt := range s.Body {
-			a.analyzeStmt(stmt)
-		}
+		a.withScope(s.Body)
 
 	case *ForStmt:
-		// BASIC counting loop: the loop variable is a fresh name in scope.
-		a.symbols[s.VarName] = &Symbol{Name: s.VarName, Position: s.Position}
+		// The loop variable exists for the bounds and the body, then goes away.
+		a.pushScope()
+		a.declareLocal(s.Position, s.VarName, &Symbol{
+			Name:     s.VarName,
+			Type:     &NamedType{Name: "int"},
+			Position: s.Position,
+		})
 		a.analyzeExpr(s.Start)
 		a.analyzeExpr(s.End)
 		if s.Step != nil {
@@ -330,11 +360,13 @@ func (a *SemanticAnalyzer) analyzeStmt(stmt Stmt) {
 		for _, stmt := range s.Body {
 			a.analyzeStmt(stmt)
 		}
+		a.popScope()
 
 	case *ReturnStmt:
 		if s.Value != nil {
 			a.analyzeExpr(s.Value)
 		}
+		a.checkReturn(s)
 
 	case *ExprStmt:
 		a.analyzeExpr(s.Expr)
@@ -351,34 +383,24 @@ func (a *SemanticAnalyzer) analyzeExpr(expr Expr) {
 		a.analyzeExpr(e.Operand)
 
 	case *CallExpr:
+		a.checkCall(e)
 		a.analyzeExpr(e.Func)
 		for _, arg := range e.Args {
 			a.analyzeExpr(arg)
 		}
 
 	case *MemberExpr:
-		a.analyzeExpr(e.Object)
-		// Member expressions like ppu.enable_display() are valid
-		// The object (ppu, sprite, oam, etc.) doesn't need to be a defined variable
-		// It's a namespace for built-in functions
+		if ident, ok := e.Object.(*IdentExpr); !ok || !a.isNamespace(ident.Name) {
+			a.analyzeExpr(e.Object)
+		}
 
 	case *IndexExpr:
 		a.analyzeExpr(e.Array)
 		a.analyzeExpr(e.Index)
 
 	case *IdentExpr:
-		// Check if it's a built-in namespace (ppu, sprite, oam, apu, gfx)
-		builtinNamespaces := map[string]bool{
-			"ppu": true, "sprite": true, "oam": true, "apu": true, "gfx": true, "input": true,
-			"mem": true, "bg": true, "matrix": true, "matrix_plane": true, "raster": true,
-			"text": true, "ym": true, "music": true, "boot": true,
-		}
-		if builtinNamespaces[e.Name] {
-			// Built-in namespace, valid
-			return
-		}
-		if a.isRequestedModule(e.Name) {
-			// A `--! modules: ...` namespace (e.g. `walker` in walker.update(...)), valid
+		if a.isNamespace(e.Name) {
+			a.addDiagnostic(e.Position, CategoryTypeError, "E_NAMESPACE_VALUE", fmt.Sprintf("%s is a namespace, not a value", e.Name), "")
 			return
 		}
 		if _, exists := a.symbols[e.Name]; !exists {
@@ -439,8 +461,10 @@ func (a *SemanticAnalyzer) addDuplicateDiagnostic(pos Position, category Diagnos
 func (a *SemanticAnalyzer) inferType(expr Expr) TypeExpr {
 	switch e := expr.(type) {
 	case *NumberExpr:
-		// Default to i16 for integers
-		return &NamedType{Name: "i16"}
+		if e.IsFixed {
+			return &NamedType{Name: "fixed"}
+		}
+		return &NamedType{Name: "int"}
 	case *BoolExpr:
 		return &NamedType{Name: "bool"}
 	case *StringExpr:

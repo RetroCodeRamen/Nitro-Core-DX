@@ -5,7 +5,7 @@ This directory contains hardware specifications, pin definitions, FPGA documenta
 ## Current / Preferred Specs
 
 - `CORELX_SYNTAX_V1.md`
-  - CoreLX v1 language syntax charter (decided 2026-06-12; governs the M8 rebuild and the v1 freeze)
+  - CoreLX v1 language syntax charter (decided 2026-06-12; governs the M8 rebuild and the v1 freeze). Carries a superseded banner as of 2026-07-22 — see `PROGRAMMING_MANUAL.md` for current language behavior.
 - `CORELX_CARTRIDGE_FORMAT.md`
   - CoreLX single-file cartridge format draft (sections, text asset encoding, editor round-trip contract)
 - `COMPLETE_HARDWARE_SPECIFICATION_V2.1.md`
@@ -40,8 +40,15 @@ This directory contains hardware specifications, pin definitions, FPGA documenta
 
 ## Historical / Superseded Specs (Keep for Context)
 
-- `HARDWARE_SPECIFICATION.md` (older v1.0; contains stale APU/FM details)
-- `COMPLETE_HARDWARE_SPECIFICATION.md` (older v2.0; superseded by v2.1)
+Moved to `docs/archive/` 2026-07-22 (superseded by
+`COMPLETE_HARDWARE_SPECIFICATION_V2.1.md`; four other docs that referenced
+them directly were repointed at V2.1 in the same pass):
+
+- `../archive/HARDWARE_SPECIFICATION.md` (older v1.0; contains stale APU/FM details)
+- `../archive/COMPLETE_HARDWARE_SPECIFICATION.md` (older v2.0; superseded by v2.1)
+- `CORELX_NITRO_CORE_8_COMPILER_DESIGN.md` (a forward-looking proposal for a
+  hypothetical second hardware target, not implemented anywhere in the
+  current codebase; carries a "proposed, not implemented" banner)
 
 ## Notes
 

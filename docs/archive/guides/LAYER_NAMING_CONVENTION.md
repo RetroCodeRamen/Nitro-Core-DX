@@ -47,7 +47,6 @@ The Nitro-Core-DX system consists of four distinct layers, from highest to lowes
 
 **Components**:
 - `docs/specifications/COMPLETE_HARDWARE_SPECIFICATION_V2.1.md`
-- `docs/specifications/HARDWARE_SPECIFICATION.md`
 - Register definitions and memory maps
 - Timing specifications (CPU speed, frame rate, etc.)
 

@@ -602,8 +602,8 @@ func (s *devKitState) buildTilemapPane() fyne.CanvasObject {
 		s.appendBuildOutput(summary)
 		statusLabel.SetText(summary)
 	})
-	applyProjectButton.Importance = widget.HighImportance
-	insertButton.Importance = widget.HighImportance
+	applyProjectButton.Importance = widget.MediumImportance
+	insertButton.Importance = widget.MediumImportance
 
 	applyManifestButton := widget.NewButton("Apply To Manifest", func() {
 		name := sanitizeSpriteLabName(nameEntry.Text)
@@ -632,9 +632,7 @@ func (s *devKitState) buildTilemapPane() fyne.CanvasObject {
 
 	canvasPanel := container.NewBorder(
 		container.NewVBox(
-			widget.NewLabel("Tilemap Canvas"),
-			container.NewHBox(widget.NewLabel("Map Size"), sizeSelect, sizeLabel, gridCheck),
-			toolGroup,
+			container.NewHBox(widget.NewLabel("Map"), sizeSelect, sizeLabel, gridCheck, toolGroup),
 			modeSummary,
 		),
 		container.NewHBox(coordLabel),
@@ -690,7 +688,7 @@ func (s *devKitState) buildTilemapPane() fyne.CanvasObject {
 	rebuildTileSetList()
 	refreshVisuals()
 
-	return container.NewBorder(nil, statusLabel, nil, nil, split)
+	return container.NewBorder(panelHeader("TILEMAP"), statusLabel, nil, nil, split)
 }
 
 func updateCanvasSizes(editorImage, previewImage *canvas.Image, overlay *spriteLabPaintOverlay, w, h int) {

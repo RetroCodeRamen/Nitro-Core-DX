@@ -11,6 +11,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/widget"
 )
 
@@ -23,26 +24,9 @@ type helpDocItem struct {
 
 var helpDocCatalog = []helpDocItem{
 	{"Start Here", "README", "README.md", "Project overview, downloads, quick start, and current status."},
-	{"Start Here", "Programming Manual", "PROGRAMMING_MANUAL.md", "Beginner-friendly guide for building software with CoreLX and Nitro-Core-DX."},
-	{"Start Here", "Documentation Index", "docs/README.md", "Organized entry point to specs, guides, testing, and planning docs."},
-
-	{"CoreLX", "CoreLX Language Guide", "docs/CORELX.md", "Language syntax, built-ins, and current compiler-supported features."},
-	{"CoreLX", "CoreLX Data Model Plan", "docs/CORELX_DATA_MODEL_PLAN.md", "Asset/data model and compiler packaging plan for the Dev Kit."},
-	{"CoreLX", "NC8 CoreLX Compiler Design", "docs/specifications/CORELX_NITRO_CORE_8_COMPILER_DESIGN.md", "Target-aware CoreLX compiler design for Nitro-Core-8."},
-
-	{"Dev Kit", "Dev Kit Architecture", "docs/DEVKIT_ARCHITECTURE.md", "Backend/frontend split and integration contract for Nitro-Core-DX."},
-	{"Dev Kit", "Release Binaries", "docs/guides/RELEASE_BINARIES.md", "How Linux/Windows release packages are built and distributed."},
-	{"Dev Kit", "Creating a Release", "docs/guides/CREATING_A_RELEASE.md", "Tag-and-publish release workflow using GitHub Actions."},
-	{"Dev Kit", "End of Day Procedure", "docs/guides/END_OF_DAY_PROCEDURE.md", "Project end-of-day checklist and maintenance flow."},
-
-	{"Hardware & Audio", "Hardware Spec v2.1", "docs/specifications/COMPLETE_HARDWARE_SPECIFICATION_V2.1.md", "Current source-of-truth hardware specification."},
-	{"Hardware & Audio", "APU FM OPM Extension Spec", "docs/specifications/APU_FM_OPM_EXTENSION_SPEC.md", "FM extension design and current implementation status."},
-	{"Hardware & Audio", "Hardware Features Status", "docs/HARDWARE_FEATURES_STATUS.md", "Implementation status snapshot across major subsystems."},
-
-	{"Testing & Project", "Testing Guide", "docs/testing/README.md", "Current test commands, tiers, and practical test workflows."},
-	{"Testing & Project", "Guides Index", "docs/guides/README.md", "Guides and operational workflows."},
-	{"Testing & Project", "Specifications Index", "docs/specifications/README.md", "Current and historical hardware/compiler specs."},
-	{"Testing & Project", "Planning Index", "docs/planning/README.md", "Planning docs and future feature parking lot."},
+	{"Start Here", "Nitro-Core-DX Manual", "NITRO_CORE_DX_MANUAL.md", "The console, the hardware, and the Dev Kit."},
+	{"Start Here", "CoreLX Programming Manual", "CORELX_PROGRAMMING_MANUAL.md", "The CoreLX language, builtins, and how studio assets land in source."},
+	{"Start Here", "Documentation Index", "docs/README.md", "The two manuals, the demo programs, and the archive."},
 }
 
 func (s *devKitState) buildMainMenu() *fyne.MainMenu {
@@ -73,12 +57,22 @@ func (s *devKitState) buildMainMenu() *fyne.MainMenu {
 		s.buildRecentFilesMenuItem(),
 	)
 
+	findItem := fyne.NewMenuItem("Find", func() { s.showEditorFind(false) })
+	findItem.Shortcut = &desktop.CustomShortcut{KeyName: fyne.KeyF, Modifier: fyne.KeyModifierControl}
+	replaceItem := fyne.NewMenuItem("Replace", func() { s.showEditorFind(true) })
+	replaceItem.Shortcut = &desktop.CustomShortcut{KeyName: fyne.KeyH, Modifier: fyne.KeyModifierControl}
+	gotoItem := fyne.NewMenuItem("Go to Line", func() { s.showEditorGoto() })
+	gotoItem.Shortcut = &desktop.CustomShortcut{KeyName: fyne.KeyG, Modifier: fyne.KeyModifierControl}
 	editMenu := fyne.NewMenu("Edit",
 		disabledMenuItem("Undo"),
 		disabledMenuItem("Redo"),
 		fyne.NewMenuItemSeparator(),
-		disabledMenuItem("Find"),
-		disabledMenuItem("Find Next"),
+		findItem,
+		fyne.NewMenuItem("Find Next", func() { s.editorFind(true) }),
+		fyne.NewMenuItem("Find Previous", func() { s.editorFind(false) }),
+		replaceItem,
+		fyne.NewMenuItemSeparator(),
+		gotoItem,
 	)
 
 	viewMenu := fyne.NewMenu("View",
@@ -90,6 +84,10 @@ func (s *devKitState) buildMainMenu() *fyne.MainMenu {
 		}),
 		fyne.NewMenuItem("Emulator Focus", func() {
 			s.setViewMode(viewModeEmulatorOnly)
+		}),
+		fyne.NewMenuItemSeparator(),
+		fyne.NewMenuItem("Focus Active Panel", func() {
+			s.togglePanelFocus()
 		}),
 	)
 
@@ -140,6 +138,13 @@ func (s *devKitState) buildMainMenu() *fyne.MainMenu {
 		}),
 		fyne.NewMenuItem("Layout: Emulator Focus", func() {
 			s.applyLayoutPreset(layoutPresetEmulatorFocus)
+		}),
+		fyne.NewMenuItemSeparator(),
+		fyne.NewMenuItem("Theme: Nitro Industrial", func() {
+			s.setThemeChoice(themeIndustrial)
+		}),
+		fyne.NewMenuItem("Theme: Nitro Classic", func() {
+			s.setThemeChoice(themeClassic)
 		}),
 		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("UI Density: Compact", func() {
@@ -212,7 +217,6 @@ func (s *devKitState) showHelpCenter() {
 	githubBase := "https://github.com/RetroCodeRamen/Nitro-Core-DX/blob/main/"
 
 	indexByCategory := make(map[string][]helpDocItem)
-	docByID := make(map[string]helpDocItem)
 	categories := make([]string, 0)
 	categorySet := make(map[string]bool)
 	for _, item := range helpDocCatalog {
@@ -221,7 +225,6 @@ func (s *devKitState) showHelpCenter() {
 			categorySet[item.Category] = true
 			categories = append(categories, item.Category)
 		}
-		docByID["doc:"+item.Path] = item
 	}
 	sort.Strings(categories)
 	for _, cat := range categories {
@@ -232,17 +235,36 @@ func (s *devKitState) showHelpCenter() {
 
 	titleLbl := widget.NewLabelWithStyle("Nitro-Core-DX Help Center", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 	pathLbl := widget.NewLabel("Select a document from the list")
-	pathLbl.Wrapping = fyne.TextWrapBreak
+	pathLbl.Wrapping = fyne.TextWrapWord
 	descLbl := widget.NewLabel("")
 	descLbl.Wrapping = fyne.TextWrapWord
 	statusLbl := widget.NewLabel("")
 	statusLbl.Wrapping = fyne.TextWrapWord
 
-	docViewer := widget.NewRichTextFromMarkdown("# Nitro-Core-DX Help Center\n\nSelect a document from the left panel.")
-	docViewer.Wrapping = fyne.TextWrapWord
-	docScroll := container.NewScroll(docViewer)
+	docHolder := container.NewMax(renderHelpDocument("Select a document from the list.", nil))
+	var headings []helpHeading
+	var sections []helpSection
+	var sectionList *widget.List
+	showMarkdown := func(markdown string) {
+		docHolder.Objects = []fyne.CanvasObject{container.NewScroll(renderHelpDocument(markdown, func(anchor string) {
+			for i, heading := range headings {
+				if headingMatchesAnchor(heading.Title, anchor) {
+					if sectionList != nil {
+						sectionList.Select(i + 1)
+					}
+					return
+				}
+			}
+		}))}
+		docHolder.Refresh()
+	}
 
 	var currentDoc helpDocItem
+	var currentMarkdown string
+
+	showSection := func(index int) {
+		showMarkdown(helpSectionMarkdown(currentMarkdown, headings, index))
+	}
 	loadDoc := func(item helpDocItem) {
 		currentDoc = item
 		titleLbl.SetText(item.Title)
@@ -251,12 +273,21 @@ func (s *devKitState) showHelpCenter() {
 
 		content, loadSource, err := loadHelpDocContent(projectRoot, item.Path)
 		if err != nil {
-			statusLbl.SetText(fmt.Sprintf("Could not load local doc (%v). Use 'Open on GitHub'.", err))
-			docViewer.ParseMarkdown(fmt.Sprintf("# %s\n\n%s\n\n**Local file not found:** `%s`\n\nUse the toolbar button to open the GitHub version.", item.Title, item.Description, item.Path))
-			return
+			statusLbl.SetText(fmt.Sprintf("Could not load local doc (%v). Use Open on GitHub.", err))
+			currentMarkdown = fmt.Sprintf("# %s\n\n%s\n\n**Local file not found:** `%s`\n\nUse the toolbar button to open the GitHub version.", item.Title, item.Description, item.Path)
+			headings = nil
+		} else {
+			statusLbl.SetText("Loaded from " + loadSource)
+			currentMarkdown = content
+			headings = helpHeadings(content)
 		}
-		statusLbl.SetText("Loaded from " + loadSource)
-		docViewer.ParseMarkdown(content)
+		sections = helpSectionList(headings)
+		if sectionList != nil {
+			sectionList.UnselectAll()
+			sectionList.Refresh()
+			sectionList.Select(0)
+		}
+		showSection(-1)
 	}
 
 	openGitHubBtn := widget.NewButton("Open on GitHub", func() {
@@ -273,68 +304,81 @@ func (s *devKitState) showHelpCenter() {
 		loadDoc(currentDoc)
 	})
 
-	tree := widget.NewTree(
-		func(uid string) []string {
-			switch {
-			case uid == "":
-				return []string{"root"}
-			case uid == "root":
-				ids := make([]string, 0, len(categories))
-				for _, cat := range categories {
-					ids = append(ids, "cat:"+cat)
-				}
-				return ids
-			case strings.HasPrefix(uid, "cat:"):
-				cat := strings.TrimPrefix(uid, "cat:")
-				items := indexByCategory[cat]
-				ids := make([]string, 0, len(items))
-				for _, item := range items {
-					ids = append(ids, "doc:"+item.Path)
-				}
-				return ids
-			default:
-				return nil
-			}
-		},
-		func(uid string) bool {
-			return uid == "root" || strings.HasPrefix(uid, "cat:")
-		},
-		func(branch bool) fyne.CanvasObject {
-			return widget.NewLabel("")
-		},
-		func(uid string, branch bool, obj fyne.CanvasObject) {
-			lbl := obj.(*widget.Label)
-			switch {
-			case uid == "root":
-				lbl.SetText("Documentation")
-			case strings.HasPrefix(uid, "cat:"):
-				lbl.SetText(strings.TrimPrefix(uid, "cat:"))
-			case strings.HasPrefix(uid, "doc:"):
-				if item, ok := docByID[uid]; ok {
-					lbl.SetText(item.Title)
-				} else {
-					lbl.SetText(strings.TrimPrefix(uid, "doc:"))
-				}
-			default:
-				lbl.SetText(uid)
-			}
-		},
-	)
-	tree.OpenAllBranches()
-	tree.OnSelected = func(uid widget.TreeNodeID) {
-		if !strings.HasPrefix(uid, "doc:") {
-			return
-		}
-		if item, ok := docByID[uid]; ok {
-			loadDoc(item)
+	type helpNavRow struct {
+		header bool
+		item   helpDocItem
+	}
+	navRows := make([]helpNavRow, 0, len(helpDocCatalog)+len(categories))
+	for _, cat := range categories {
+		navRows = append(navRows, helpNavRow{header: true, item: helpDocItem{Title: cat}})
+		for _, item := range indexByCategory[cat] {
+			navRows = append(navRows, helpNavRow{item: item})
 		}
 	}
-
-	leftPane := container.NewBorder(
-		widget.NewLabelWithStyle("Docs", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		nil, nil, nil,
-		tree,
+	docList := widget.NewList(
+		func() int { return len(navRows) },
+		func() fyne.CanvasObject {
+			lbl := widget.NewLabel("Document")
+			lbl.Wrapping = fyne.TextWrapWord
+			return lbl
+		},
+		func(id widget.ListItemID, obj fyne.CanvasObject) {
+			lbl := obj.(*widget.Label)
+			if id < 0 || id >= len(navRows) {
+				lbl.SetText("")
+				return
+			}
+			row := navRows[id]
+			if row.header {
+				lbl.TextStyle = fyne.TextStyle{Bold: true, Monospace: true}
+				lbl.SetText(strings.ToUpper(row.item.Title))
+				return
+			}
+			lbl.TextStyle = fyne.TextStyle{}
+			lbl.SetText(row.item.Title)
+		},
 	)
+	docList.OnSelected = func(id widget.ListItemID) {
+		if id < 0 || id >= len(navRows) || navRows[id].header {
+			return
+		}
+		loadDoc(navRows[id].item)
+	}
+
+	sectionList = widget.NewList(
+		func() int { return len(sections) },
+		func() fyne.CanvasObject {
+			lbl := widget.NewLabel("")
+			lbl.Wrapping = fyne.TextWrapWord
+			return lbl
+		},
+		func(id widget.ListItemID, obj fyne.CanvasObject) {
+			lbl := obj.(*widget.Label)
+			if id < 0 || id >= len(sections) {
+				lbl.SetText("")
+				return
+			}
+			lbl.SetText(sections[id].Title)
+		},
+	)
+	sectionList.OnSelected = func(id widget.ListItemID) {
+		if id < 0 || id >= len(sections) {
+			return
+		}
+		showSection(sections[id].Index)
+	}
+
+	docsPane := container.NewBorder(
+		widget.NewLabelWithStyle("DOCUMENTS", fyne.TextAlignLeading, fyne.TextStyle{Bold: true, Monospace: true}),
+		nil, nil, nil, docList,
+	)
+	outlinePane := container.NewBorder(
+		widget.NewLabelWithStyle("OUTLINE", fyne.TextAlignLeading, fyne.TextStyle{Bold: true, Monospace: true}),
+		nil, nil, nil, sectionList,
+	)
+	navSplit := container.NewVSplit(docsPane, outlinePane)
+	navSplit.Offset = 0.38
+	leftPane := navSplit
 
 	contentTop := container.NewVBox(
 		titleLbl,
@@ -344,16 +388,16 @@ func (s *devKitState) showHelpCenter() {
 		statusLbl,
 		widget.NewSeparator(),
 	)
-	rightPane := container.NewBorder(contentTop, nil, nil, nil, docScroll)
+	rightPane := container.NewBorder(contentTop, nil, nil, nil, docHolder)
 
 	split := container.NewHSplit(leftPane, rightPane)
-	split.Offset = 0.28
-	w.SetContent(split)
+	split.Offset = 0.30
+	w.SetContent(container.NewPadded(split))
 
 	// Default selection: Programming Manual if present, else first catalog entry.
 	var defaultItem *helpDocItem
 	for i := range helpDocCatalog {
-		if helpDocCatalog[i].Path == "PROGRAMMING_MANUAL.md" {
+		if helpDocCatalog[i].Path == "CORELX_PROGRAMMING_MANUAL.md" {
 			defaultItem = &helpDocCatalog[i]
 			break
 		}
@@ -362,8 +406,12 @@ func (s *devKitState) showHelpCenter() {
 		defaultItem = &helpDocCatalog[0]
 	}
 	if defaultItem != nil {
-		id := "doc:" + defaultItem.Path
-		tree.Select(id)
+		for i, row := range navRows {
+			if !row.header && row.item.Path == defaultItem.Path {
+				docList.Select(i)
+				break
+			}
+		}
 		loadDoc(*defaultItem)
 	}
 
@@ -412,7 +460,10 @@ func hasDocsTree(root string) bool {
 	if _, err := os.Stat(filepath.Join(root, "README.md")); err != nil {
 		return false
 	}
-	if _, err := os.Stat(filepath.Join(root, "PROGRAMMING_MANUAL.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(root, "CORELX_PROGRAMMING_MANUAL.md")); err != nil {
+		return false
+	}
+	if _, err := os.Stat(filepath.Join(root, "NITRO_CORE_DX_MANUAL.md")); err != nil {
 		return false
 	}
 	if _, err := os.Stat(filepath.Join(root, "docs", "README.md")); err != nil {

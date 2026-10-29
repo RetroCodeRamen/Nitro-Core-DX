@@ -475,7 +475,7 @@ This includes:
 
 ## References
 
-- **Hardware Specification**: `HARDWARE_SPECIFICATION.md`
+- **Hardware Specification**: `COMPLETE_HARDWARE_SPECIFICATION_V2.1.md`
 - **Memory Map**: See Hardware Specification, Section 3
 - **ROM Format**: See Hardware Specification, Section 9
 

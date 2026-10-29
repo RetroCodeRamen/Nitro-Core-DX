@@ -55,6 +55,8 @@ type coreLXCodeEditor struct {
 	lastRenderedText string
 	lastTokenSource  string
 	lastTokens       []corelx.Token
+
+	paper *canvas.Rectangle
 }
 
 func newCoreLXCodeEditor() *coreLXCodeEditor {
@@ -75,9 +77,35 @@ func newCoreLXCodeEditor() *coreLXCodeEditor {
 }
 
 func (e *coreLXCodeEditor) CreateRenderer() fyne.WidgetRenderer {
-	bg := canvas.NewRectangle(color.NRGBA{R: 12, G: 14, B: 18, A: 255})
-	return widget.NewSimpleRenderer(container.NewMax(bg, e.scroll))
+	if e.paper == nil {
+		e.paper = canvas.NewRectangle(activePalette.editorBG)
+	}
+	e.paper.FillColor = activePalette.editorBG
+	return &editorPaperRenderer{paper: e.paper, content: e.scroll, objs: []fyne.CanvasObject{e.paper, e.scroll}}
 }
+
+type editorPaperRenderer struct {
+	paper   *canvas.Rectangle
+	content fyne.CanvasObject
+	objs    []fyne.CanvasObject
+}
+
+func (r *editorPaperRenderer) Layout(size fyne.Size) {
+	r.paper.Resize(size)
+	r.paper.Move(fyne.NewPos(0, 0))
+	r.content.Resize(size)
+	r.content.Move(fyne.NewPos(0, 0))
+}
+
+func (r *editorPaperRenderer) MinSize() fyne.Size { return fyne.NewSize(420, 260) }
+
+func (r *editorPaperRenderer) Refresh() {
+	r.paper.FillColor = activePalette.editorBG
+	r.paper.Refresh()
+}
+
+func (r *editorPaperRenderer) Objects() []fyne.CanvasObject { return r.objs }
+func (r *editorPaperRenderer) Destroy()                     {}
 
 // MinSize is intentionally clamped so large buffers/long lines in TextGrid do
 // not force oversized window minimum limits, which can disable native maximize
@@ -240,6 +268,13 @@ func (e *coreLXCodeEditor) SetText(text string) {
 
 func (e *coreLXCodeEditor) Text() string { return e.model.Text() }
 
+func (e *coreLXCodeEditor) InsertAtCursor(text string) {
+	e.model.InsertText(text)
+	e.invalidateTokenCache()
+	e.notifyChanged()
+	e.scheduleRefresh()
+}
+
 func (e *coreLXCodeEditor) Cursor() (row, col int) {
 	return e.model.OffsetToLineCol(e.model.Caret.Offset)
 }
@@ -369,6 +404,7 @@ func (e *coreLXCodeEditor) scheduleRefresh() {
 			e.refreshPending = false
 			e.refreshMu.Unlock()
 			e.refreshGrid(e.model.Text())
+			e.Refresh()
 		})
 	})
 }
@@ -392,7 +428,7 @@ func (e *coreLXCodeEditor) applySyntaxHighlight(source string) {
 		activeRow = len(lines) - 1
 	}
 
-	lineStyle := &widget.CustomTextGridStyle{FGColor: theme.ForegroundColor(), BGColor: color.NRGBA{R: 23, G: 26, B: 33, A: 255}}
+	lineStyle := &widget.CustomTextGridStyle{FGColor: theme.ForegroundColor(), BGColor: activePalette.editorLine}
 	e.grid.SetRowStyle(activeRow, lineStyle)
 
 	tokens := e.lastTokens
@@ -414,7 +450,6 @@ func (e *coreLXCodeEditor) applySyntaxHighlight(source string) {
 			if tok.Type == corelx.TOKEN_EOF || tok.Line <= 0 || tok.Column <= 0 {
 				continue
 			}
-			style := tokenGridStyle(tok.Type, tok.Literal)
 			length := utf8.RuneCountInString(tok.Literal)
 			if length <= 0 {
 				length = utf8.RuneCountInString(tokenFallbackLiteral(tok.Type))
@@ -423,6 +458,7 @@ func (e *coreLXCodeEditor) applySyntaxHighlight(source string) {
 				continue
 			}
 			row := tok.Line - 1
+			style := tokenGridStyle(tok.Type, tok.Literal, row == activeRow)
 			startCol := tok.Column - 1
 			if row < 0 || row >= len(lines) {
 				continue
@@ -442,7 +478,7 @@ func (e *coreLXCodeEditor) applySyntaxHighlight(source string) {
 	}
 
 	e.applyLuaStyleSemanticHighlight(lines, tokens, activeRow, activeCol)
-	e.applySpritePaletteHighlight(source, lines)
+	e.applySpritePaletteHighlight(source, lines, activeRow)
 	e.applySelectionHighlight(lines)
 
 	lineLen := utf8.RuneCountInString(lines[activeRow])
@@ -453,7 +489,7 @@ func (e *coreLXCodeEditor) applySyntaxHighlight(source string) {
 		if activeCol < 0 {
 			activeCol = 0
 		}
-		cursorStyle := &widget.CustomTextGridStyle{FGColor: theme.ForegroundColor(), BGColor: color.NRGBA{R: 60, G: 72, B: 95, A: 255}}
+		cursorStyle := &widget.CustomTextGridStyle{FGColor: theme.ForegroundColor(), BGColor: activePalette.editorCaret}
 		e.grid.SetStyle(activeRow, activeCol, cursorStyle)
 	}
 
@@ -470,7 +506,7 @@ func (e *coreLXCodeEditor) applySelectionHighlight(lines []string) {
 	}
 	startRow, startCol := e.model.OffsetToLineCol(start)
 	endRow, endCol := e.model.OffsetToLineCol(end)
-	selStyle := &widget.CustomTextGridStyle{FGColor: theme.ForegroundColor(), BGColor: color.NRGBA{R: 54, G: 72, B: 103, A: 255}}
+	selStyle := &widget.CustomTextGridStyle{FGColor: theme.ForegroundColor(), BGColor: activePalette.editorSelect}
 	for row := startRow; row <= endRow && row < len(lines); row++ {
 		lineLen := utf8.RuneCountInString(lines[row])
 		if lineLen <= 0 {
@@ -510,12 +546,12 @@ func isWordRune(r rune) bool {
 }
 
 func (e *coreLXCodeEditor) applyLuaStyleSemanticHighlight(lines []string, tokens []corelx.Token, cursorRow, cursorCol int) {
-	functionStyle := &widget.CustomTextGridStyle{TextStyle: fyne.TextStyle{Bold: true}, FGColor: color.NRGBA{R: 0x9A, G: 0xD7, B: 0xEA, A: 0xFF}, BGColor: color.Transparent}
-	localVarStyle := &widget.CustomTextGridStyle{FGColor: color.NRGBA{R: 0x8D, G: 0xE0, B: 0xC1, A: 0xFF}, BGColor: color.Transparent}
-	globalVarStyle := &widget.CustomTextGridStyle{FGColor: color.NRGBA{R: 0x7B, G: 0xC6, B: 0xDE, A: 0xFF}, BGColor: color.Transparent}
-	constantStyle := &widget.CustomTextGridStyle{TextStyle: fyne.TextStyle{Bold: true}, FGColor: color.NRGBA{R: 0xF4, G: 0xBE, B: 0x56, A: 0xFF}, BGColor: color.Transparent}
-	namespaceStyle := &widget.CustomTextGridStyle{TextStyle: fyne.TextStyle{Bold: true}, FGColor: color.NRGBA{R: 0x6D, G: 0xB6, B: 0xFF, A: 0xFF}, BGColor: color.Transparent}
-	typeStyle := &widget.CustomTextGridStyle{FGColor: color.NRGBA{R: 0xCF, G: 0xA8, B: 0xFF, A: 0xFF}, BGColor: color.Transparent}
+	functionStyle := &widget.CustomTextGridStyle{TextStyle: fyne.TextStyle{Bold: true}, FGColor: activePalette.syntaxFunction, BGColor: color.Transparent}
+	localVarStyle := &widget.CustomTextGridStyle{FGColor: activePalette.syntaxIdent, BGColor: color.Transparent}
+	globalVarStyle := &widget.CustomTextGridStyle{FGColor: activePalette.syntaxIdent, BGColor: color.Transparent}
+	constantStyle := &widget.CustomTextGridStyle{TextStyle: fyne.TextStyle{Bold: true}, FGColor: activePalette.syntaxKeyword, BGColor: color.Transparent}
+	namespaceStyle := &widget.CustomTextGridStyle{TextStyle: fyne.TextStyle{Bold: true}, FGColor: activePalette.syntaxNamespace, BGColor: color.Transparent}
+	typeStyle := &widget.CustomTextGridStyle{FGColor: activePalette.syntaxType, BGColor: color.Transparent}
 
 	for row, line := range lines {
 		code := line
@@ -526,13 +562,13 @@ func (e *coreLXCodeEditor) applyLuaStyleSemanticHighlight(lines []string, tokens
 			continue
 		}
 
-		applyGroupMatches(e.grid, row, code, reConstSymbol, 1, constantStyle)
-		applyAPINamespaceMatches(e.grid, row, code, namespaceStyle)
-		applyGroupMatches(e.grid, row, code, reFunctionDecl, 1, functionStyle)
-		applyFilteredGroupMatches(e.grid, row, code, reFunctionCall, 1, functionStyle, func(name string) bool {
+		applyGroupMatches(e.grid, row, cursorRow, code, reConstSymbol, 1, constantStyle)
+		applyAPINamespaceMatches(e.grid, row, cursorRow, code, namespaceStyle)
+		applyGroupMatches(e.grid, row, cursorRow, code, reFunctionDecl, 1, functionStyle)
+		applyFilteredGroupMatches(e.grid, row, cursorRow, code, reFunctionCall, 1, functionStyle, func(name string) bool {
 			return !isKeywordIdent(name) && !isLikelyTypeName(name)
 		})
-		applyFilteredGroupMatches(e.grid, row, code, reTypeCall, 1, typeStyle, func(name string) bool {
+		applyFilteredGroupMatches(e.grid, row, cursorRow, code, reTypeCall, 1, typeStyle, func(name string) bool {
 			return !isKeywordIdent(strings.ToLower(name))
 		})
 	}
@@ -543,7 +579,7 @@ func (e *coreLXCodeEditor) applyLuaStyleSemanticHighlight(lines []string, tokens
 
 	functionNames, functionLocals, tokenFunctionCtx := analyzeIdentifierSemantics(tokens)
 	cursorSymbol, cursorSymbolFunc := symbolAtCursor(tokens, tokenFunctionCtx, cursorRow, cursorCol)
-	cursorSymbolStyle := &widget.CustomTextGridStyle{TextStyle: fyne.TextStyle{Bold: true}, FGColor: color.NRGBA{R: 0xFF, G: 0xF2, B: 0xB3, A: 0xFF}, BGColor: color.NRGBA{R: 0x3A, G: 0x3F, B: 0x22, A: 0xFF}}
+	cursorSymbolStyle := &widget.CustomTextGridStyle{TextStyle: fyne.TextStyle{Bold: true}, FGColor: activePalette.hazard, BGColor: activePalette.editorCaret}
 
 	for i, tok := range tokens {
 		if tok.Type != corelx.TOKEN_IDENTIFIER || tok.Line <= 0 || tok.Column <= 0 || tok.Literal == "" {
@@ -566,13 +602,13 @@ func (e *coreLXCodeEditor) applyLuaStyleSemanticHighlight(lines []string, tokens
 		}
 
 		if functionNames[tok.Literal] && (prevType == corelx.TOKEN_FUNCTION || nextType == corelx.TOKEN_LPAREN) {
-			e.grid.SetStyleRange(row, startCol, row, endCol, functionStyle)
+			e.grid.SetStyleRange(row, startCol, row, endCol, styleOnActiveLine(functionStyle, row, cursorRow))
 		} else {
 			fn := tokenFunctionCtx[i]
 			if fn != "" && functionLocals[fn][tok.Literal] {
-				e.grid.SetStyleRange(row, startCol, row, endCol, localVarStyle)
+				e.grid.SetStyleRange(row, startCol, row, endCol, styleOnActiveLine(localVarStyle, row, cursorRow))
 			} else {
-				e.grid.SetStyleRange(row, startCol, row, endCol, globalVarStyle)
+				e.grid.SetStyleRange(row, startCol, row, endCol, styleOnActiveLine(globalVarStyle, row, cursorRow))
 			}
 		}
 
@@ -673,7 +709,19 @@ func tokenTypeAt(tokens []corelx.Token, idx int) corelx.TokenType {
 	return tokens[idx].Type
 }
 
-func applyGroupMatches(grid *widget.TextGrid, row int, line string, rx *regexp.Regexp, group int, style widget.TextGridStyle) {
+func styleOnActiveLine(base *widget.CustomTextGridStyle, row, activeRow int) widget.TextGridStyle {
+	if base == nil || row != activeRow {
+		return base
+	}
+	cp := *base
+	_, _, _, a := cp.BGColor.RGBA()
+	if a < 0x8000 {
+		cp.BGColor = activePalette.editorLine
+	}
+	return &cp
+}
+
+func applyGroupMatches(grid *widget.TextGrid, row, activeRow int, line string, rx *regexp.Regexp, group int, style *widget.CustomTextGridStyle) {
 	matches := rx.FindAllStringSubmatchIndex(line, -1)
 	for _, m := range matches {
 		if group*2+1 >= len(m) {
@@ -686,12 +734,12 @@ func applyGroupMatches(grid *widget.TextGrid, row int, line string, rx *regexp.R
 		startCol := byteToRuneCol(line, startByte)
 		endCol := byteToRuneCol(line, endByte) - 1
 		if endCol >= startCol {
-			grid.SetStyleRange(row, startCol, row, endCol, style)
+			grid.SetStyleRange(row, startCol, row, endCol, styleOnActiveLine(style, row, activeRow))
 		}
 	}
 }
 
-func applyFilteredGroupMatches(grid *widget.TextGrid, row int, line string, rx *regexp.Regexp, group int, style widget.TextGridStyle, keep func(string) bool) {
+func applyFilteredGroupMatches(grid *widget.TextGrid, row, activeRow int, line string, rx *regexp.Regexp, group int, style *widget.CustomTextGridStyle, keep func(string) bool) {
 	matches := rx.FindAllStringSubmatchIndex(line, -1)
 	for _, m := range matches {
 		if group*2+1 >= len(m) {
@@ -708,12 +756,12 @@ func applyFilteredGroupMatches(grid *widget.TextGrid, row int, line string, rx *
 		startCol := byteToRuneCol(line, startByte)
 		endCol := byteToRuneCol(line, endByte) - 1
 		if endCol >= startCol {
-			grid.SetStyleRange(row, startCol, row, endCol, style)
+			grid.SetStyleRange(row, startCol, row, endCol, styleOnActiveLine(style, row, activeRow))
 		}
 	}
 }
 
-func applyAPINamespaceMatches(grid *widget.TextGrid, row int, line string, style widget.TextGridStyle) {
+func applyAPINamespaceMatches(grid *widget.TextGrid, row, activeRow int, line string, style *widget.CustomTextGridStyle) {
 	matches := reAPINamespace.FindAllStringSubmatchIndex(line, -1)
 	for _, m := range matches {
 		if len(m) < 4 {
@@ -729,7 +777,7 @@ func applyAPINamespaceMatches(grid *widget.TextGrid, row int, line string, style
 		startCol := byteToRuneCol(line, startByte)
 		endCol := byteToRuneCol(line, endByte) - 1
 		if endCol >= startCol {
-			grid.SetStyleRange(row, startCol, row, endCol, style)
+			grid.SetStyleRange(row, startCol, row, endCol, styleOnActiveLine(style, row, activeRow))
 		}
 	}
 }
@@ -761,7 +809,7 @@ func isLikelyTypeName(name string) bool {
 	return first >= 'A' && first <= 'Z'
 }
 
-func (e *coreLXCodeEditor) applySpritePaletteHighlight(source string, lines []string) {
+func (e *coreLXCodeEditor) applySpritePaletteHighlight(source string, lines []string, activeRow int) {
 	paletteColors, paletteSet := parsePaletteAssignments(source)
 	assetPalette := inferAssetPaletteBanks(source)
 	spriteLabHints := inferSpriteLabAssetPaletteHints(lines)
@@ -826,13 +874,7 @@ func (e *coreLXCodeEditor) applySpritePaletteHighlight(source string, lines []st
 			if !ok {
 				continue
 			}
-			fg := theme.ForegroundColor()
-			if nib == 0 && !paletteSet[bank][nib] {
-				fg = theme.DisabledColor()
-			} else if paletteSet[bank][nib] {
-				fg = paletteColors[bank][nib]
-			}
-			e.grid.SetStyle(row, col, &widget.CustomTextGridStyle{FGColor: fg, BGColor: color.Transparent})
+			e.grid.SetStyle(row, col, hexDigitStyle(paletteColors[bank][nib], paletteSet[bank][nib], row == activeRow))
 		}
 	}
 }
@@ -975,24 +1017,55 @@ func hexNibbleValue(r rune) (int, bool) {
 	}
 }
 
-func tokenGridStyle(tt corelx.TokenType, literal string) widget.TextGridStyle {
+func tokenGridStyle(tt corelx.TokenType, literal string, onActive bool) widget.TextGridStyle {
 	fg := theme.ForegroundColor()
 	style := fyne.TextStyle{}
 	switch {
 	case isKeyword(tt):
-		fg = theme.PrimaryColor()
+		fg = activePalette.syntaxKeyword
 	case tt == corelx.TOKEN_STRING:
-		fg = color.NRGBA{R: 0xE6, G: 0xA6, B: 0x5E, A: 0xFF}
+		fg = activePalette.syntaxString
 	case tt == corelx.TOKEN_NUMBER:
-		fg = color.NRGBA{R: 0xE3, G: 0xD5, B: 0x8B, A: 0xFF}
+		fg = activePalette.syntaxNumber
 	case tt == corelx.TOKEN_COMMENT:
-		fg = theme.DisabledColor()
+		fg = activePalette.syntaxComment
 		style.Italic = true
 	case tt == corelx.TOKEN_IDENTIFIER && strings.HasPrefix(literal, "SYS_"):
-		fg = theme.Color(theme.ColorNameFocus)
+		fg = activePalette.syntaxKeyword
 		style.Bold = true
 	case tt == corelx.TOKEN_IDENTIFIER:
-		fg = color.NRGBA{R: 0x8D, G: 0xE0, B: 0xC1, A: 0xFF}
+		fg = activePalette.syntaxIdent
 	}
-	return &widget.CustomTextGridStyle{TextStyle: style, FGColor: fg, BGColor: color.Transparent}
+	bg := color.Color(color.Transparent)
+	if onActive {
+		bg = activePalette.editorLine
+	}
+	return &widget.CustomTextGridStyle{TextStyle: style, FGColor: fg, BGColor: bg}
+}
+
+// hexDigitStyle keeps palette identity for asset hex while staying readable.
+// Known palette colors that fail contrast against the editor are drawn as a
+// chip with light or dark ink instead of as dim text.
+func hexDigitStyle(palette color.NRGBA, known, onActive bool) *widget.CustomTextGridStyle {
+	fg := color.Color(activePalette.syntaxNumber)
+	bg := color.Color(color.Transparent)
+	if onActive {
+		bg = activePalette.editorLine
+	}
+	if known {
+		paper := activePalette.editorBG
+		if onActive {
+			paper = activePalette.editorLine
+		}
+		if contrastRatio(palette, paper) >= 4.5 {
+			fg = palette
+		} else {
+			// A quiet tint of the real palette color. The hue stays, and the
+			// cell no longer paints a solid poster over the surrounding source.
+			chip := mixNRGBA(palette, paper, 0.82)
+			bg = chip
+			fg = readableInk(chip)
+		}
+	}
+	return &widget.CustomTextGridStyle{FGColor: fg, BGColor: bg}
 }

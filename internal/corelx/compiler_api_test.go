@@ -485,6 +485,30 @@ function Start()
 	}
 }
 
+func TestNoROMBytesOmitsTheResultBuffer(t *testing.T) {
+	src := `
+function Start()
+    wait_vblank()
+`
+	res, err := CompileSource(src, "no_rom.corelx", &CompileOptions{NoROMBytes: true, NoManifestJSON: true})
+	if err != nil {
+		t.Fatalf("unexpected compile error: %v", err)
+	}
+	if len(res.ROMBytes) != 0 {
+		t.Fatalf("ROM bytes still attached: %d", len(res.ROMBytes))
+	}
+	if len(res.ManifestJSON) != 0 {
+		t.Fatalf("manifest JSON still attached: %d", len(res.ManifestJSON))
+	}
+	partial, err := CompileSource(src, "partial.corelx", &CompileOptions{})
+	if err != nil {
+		t.Fatalf("partial options: %v", err)
+	}
+	if len(partial.ROMBytes) == 0 {
+		t.Fatalf("a zero EmitROMBytes must keep the default ROM bytes")
+	}
+}
+
 func TestCompileSourceROMBudgetOverflowDiagnostic(t *testing.T) {
 	src := `
 function Start()

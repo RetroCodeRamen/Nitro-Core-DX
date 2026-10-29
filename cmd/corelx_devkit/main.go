@@ -139,6 +139,11 @@ type devKitState struct {
 	buildStateLabel *widget.Label
 	pathLabel       *widget.Label
 	sourceEditor    *coreLXCodeEditor
+	findBar         fyne.CanvasObject
+	findEntry       *widget.Entry
+	replaceEntry    *widget.Entry
+	gotoEntry       *widget.Entry
+	findMatchCase   *widget.Check
 	buildOutput     *widget.Entry
 	manifestOutput  *widget.Entry
 	debuggerOutput  *widget.Entry
@@ -157,21 +162,36 @@ type devKitState struct {
 	bottomLeftTabs   *container.AppTabs
 	leftSplit        *container.Split
 	mainSplit        *container.Split
+	codeSplit        *container.Split
 	editorPane       fyne.CanvasObject
 	workbenchTabs    *container.AppTabs
 	splitViewBtn     *widget.Button
 	emulatorFocusBtn *widget.Button
 	codeOnlyBtn      *widget.Button
+	focusPanelBtn    *widget.Button
 	runBtn           *widget.Button
 	pauseBtn         *widget.Button
 	stopBtn          *widget.Button
 
-	emuScale   int
-	emuImage   *canvas.Image
-	emuKeys    *emulatorKeyOverlay
-	emuLabel   *widget.Label
-	audioDev   sdl.AudioDeviceID
-	audioFrame []byte
+	emuScale       int
+	emuImage       *canvas.Image
+	emuKeys        *emulatorKeyOverlay
+	emuLabel       *widget.Label
+	emuWell        *canvas.Rectangle
+	hardwareLamp   *statusLamp
+	brandLamp      *statusLamp
+	wordmark       *canvas.Text
+	idleReadout    fyne.CanvasObject
+	emuIdle        fyne.CanvasObject
+	machinePhase   string
+	panelFocused   bool
+	applyingFocus  bool
+	focusSavedView viewMode
+	focusSavedMain float64
+	focusSavedLeft float64
+	focusSavedDiag bool
+	audioDev       sdl.AudioDeviceID
+	audioFrame     []byte
 
 	frameImages [2]*image.RGBA
 	frameIdx    int
@@ -216,11 +236,7 @@ func main() {
 	settings, settingsErr := loadDevKitSettings(settingsPath)
 	launchDir, _ := os.Getwd()
 
-	if settings.UIDensity == "standard" {
-		a.Settings().SetTheme(newStandardTheme())
-	} else {
-		a.Settings().SetTheme(newCompactTheme())
-	}
+	a.Settings().SetTheme(newNitroTheme(settings.Theme, settings.UIDensity))
 
 	w := a.NewWindow("Nitro-Core-DX")
 	w.SetFixedSize(false)
@@ -243,7 +259,7 @@ func main() {
 		window:               w,
 		currentView:          initialView,
 		statusLabel:          widget.NewLabel("Ready"),
-		buildStateLabel:      widget.NewLabel("Build State: Draft"),
+		buildStateLabel:      widget.NewLabel("Draft"),
 		pathLabel:            widget.NewLabel("Untitled.corelx"),
 		diagnostics:          make([]corelx.Diagnostic, 0),
 		filteredDiagnostics:  make([]corelx.Diagnostic, 0),
@@ -428,8 +444,12 @@ func (s *devKitState) initUI() {
 		func(key *fyne.KeyEvent) { s.handleKeyDown(key) },
 		func(key *fyne.KeyEvent) { s.handleKeyUp(key) },
 	)
-	s.emuLabel = widget.NewLabel("Hardware: idle")
-	s.emuSurface = container.NewStack(s.emuImage, s.emuKeys)
+	s.hardwareLamp = newStatusLamp(activePalette.disabled)
+	s.machinePhase = "idle"
+	s.emuLabel = widget.NewLabel("No program loaded. Build + Run or Load ROM.")
+	s.emuWell = canvas.NewRectangle(activePalette.recessed)
+	s.emuIdle = s.newEmulatorIdleCard()
+	s.emuSurface = container.NewStack(s.emuImage, s.emuIdle, s.emuKeys)
 
 	s.captureCheck = widget.NewCheck("Capture Input", func(v bool) {
 		s.captureGameInput = v
@@ -441,15 +461,15 @@ func (s *devKitState) initUI() {
 	})
 	s.captureCheck.SetChecked(s.captureGameInput)
 
-	s.diagnosticSummary = widget.NewLabel("Errors: 0 | Warnings: 0 | Info: 0")
+	s.diagnosticSummary = widget.NewLabel("No build issues")
+	s.diagnosticSummary.Importance = widget.SuccessImportance
 	s.diagnosticsToggle = widget.NewButton("Collapse", func() {
 		s.toggleDiagnosticsPanel()
 	})
-	diagToolbar := container.NewHBox(
-		s.diagnosticSummary,
-		s.diagnosticFilter,
-		s.diagnosticSearch,
-		s.diagnosticsToggle,
+	searchBox := container.NewGridWrap(fyne.NewSize(220, 36), s.diagnosticSearch)
+	diagToolbar := container.NewVBox(
+		container.NewHBox(s.diagnosticSummary, s.diagnosticFilter, layout.NewSpacer(), s.diagnosticsToggle),
+		searchBox,
 	)
 	diagSplit := container.NewVSplit(s.diagnosticsList, s.diagnosticDetail)
 	diagSplit.Offset = 0.62
@@ -469,22 +489,25 @@ func (s *devKitState) initUI() {
 	)
 
 	s.editorPane = container.NewBorder(
-		container.NewVBox(s.pathLabel, s.buildStateLabel),
+		container.NewVBox(panelHeader("SOURCE"), s.buildEditorFindBar()),
 		nil, nil, nil,
 		s.sourceEditor,
 	)
 	spriteLabPane := s.buildSpriteLabPane()
 	tilemapPane := s.buildTilemapPane()
-	soundStudioPlaceholder := widget.NewLabel("Sound Studio (coming next)\n\nPlanned: music/ambience/SFX authoring integrated with packaging.")
+	soundPane := s.buildSoundStudioPane()
 	s.workbenchTabs = container.NewAppTabs(
 		container.NewTabItem("Code", s.editorPane),
 		container.NewTabItem("Sprite Lab", spriteLabPane),
 		container.NewTabItem("Tilemap", tilemapPane),
-		container.NewTabItem("Sound", container.NewScroll(soundStudioPlaceholder)),
+		container.NewTabItem("Sound", soundPane),
 	)
 
 	s.centerHost = container.NewMax()
-	s.contentRoot = container.NewBorder(s.buildToolbar(), s.statusLabel, nil, nil, s.centerHost)
+	s.contentRoot = container.NewBorder(
+		container.NewVBox(s.buildToolbar(), newHazardStripe()),
+		s.statusLabel, nil, nil, s.centerHost,
+	)
 	s.window.SetContent(s.contentRoot)
 	s.window.Canvas().AddShortcut(&desktop.CustomShortcut{KeyName: fyne.KeyZ, Modifier: fyne.KeyModifierControl}, func(fyne.Shortcut) {
 		if !s.spriteLabHotkeysEnabled() || s.spriteLabUndo == nil {
@@ -530,18 +553,24 @@ func (s *devKitState) buildToolbar() fyne.CanvasObject {
 	s.stopBtn = widget.NewButton("Stop", func() { s.stopEmulator() })
 	s.stopBtn.Importance = widget.DangerImportance
 
-	stepFrameBtn := widget.NewButton("Step F", func() { s.stepFrame() })
-	stepCPUBtn := widget.NewButton("Step C", func() { s.stepCPU() })
+	stepFrameBtn := widget.NewButton("Step Frame", func() { s.stepFrame() })
+	stepCPUBtn := widget.NewButton("Step CPU", func() { s.stepCPU() })
 	markFrameBtn := widget.NewButton("Mark Frame", func() { s.markCurrentFrame() })
 
 	s.splitViewBtn = widget.NewButton("Split View", func() { s.setViewMode(viewModeFull) })
 	s.emulatorFocusBtn = widget.NewButton("Emulator Focus", func() { s.setViewMode(viewModeEmulatorOnly) })
 	s.codeOnlyBtn = widget.NewButton("Code Only", func() { s.setViewMode(viewModeCodeOnly) })
+	s.focusPanelBtn = widget.NewButton("Focus Panel", func() { s.togglePanelFocus() })
 	s.refreshViewToggleButtons()
 
 	loadROMBtn := widget.NewButton("Load ROM", func() { s.openROMDialog() })
 
-	return container.NewHBox(
+	s.brandLamp = newStatusLamp(activePalette.hazard)
+	s.wordmark = canvas.NewText("NITRO CORE DX", activePalette.hazard)
+	s.wordmark.TextStyle = fyne.TextStyle{Bold: true}
+	s.wordmark.TextSize = 12
+	identity := container.NewHBox(s.brandLamp, s.wordmark, layout.NewSpacer(), s.pathLabel, s.buildStateLabel)
+	tools := container.NewHBox(
 		newProjectBtn,
 		openProjectBtn,
 		saveBtn,
@@ -553,6 +582,7 @@ func (s *devKitState) buildToolbar() fyne.CanvasObject {
 		s.runBtn,
 		s.pauseBtn,
 		s.stopBtn,
+		widget.NewSeparator(),
 		stepFrameBtn,
 		stepCPUBtn,
 		markFrameBtn,
@@ -560,10 +590,18 @@ func (s *devKitState) buildToolbar() fyne.CanvasObject {
 		s.codeOnlyBtn,
 		s.splitViewBtn,
 		s.emulatorFocusBtn,
+		s.focusPanelBtn,
 	)
+	return container.NewVBox(identity, tools)
 }
 
 func (s *devKitState) setViewMode(mode viewMode) {
+	if !s.applyingFocus {
+		s.panelFocused = false
+		if s.focusPanelBtn != nil {
+			s.focusPanelBtn.SetText("Focus Panel")
+		}
+	}
 	s.captureLayoutState()
 	s.currentView = mode
 	s.settings.ViewMode = string(mode)
@@ -571,12 +609,7 @@ func (s *devKitState) setViewMode(mode viewMode) {
 
 	switch mode {
 	case viewModeEmulatorOnly:
-		emuLayout := container.NewBorder(
-			container.NewHBox(s.emuLabel, layout.NewSpacer(), s.captureCheck),
-			nil, nil, nil,
-			s.emuSurface,
-		)
-		s.centerHost.Objects = []fyne.CanvasObject{emuLayout}
+		s.centerHost.Objects = []fyne.CanvasObject{s.emulatorInstrument()}
 		s.setStatus("View: Emulator Focus")
 		if s.captureGameInput {
 			s.focusEmulatorInput()
@@ -584,15 +617,14 @@ func (s *devKitState) setViewMode(mode viewMode) {
 	case viewModeCodeOnly:
 		codeLayout := container.NewVSplit(s.workbenchTabs, s.bottomLeftTabs)
 		codeLayout.Offset = 0.72
+		if len(s.diagnostics) == 0 {
+			codeLayout.Offset = 0.86
+		}
+		s.codeSplit = codeLayout
 		s.centerHost.Objects = []fyne.CanvasObject{codeLayout}
 		s.setStatus("View: Code Only")
 	default:
-		emuPane := container.NewBorder(
-			container.NewHBox(s.emuLabel, layout.NewSpacer(), s.captureCheck),
-			nil, nil, nil,
-			s.emuSurface,
-		)
-		s.leftSplit = container.NewVSplit(emuPane, s.bottomLeftTabs)
+		s.leftSplit = container.NewVSplit(s.emulatorInstrument(), s.bottomLeftTabs)
 		s.leftSplit.Offset = clampOffset(s.settings.LeftSplitOffset, defaultLeftSplitOffset)
 		if s.diagnosticsCollapsed {
 			s.leftSplit.Offset = 1.0
@@ -608,6 +640,163 @@ func (s *devKitState) setViewMode(mode viewMode) {
 	s.refreshViewToggleButtons()
 	s.centerHost.Refresh()
 	s.refreshTitle()
+}
+
+func (s *devKitState) emulatorInstrument() fyne.CanvasObject {
+	title := widget.NewLabel("DISPLAY")
+	title.TextStyle = fyne.TextStyle{Bold: true, Monospace: true}
+	if s.emuWell == nil {
+		s.emuWell = canvas.NewRectangle(activePalette.recessed)
+	}
+	s.emuWell.FillColor = activePalette.recessed
+	header := container.NewBorder(nil, nil, container.NewHBox(s.hardwareLamp, title), s.captureCheck, s.emuLabel)
+	view := container.NewStack(s.emuWell, container.NewPadded(s.emuSurface))
+	return container.NewBorder(header, nil, nil, nil, view)
+}
+
+func (s *devKitState) setHardwareReadout(phase, detail string) {
+	s.machinePhase = phase
+	if s.hardwareLamp != nil {
+		switch phase {
+		case "running":
+			s.hardwareLamp.SetFill(activePalette.ok)
+		case "paused":
+			s.hardwareLamp.SetFill(activePalette.warning)
+		case "stopped":
+			s.hardwareLamp.SetFill(activePalette.err)
+		default:
+			s.hardwareLamp.SetFill(activePalette.disabled)
+		}
+	}
+	if s.emuLabel != nil && detail != "" {
+		s.emuLabel.SetText(detail)
+	}
+	if s.emuIdle != nil {
+		if phase == "idle" {
+			s.emuIdle.Show()
+		} else {
+			s.emuIdle.Hide()
+		}
+	}
+}
+
+// displayIdle is the empty-display readout. It sits in the top-left of the
+// well as instrument status, and it disappears once a program is running.
+type displayIdle struct {
+	widget.BaseWidget
+}
+
+func newDisplayIdle() *displayIdle {
+	d := &displayIdle{}
+	d.ExtendBaseWidget(d)
+	return d
+}
+
+func (d *displayIdle) CreateRenderer() fyne.WidgetRenderer {
+	line := func(text string) *canvas.Text {
+		t := canvas.NewText(text, activePalette.secondary)
+		t.TextStyle = fyne.TextStyle{Monospace: true}
+		t.TextSize = 11
+		return t
+	}
+	state := line("STATE     IDLE")
+	program := line("PROGRAM   NONE")
+	return &displayIdleRenderer{state: state, program: program, objs: []fyne.CanvasObject{state, program}}
+}
+
+type displayIdleRenderer struct {
+	state   *canvas.Text
+	program *canvas.Text
+	objs    []fyne.CanvasObject
+}
+
+func (r *displayIdleRenderer) Layout(fyne.Size) {
+	r.state.Resize(r.state.MinSize())
+	r.program.Resize(r.program.MinSize())
+	r.state.Move(fyne.NewPos(10, 8))
+	r.program.Move(fyne.NewPos(10, 8+r.state.MinSize().Height+2))
+}
+
+func (r *displayIdleRenderer) MinSize() fyne.Size {
+	return fyne.NewSize(160, 36)
+}
+
+func (r *displayIdleRenderer) Refresh() {
+	r.state.Color = activePalette.secondary
+	r.program.Color = activePalette.secondary
+	r.state.Refresh()
+	r.program.Refresh()
+}
+
+func (r *displayIdleRenderer) Objects() []fyne.CanvasObject { return r.objs }
+func (r *displayIdleRenderer) Destroy()                     {}
+
+func (s *devKitState) newEmulatorIdleCard() fyne.CanvasObject {
+	readout := newDisplayIdle()
+	s.idleReadout = readout
+	return readout
+}
+
+func (s *devKitState) togglePanelFocus() {
+	if s.panelFocused {
+		s.panelFocused = false
+		s.applyingFocus = true
+		s.diagnosticsCollapsed = s.focusSavedDiag
+		s.settings.MainSplitOffset = s.focusSavedMain
+		s.settings.LeftSplitOffset = s.focusSavedLeft
+		s.setViewMode(s.focusSavedView)
+		s.applyingFocus = false
+		if s.focusPanelBtn != nil {
+			s.focusPanelBtn.SetText("Focus Panel")
+		}
+		s.setStatus("Layout restored")
+		return
+	}
+	s.focusSavedView = s.currentView
+	s.focusSavedMain = s.settings.MainSplitOffset
+	s.focusSavedLeft = s.settings.LeftSplitOffset
+	s.focusSavedDiag = s.diagnosticsCollapsed
+	s.panelFocused = true
+	s.applyingFocus = true
+	s.setViewMode(viewModeCodeOnly)
+	s.applyingFocus = false
+	if s.codeSplit != nil {
+		s.codeSplit.Offset = 0.94
+		s.codeSplit.Refresh()
+	}
+	if s.focusPanelBtn != nil {
+		s.focusPanelBtn.SetText("Restore Layout")
+	}
+	s.setStatus("Active panel focused")
+}
+
+func (s *devKitState) applyAppearance() {
+	choice := normalizeThemeName(s.settings.Theme)
+	density := s.settings.UIDensity
+	if density != "standard" {
+		density = "compact"
+	}
+	fyne.CurrentApp().Settings().SetTheme(newNitroTheme(choice, density))
+	if s.wordmark != nil {
+		s.wordmark.Color = activePalette.hazard
+		s.wordmark.Refresh()
+	}
+	if s.brandLamp != nil {
+		s.brandLamp.SetFill(activePalette.hazard)
+	}
+	if s.idleReadout != nil {
+		s.idleReadout.Refresh()
+	}
+	if s.emuWell != nil {
+		s.emuWell.FillColor = activePalette.recessed
+		s.emuWell.Refresh()
+	}
+	if s.hardwareLamp != nil {
+		s.setHardwareReadout(s.machinePhase, "")
+	}
+	if s.sourceEditor != nil {
+		s.sourceEditor.scheduleRefresh()
+	}
 }
 
 func (s *devKitState) applyDiagnosticFilter() {
@@ -648,7 +837,19 @@ func (s *devKitState) applyDiagnosticFilter() {
 		s.diagnosticsList.Refresh()
 	}
 	if s.diagnosticSummary != nil {
-		s.diagnosticSummary.SetText(fmt.Sprintf("Errors: %d | Warnings: %d | Info: %d", errCount, warnCount, infoCount))
+		if errCount == 0 && warnCount == 0 && infoCount == 0 {
+			s.diagnosticSummary.Importance = widget.SuccessImportance
+			s.diagnosticSummary.SetText("No build issues")
+		} else {
+			if errCount > 0 {
+				s.diagnosticSummary.Importance = widget.DangerImportance
+			} else if warnCount > 0 {
+				s.diagnosticSummary.Importance = widget.WarningImportance
+			} else {
+				s.diagnosticSummary.Importance = widget.MediumImportance
+			}
+			s.diagnosticSummary.SetText(fmt.Sprintf("Errors: %d  Warnings: %d  Info: %d", errCount, warnCount, infoCount))
+		}
 	}
 	s.updateDiagnosticDetailSelection()
 }
@@ -699,11 +900,12 @@ func (s *devKitState) showOpenProjectDialog() {
 	recentLabel := widget.NewLabel("Recent projects")
 	recentLabel.TextStyle = fyne.TextStyle{Bold: true}
 	preview := newReadOnlyTextArea()
-	preview.SetPlaceHolder("Select a recent project to preview.")
+	preview.SetMinRowsVisible(6)
+	preview.SetPlaceHolder("Select a recent project to preview its source.")
 	selectedRecent := ""
 
 	recentOptions := append([]string{}, s.settings.RecentFiles...)
-	recentSelect := widget.NewSelect(recentOptions, func(path string) {
+	applyRecent := func(path string) {
 		selectedRecent = path
 		if path == "" {
 			return
@@ -722,10 +924,31 @@ func (s *devKitState) showOpenProjectDialog() {
 		preview.Enable()
 		preview.SetText(text)
 		preview.Disable()
-	})
-	if len(recentOptions) == 0 {
-		recentSelect.PlaceHolder = "No recent projects"
 	}
+	recentList := widget.NewList(
+		func() int { return len(recentOptions) },
+		func() fyne.CanvasObject {
+			lbl := widget.NewLabel("project/path.corelx")
+			lbl.Wrapping = fyne.TextWrapWord
+			return lbl
+		},
+		func(id widget.ListItemID, obj fyne.CanvasObject) {
+			lbl := obj.(*widget.Label)
+			if id < 0 || id >= len(recentOptions) {
+				lbl.SetText("")
+				return
+			}
+			lbl.SetText(recentOptions[id])
+		},
+	)
+	recentList.OnSelected = func(id widget.ListItemID) {
+		if id < 0 || id >= len(recentOptions) {
+			return
+		}
+		applyRecent(recentOptions[id])
+	}
+	emptyRecent := widget.NewLabel("No recent projects. Browse to open a CoreLX source file or a ROM.")
+	emptyRecent.Wrapping = fyne.TextWrapWord
 
 	var d dialog.Dialog
 	openRecentBtn := widget.NewButton("Open Selected Recent", func() {
@@ -770,21 +993,27 @@ func (s *devKitState) showOpenProjectDialog() {
 	openRecentBtn.Importance = widget.HighImportance
 	buttons := container.NewHBox(openRecentBtn, browseBtn)
 
+	recentBody := fyne.CanvasObject(recentList)
+	if len(recentOptions) == 0 {
+		recentBody = emptyRecent
+	}
+	// The list owns a split pane, so its rows scroll inside that pane and
+	// cannot draw over the preview or the action buttons.
+	recentSplit := container.NewVSplit(recentBody, preview)
+	recentSplit.Offset = 0.42
 	content := container.NewBorder(
 		container.NewVBox(
 			widget.NewLabel("Open Project"),
 			filterSel,
+			recentLabel,
 		),
 		buttons,
 		nil, nil,
-		container.NewVSplit(
-			container.NewVBox(recentLabel, recentSelect),
-			container.NewScroll(preview),
-		),
+		recentSplit,
 	)
 
 	d = dialog.NewCustom("Open Project", "Close", content, s.window)
-	d.Resize(fyne.NewSize(860, 620))
+	d.Resize(fyne.NewSize(720, 420))
 	d.Show()
 }
 
@@ -1028,7 +1257,18 @@ func (s *devKitState) setBuildState(state string) {
 	if s.buildStateLabel == nil {
 		return
 	}
-	s.buildStateLabel.SetText("Build State: " + state)
+	s.buildStateLabel.SetText(state)
+	switch state {
+	case "Validated":
+		s.buildStateLabel.Importance = widget.SuccessImportance
+	case "Error":
+		s.buildStateLabel.Importance = widget.DangerImportance
+	case "Validating...":
+		s.buildStateLabel.Importance = widget.HighImportance
+	default:
+		s.buildStateLabel.Importance = widget.MediumImportance
+	}
+	s.buildStateLabel.Refresh()
 }
 
 func (s *devKitState) updateManifestPane(bundle corelx.CompileBundle, res *corelx.CompileResult) {
@@ -1077,7 +1317,7 @@ func (s *devKitState) loadROMIntoEmbedded(romBytes []byte) error {
 	}
 
 	fyne.Do(func() {
-		s.emuLabel.SetText("Hardware: running")
+		s.setHardwareReadout("running", "Hardware running")
 		if s.captureGameInput {
 			s.focusEmulatorInput()
 		}
@@ -1135,13 +1375,16 @@ func (s *devKitState) startEmulatorLoop() {
 					fyne.Do(func() {
 						s.emuImage.Image = img
 						s.emuImage.Refresh()
-						state := "running"
+						phase := "running"
 						if paused {
-							state = "paused"
+							phase = "paused"
 						}
-						s.emuLabel.SetText(fmt.Sprintf(
-							"Hardware: %s | FPS %.1f | CPU %d cycles/frame | Frame %d | Time %s",
-							state,
+						if s.machinePhase == "stopped" {
+							phase = "stopped"
+						}
+						s.setHardwareReadout(phase, fmt.Sprintf(
+							"%s  |  FPS %.1f  |  CPU %d cyc/frame  |  Frame %d  |  %s",
+							phase,
 							fps,
 							cycles,
 							frameCount,
@@ -1652,23 +1895,21 @@ func (s *devKitState) setStatus(msg string) {
 }
 
 func (s *devKitState) refreshViewToggleButtons() {
-	if s.splitViewBtn == nil || s.emulatorFocusBtn == nil || s.codeOnlyBtn == nil {
-		return
+	mark := func(btn *widget.Button, label string, on bool) {
+		if btn == nil {
+			return
+		}
+		btn.Importance = widget.MediumImportance
+		if on {
+			btn.SetText("▸ " + label)
+		} else {
+			btn.SetText(label)
+		}
+		btn.Refresh()
 	}
-	s.splitViewBtn.Importance = widget.MediumImportance
-	s.emulatorFocusBtn.Importance = widget.MediumImportance
-	s.codeOnlyBtn.Importance = widget.MediumImportance
-	switch s.currentView {
-	case viewModeEmulatorOnly:
-		s.emulatorFocusBtn.Importance = widget.HighImportance
-	case viewModeCodeOnly:
-		s.codeOnlyBtn.Importance = widget.HighImportance
-	default:
-		s.splitViewBtn.Importance = widget.HighImportance
-	}
-	s.splitViewBtn.Refresh()
-	s.emulatorFocusBtn.Refresh()
-	s.codeOnlyBtn.Refresh()
+	mark(s.codeOnlyBtn, "Code Only", s.currentView == viewModeCodeOnly)
+	mark(s.splitViewBtn, "Split View", s.currentView == viewModeFull)
+	mark(s.emulatorFocusBtn, "Emulator Focus", s.currentView == viewModeEmulatorOnly)
 }
 
 func (s *devKitState) runEmulator() {
@@ -1684,6 +1925,7 @@ func (s *devKitState) runEmulator() {
 			return
 		}
 	}
+	s.setHardwareReadout("running", "Hardware running")
 	s.setStatus("Running")
 }
 
@@ -1702,6 +1944,7 @@ func (s *devKitState) pauseEmulator() {
 		s.setStatus("Pause failed")
 		return
 	}
+	s.setHardwareReadout("paused", "Hardware paused")
 	s.setStatus("Paused")
 }
 
@@ -1719,6 +1962,7 @@ func (s *devKitState) stopEmulator() {
 		}
 	}
 	s.applyInputButtons(0)
+	s.setHardwareReadout("stopped", "Hardware stopped")
 	s.setStatus("Stopped")
 }
 
@@ -1810,14 +2054,24 @@ func (s *devKitState) captureLayoutState() {
 }
 
 func (s *devKitState) setUIDensity(density string) {
+	if density != "standard" {
+		density = "compact"
+	}
 	s.settings.UIDensity = density
 	s.persistSettings()
-	if density == "standard" {
-		fyne.CurrentApp().Settings().SetTheme(newStandardTheme())
-	} else {
-		fyne.CurrentApp().Settings().SetTheme(newCompactTheme())
+	s.applyAppearance()
+	s.setStatus("UI density: " + density)
+}
+
+func (s *devKitState) setThemeChoice(choice string) {
+	s.settings.Theme = normalizeThemeName(choice)
+	s.persistSettings()
+	s.applyAppearance()
+	if s.settings.Theme == themeClassic {
+		s.setStatus("Theme: Nitro Classic")
+		return
 	}
-	s.setStatus("UI density: " + density + " (applied)")
+	s.setStatus("Theme: Nitro Industrial")
 }
 
 func (s *devKitState) applyLayoutPreset(preset string) {

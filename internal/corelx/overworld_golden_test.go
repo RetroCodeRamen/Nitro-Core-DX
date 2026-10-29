@@ -169,10 +169,10 @@ func TestOverworldGoldenFrames(t *testing.T) {
 // tree/creature sprite from a previous scene (a pre-existing, harmless
 // quirk -- see the multi-bank-era note above).
 const (
-	goldenOverworldSpawn    = "10ce19de8c2406e48b922574c22f0086068d79f93380b42fb6633db886cfc5af"
+	goldenOverworldSpawn    = "a47ddf299b414fdaae6f5af69b0f6f0514d8e91a8452d88cedac169049c6e303"
 	goldenOverworldAtFacade = "776a4d9b6ed7ad09b573f5987c5f14c0da45ac5417628f5f22be4b6e29632e0a"
-	goldenOverworldSideView = "1a97552a14f38b1d0b5a94a87fb962bc5711a4ba9c0c16e8712819547acdd908"
-	goldenInteriorEntry     = "d1648573190f871354343cd84aaa4265c06926a438ac59d783fc8c02e84ba662"
-	goldenDialoguePage0     = "cc8ff0c407c221488694e0f7e7d40804e9fd090457c7b818dbcf7b5c0ff0a893"
-	goldenCredits           = "62838c47b803457083d7afc692853f0cdf4022ca669a8b667c103f82d0084a3f"
+	goldenOverworldSideView = "557ca84384da8cf6c36876593136e5ff033fd3fd29e34a6d457689cd367c2a26"
+	goldenInteriorEntry     = "2f55df3520a1441ab3573d3146190df9ab89dcb35676c8c21580ba055c9fb90d"
+	goldenDialoguePage0     = "9ae94b37042420500d105fe58d5d3400d12bc71e01ae9753140efac8b60b6141"
+	goldenCredits           = "53a668a4b716da85fd1d73126961f8332d27e6e11221cc3b0f40f36571d7591d"
 )

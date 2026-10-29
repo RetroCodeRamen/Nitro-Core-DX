@@ -760,7 +760,7 @@ endmodule
 
 ## References
 
-- **Hardware Specification**: `HARDWARE_SPECIFICATION.md` - Section 7: Input System
+- **Hardware Specification**: `COMPLETE_HARDWARE_SPECIFICATION_V2.1.md` - Section 7: Input System
 - **Input System Code**: `internal/input/input.go`
 - **Programming Manual**: `PROGRAMMING_MANUAL.md` - Input System section
 

@@ -1,6 +1,7 @@
 package ymstream
 
 import (
+	"bytes"
 	"compress/gzip"
 	"encoding/binary"
 	"errors"
@@ -9,18 +10,19 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 const (
 	Magic = "NCDXMUS1"
 
-	opEnd        = 0x00
-	opWait8      = 0x10
-	opWait16     = 0x11
-	opWrite0     = 0x20
-	opWrite1     = 0x21
-	opBurst0     = 0x30
-	opBurst1     = 0x31
+	opEnd    = 0x00
+	opWait8  = 0x10
+	opWait16 = 0x11
+	opWrite0 = 0x20
+	opWrite1 = 0x21
+	opBurst0 = 0x30
+	opBurst1 = 0x31
 )
 
 type Write struct {
@@ -34,6 +36,25 @@ type Song struct {
 	FrameSamples uint32
 	TotalSamples uint64
 	WriteCount   int
+	// SkippedDataBlocks counts VGM 0x67 data blocks ignored during parse.
+	// Those blocks carry ADPCM payloads the .ncdxmusic player does not load.
+	// DecodeStream leaves this at zero; the compact format has no data blocks.
+	SkippedDataBlocks int
+}
+
+// Report is the Sound Studio inspection record for one song.
+// Duration is console playback time: one song frame per 60 Hz vblank.
+// CompactBytes is the .ncdxmusic file size. ROMBytes is the in-ROM layout
+// the compiler emits (2-byte counts, 3-byte writes, 4-byte pointers).
+type Report struct {
+	FrameCount        int
+	WriteCount        int
+	FrameSamples      uint32
+	Duration          time.Duration
+	CompactBytes      int
+	ROMBytes          int
+	SkippedDataBlocks int
+	TempoNote         string
 }
 
 type Stream struct {
@@ -84,6 +105,7 @@ func ParseVGM(data []byte) (*Song, error) {
 	var sampleAcc uint64
 	var totalSamples uint64
 	var writeCount int
+	var skippedBlocks int
 
 	flushFrame := func() {
 		cloned := make([]Write, len(current))
@@ -111,10 +133,11 @@ func ParseVGM(data []byte) (*Song, error) {
 				flushFrame()
 			}
 			return &Song{
-				Frames:       frames,
-				FrameSamples: frameSamples,
-				TotalSamples: totalSamples,
-				WriteCount:   writeCount,
+				Frames:            frames,
+				FrameSamples:      frameSamples,
+				TotalSamples:      totalSamples,
+				WriteCount:        writeCount,
+				SkippedDataBlocks: skippedBlocks,
 			}, nil
 
 		case cmd == 0x56 || cmd == 0x57:
@@ -156,6 +179,7 @@ func ParseVGM(data []byte) (*Song, error) {
 				return nil, fmt.Errorf("truncated data block payload at 0x%X", p)
 			}
 			p += int(sz)
+			skippedBlocks++
 
 		default:
 			return nil, fmt.Errorf("unsupported VGM command 0x%02X at 0x%X", cmd, p-1)
@@ -339,6 +363,98 @@ func burstLength(writes []Write, start int) int {
 		n++
 	}
 	return n
+}
+
+// Inspect summarizes a decoded song. compactBytes is the .ncdxmusic file
+// size; pass the encoded length for a fresh conversion, or the file length
+// when opening an existing stream.
+func Inspect(song *Song, compactBytes int) (Report, error) {
+	if song == nil {
+		return Report{}, errors.New("song is nil")
+	}
+	if song.FrameSamples == 0 {
+		return Report{}, errors.New("frame sample rate must be non-zero")
+	}
+	writes := 0
+	for _, frame := range song.Frames {
+		writes += len(frame)
+	}
+	report := Report{
+		FrameCount:        len(song.Frames),
+		WriteCount:        writes,
+		FrameSamples:      song.FrameSamples,
+		Duration:          time.Duration(len(song.Frames)) * time.Second / 60,
+		CompactBytes:      compactBytes,
+		ROMBytes:          len(song.Frames)*6 + writes*3,
+		SkippedDataBlocks: song.SkippedDataBlocks,
+	}
+	if song.FrameSamples != 735 {
+		report.TempoNote = fmt.Sprintf(
+			"Timed at %d samples per frame. Playback still advances one frame per 60 Hz vblank, so the tempo will not match a player that steps on this frame size.",
+			song.FrameSamples,
+		)
+		if song.FrameSamples == 882 {
+			report.TempoNote = "Timed at 50 Hz (882 samples per frame). Playback still advances one frame per 60 Hz vblank, so it runs faster than the source."
+		}
+	}
+	return report, nil
+}
+
+// ConvertVGM turns a VGM or gzipped VGZ byte stream into a .ncdxmusic file
+// and its inspection report. Unsupported VGM commands return an error and
+// produce no output bytes.
+func ConvertVGM(data []byte) ([]byte, Report, error) {
+	raw, err := ungzipIfNeeded(data)
+	if err != nil {
+		return nil, Report{}, err
+	}
+	song, err := ParseVGM(raw)
+	if err != nil {
+		return nil, Report{}, err
+	}
+	encoded, err := EncodeSong(song)
+	if err != nil {
+		return nil, Report{}, err
+	}
+	report, err := Inspect(song, len(encoded))
+	if err != nil {
+		return nil, Report{}, err
+	}
+	return encoded, report, nil
+}
+
+func ungzipIfNeeded(data []byte) ([]byte, error) {
+	if len(data) < 2 || data[0] != 0x1f || data[1] != 0x8b {
+		return data, nil
+	}
+	gz, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	defer gz.Close()
+	raw, err := io.ReadAll(gz)
+	if err != nil {
+		return nil, err
+	}
+	return raw, nil
+}
+
+func (r Report) String() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Frames: %d\n", r.FrameCount)
+	fmt.Fprintf(&b, "YM writes: %d\n", r.WriteCount)
+	fmt.Fprintf(&b, "Samples per frame: %d\n", r.FrameSamples)
+	fmt.Fprintf(&b, "Playback duration: %.2fs (60 Hz)\n", r.Duration.Seconds())
+	fmt.Fprintf(&b, "Compact size: %d bytes\n", r.CompactBytes)
+	fmt.Fprintf(&b, "ROM footprint: %d bytes\n", r.ROMBytes)
+	if r.SkippedDataBlocks > 0 {
+		fmt.Fprintf(&b, "Skipped data blocks: %d (ADPCM payloads are not loaded)\n", r.SkippedDataBlocks)
+	}
+	if r.TempoNote != "" {
+		b.WriteString(r.TempoNote)
+		b.WriteByte('\n')
+	}
+	return b.String()
 }
 
 func appendWait(out []byte, n int) []byte {

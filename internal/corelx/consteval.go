@@ -52,12 +52,12 @@ func evalConstExpr(expr Expr, consts map[string]int64) (int64, error) {
 			if r == 0 {
 				return 0, fmt.Errorf("division by zero in constant expression")
 			}
-			return l / r, nil
+			return idiv16(l, r), nil
 		case TOKEN_PERCENT:
 			if r == 0 {
 				return 0, fmt.Errorf("modulo by zero in constant expression")
 			}
-			return l % r, nil
+			return imod16(l, r), nil
 		case TOKEN_AMPERSAND:
 			return l & r, nil
 		case TOKEN_PIPE:
@@ -67,7 +67,7 @@ func evalConstExpr(expr Expr, consts map[string]int64) (int64, error) {
 		case TOKEN_LSHIFT:
 			return l << uint(r&63), nil
 		case TOKEN_RSHIFT:
-			return l >> uint(r&63), nil
+			return sar16(l, r), nil
 		default:
 			return 0, fmt.Errorf("unsupported binary operator in constant expression")
 		}
@@ -155,9 +155,9 @@ func evalConstExprTyped(expr Expr, consts map[string]int64, fixed map[string]boo
 				return 0, false, fmt.Errorf("division by zero in constant expression")
 			}
 			if isF {
-				return (l << 8) / r, true, nil
+				return fixdivFold(l, r), true, nil
 			}
-			return l / r, false, nil
+			return idiv16(l, r), false, nil
 		default:
 			if isF {
 				return 0, false, fmt.Errorf("operator not supported on fixed constants")
@@ -190,4 +190,65 @@ func fixmulFold(a, b int64) int64 {
 		res = (-res) & 0xFFFF
 	}
 	return int64(int16(uint16(res)))
+}
+
+// idiv16 is signed 16-bit division, toward zero, wrapped to int16.
+// A zero divisor yields 0xFFFF, matching hardware DIV and __divs.
+func idiv16(a, b int64) int64 {
+	ai := int32(int16(a))
+	bi := int32(int16(b))
+	if bi == 0 {
+		return -1
+	}
+	return int64(int16(ai / bi))
+}
+
+// imod16 is the remainder paired with idiv16: a - (a/b)*b, sign follows a.
+func imod16(a, b int64) int64 {
+	ai := int32(int16(a))
+	bi := int32(int16(b))
+	if bi == 0 {
+		return int64(int16(a))
+	}
+	q := int16(ai / bi)
+	return int64(int16(ai - int32(q)*bi))
+}
+
+// sar16 is a 16-bit arithmetic right shift. The count is masked to 0..15,
+// matching the CPU's SAR.
+func sar16(a, n int64) int64 {
+	count := uint(uint16(n) & 15)
+	return int64(int16(a) >> count)
+}
+
+// fixdivFold is signed 8.8 division, identical to __fixdiv: magnitudes,
+// toward zero, then the sign is restored. (a<<8)/b is split into
+// ((a/b)<<8)+((a%b)<<8)/b so the quotient stays inside 16 bits the same
+// way the helper's shifts do.
+func fixdivFold(a, b int64) int64 {
+	if int16(b) == 0 {
+		return -1
+	}
+	neg := (int16(a) < 0) != (int16(b) < 0)
+	ua := mag16(a)
+	ub := mag16(b)
+	if ub == 0 {
+		return -1
+	}
+	qhi := uint16(uint32(ua) / uint32(ub))
+	rem := uint16(uint32(ua) - uint32(qhi)*uint32(ub))
+	qlo := uint16((uint32(rem) << 8) / uint32(ub))
+	mag := uint16((uint32(qhi) << 8) + uint32(qlo))
+	if neg {
+		mag = uint16(-int16(mag))
+	}
+	return int64(int16(mag))
+}
+
+func mag16(v int64) uint16 {
+	x := int16(v)
+	if x < 0 {
+		x = -x
+	}
+	return uint16(x)
 }

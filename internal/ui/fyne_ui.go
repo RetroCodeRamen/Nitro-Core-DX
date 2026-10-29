@@ -18,8 +18,8 @@ import (
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/widget"
 	"github.com/veandco/go-sdl2/sdl"
@@ -447,7 +447,7 @@ func createMenus(window fyne.Window, emu *emulator.Emulator, ui *FyneUI) {
 				romName := reader.URI().Name()
 				ui.statusLabel.SetText(fmt.Sprintf("Loaded ROM: %s", romName))
 			}, window)
-			openDialog.SetFilter(storage.NewExtensionFileFilter([]string{".rom"}))
+			openDialog.SetFilter(storage.NewExtensionFileFilter([]string{".rom", ".cart"}))
 			openDialog.Show()
 		}),
 		fyne.NewMenuItemSeparator(),
@@ -660,7 +660,7 @@ func createMenus(window fyne.Window, emu *emulator.Emulator, ui *FyneUI) {
 		fyne.NewMenuItem("About", func() {
 			dialog.ShowInformation(
 				"About Nitro-Core-DX Emulator",
-				"Nitro-Core-DX Emulator is the standalone emulator UI for Nitro-Core-DX.\n\nUse File > Open ROM... to load a .rom file, then use Emulation controls to start/pause/reset.",
+				"Nitro-Core-DX Emulator is the standalone player for Nitro-Core-DX.\n\nUse File → Open ROM… to load a .rom or .cart, then Emulation → Start.",
 				window,
 			)
 		}),
@@ -733,9 +733,14 @@ func (ui *FyneUI) Run() error {
 	// frame sleeping here to avoid double-throttling/jitter.
 	ui.emulator.SetFrameLimit(false)
 
-	// Start emulator
-	ui.emulator.Start()
+	// A window with no cartridge stays idle until File → Open ROM….
+	// Starting the CPU with nothing inserted just burns empty frames.
 	ui.running = true
+	if ui.emulator.Cartridge.HasROM() {
+		ui.emulator.Start()
+	} else {
+		ui.statusLabel.SetText("No cartridge loaded.  File → Open ROM…")
+	}
 
 	// Initialize input to 0 (no buttons pressed)
 	ui.emulator.SetInputButtons(0)
